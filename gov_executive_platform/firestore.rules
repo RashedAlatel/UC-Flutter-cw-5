@@ -12,7 +12,15 @@ service cloud.firestore {
     function role() { return request.auth.token.role; }
     function isAdmin() { return isApproved() && role() == 'systemAdmin'; }
     function isExecutive() { return isApproved() && role() == 'executiveViewer'; }
-    function canViewAll() { return isAdmin() || isExecutive(); }
+    // صلاحيات الأدوار المخصصة: مجموعة أعلام مضغوطة مضمّنة داخل Custom Claims
+    // وقت تعيين الدور (راجع setUserRole في Cloud Functions)، وليست بالإمكان
+    // منحها ذاتياً من جهة العميل بأي حال. لا تشمل أبداً بوابات الموافقة الثلاث.
+    function customPerm(key) {
+      return isApproved() && role() == 'custom'
+             && request.auth.token.perms != null
+             && request.auth.token.perms[key] == true;
+    }
+    function canViewAll() { return isAdmin() || isExecutive() || customPerm('vad'); }
     function myDept() { return request.auth.token.departmentId; }
     function isMyDept(deptId) { return isApproved() && deptId != null && myDept() == deptId; }
     function canEditDept(deptId) { return isAdmin() || isMyDept(deptId); }
@@ -103,7 +111,7 @@ service cloud.firestore {
 
     // ------------------------- سجل التدقيق -------------------------
     match /auditLog/{id} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || customPerm('val');
       allow create: if isApproved();
       allow update, delete: if false;
     }
@@ -111,12 +119,21 @@ service cloud.firestore {
     // ------------------------- التقارير -------------------------
     match /reports/{id} {
       allow read: if isApproved();
-      allow create, update: if isAdmin() || isExecutive();
+      allow create, update: if isAdmin() || isExecutive() || customPerm('mr');
       allow delete: if isAdmin();
     }
 
     // ------------------------- تخصيص لوحة القيادة -------------------------
     match /dashboardConfig/{id} {
+      allow read: if isApproved();
+      allow write: if isAdmin() || customPerm('md');
+    }
+
+    // ------------------------- الأدوار المخصصة -------------------------
+    // تعريف الأدوار (الاسم ومجموعة الصلاحيات) يديره مسؤول النظام فقط؛ أما
+    // تعيين دور لمستخدم معيّن فيتم حصراً عبر Cloud Function (setUserRole)
+    // التي تضبط Custom Claims الفعلية.
+    match /roles/{id} {
       allow read: if isApproved();
       allow write: if isAdmin();
     }

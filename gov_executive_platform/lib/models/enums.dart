@@ -5,7 +5,8 @@ enum UserRole {
   systemAdmin, // مسؤول نظام - كامل الصلاحيات
   executiveViewer, // مستخدم تنفيذي - عرض فقط لكل الإدارات
   departmentManager, // مدير إدارة - تعديل مشاريع إدارته فقط
-  projectOfficer; // ضابط مشروع - تحديث المهام اليومية
+  projectOfficer, // ضابط مشروع - تحديث المهام اليومية
+  custom; // دور مخصص مُعرَّف من مسؤول النظام (راجع CustomRole)
 
   String get label {
     switch (this) {
@@ -17,6 +18,8 @@ enum UserRole {
         return 'مدير إدارة';
       case UserRole.projectOfficer:
         return 'ضابط مشروع';
+      case UserRole.custom:
+        return 'دور مخصص';
     }
   }
 

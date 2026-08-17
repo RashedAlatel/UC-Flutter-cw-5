@@ -28,7 +28,7 @@ class UserManagementScreen extends StatelessWidget {
                   children: [
                     Text('إدارة المستخدمين', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
                     SizedBox(height: 4),
-                    Text('إدارة حسابات المستخدمين وصلاحياتهم، وإرسال إشعارات عبر البريد وواتساب', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+                    Text('إدارة حسابات المستخدمين وأدوارهم، وإرسال إشعارات عبر البريد وواتساب', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
                   ],
                 ),
               ),
@@ -83,6 +83,11 @@ class _UserRowState extends State<_UserRow> {
     final store = context.watch<AppStore>();
     final dept = u.departmentId != null ? store.departmentById(u.departmentId!) : null;
     final active = u.status == UserStatus.approved;
+    final roleLabel = u.role == UserRole.custom
+        ? (store.customRoles.where((r) => r.id == u.customRoleId).isEmpty
+            ? 'دور مخصص'
+            : store.customRoles.firstWhere((r) => r.id == u.customRoleId).name)
+        : u.role.label;
 
     return ListTile(
       leading: CircleAvatar(
@@ -90,7 +95,7 @@ class _UserRowState extends State<_UserRow> {
         child: Text(u.name.isNotEmpty ? u.name.substring(0, 1) : '?', style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800)),
       ),
       title: Text(u.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-      subtitle: Text('${u.role.label}${dept != null ? ' · ${dept.name}' : ''} · ${u.email}', style: const TextStyle(fontSize: 11.5)),
+      subtitle: Text('$roleLabel${dept != null ? ' · ${dept.name}' : ''} · ${u.email}', style: const TextStyle(fontSize: 11.5)),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -101,6 +106,11 @@ class _UserRowState extends State<_UserRow> {
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(u.status.label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: active ? AppColors.success : AppColors.textSecondary)),
+          ),
+          IconButton(
+            icon: const Icon(Icons.admin_panel_settings_outlined, size: 19),
+            tooltip: 'تعديل الدور',
+            onPressed: () => showDialog(context: context, builder: (_) => _EditRoleDialog(user: u)),
           ),
           IconButton(
             icon: const Icon(Icons.mail_outline_rounded, size: 19),
@@ -211,6 +221,151 @@ class _NotifyDialogState extends State<_NotifyDialog> {
   }
 }
 
+/// عناصر نموذج الدور المشتركة بين "إضافة مستخدم" و"تعديل الدور": يعرض
+/// الأدوار الأساسية الأربعة + الأدوار المخصصة المُعرَّفة من مسؤول النظام.
+class _RoleFields extends StatelessWidget {
+  final UserRole role;
+  final String? customRoleId;
+  final String? departmentId;
+  final ValueChanged<UserRole> onRoleChanged;
+  final ValueChanged<String?> onCustomRoleChanged;
+  final ValueChanged<String?> onDepartmentChanged;
+
+  const _RoleFields({
+    required this.role,
+    required this.customRoleId,
+    required this.departmentId,
+    required this.onRoleChanged,
+    required this.onCustomRoleChanged,
+    required this.onDepartmentChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final needsDept = role == UserRole.departmentManager || role == UserRole.projectOfficer;
+    final isCustom = role == UserRole.custom;
+    final selectableRoles = UserRole.values.where((r) => r != UserRole.custom || store.customRoles.isNotEmpty).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<UserRole>(
+          initialValue: role,
+          decoration: const InputDecoration(labelText: 'الدور'),
+          items: selectableRoles.map((r) => DropdownMenuItem(value: r, child: Text(r.label))).toList(),
+          onChanged: (v) => onRoleChanged(v ?? role),
+        ),
+        if (isCustom) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: customRoleId,
+            decoration: const InputDecoration(labelText: 'الدور المخصص'),
+            items: store.customRoles.map((r) => DropdownMenuItem(value: r.id, child: Text(r.name))).toList(),
+            onChanged: onCustomRoleChanged,
+          ),
+        ],
+        if (needsDept || isCustom) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: departmentId,
+            decoration: InputDecoration(labelText: isCustom ? 'الإدارة (اختياري)' : 'الإدارة'),
+            items: store.departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
+            onChanged: onDepartmentChanged,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _EditRoleDialog extends StatefulWidget {
+  final AppUser user;
+  const _EditRoleDialog({required this.user});
+
+  @override
+  State<_EditRoleDialog> createState() => _EditRoleDialogState();
+}
+
+class _EditRoleDialogState extends State<_EditRoleDialog> {
+  late UserRole _role = widget.user.role;
+  late String? _customRoleId = widget.user.customRoleId;
+  late String? _departmentId = widget.user.departmentId;
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _submit() async {
+    final needsDept = _role == UserRole.departmentManager || _role == UserRole.projectOfficer;
+    if (needsDept && _departmentId == null) {
+      setState(() => _error = 'الرجاء اختيار الإدارة');
+      return;
+    }
+    if (_role == UserRole.custom && _customRoleId == null) {
+      setState(() => _error = 'الرجاء اختيار الدور المخصص');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final error = await context.read<AppStore>().setUserRole(
+          widget.user,
+          role: _role,
+          customRoleId: _role == UserRole.custom ? _customRoleId : null,
+          departmentId: (needsDept || _role == UserRole.custom) ? _departmentId : null,
+        );
+    if (!mounted) return;
+    if (error != null) {
+      setState(() {
+        _busy = false;
+        _error = error;
+      });
+      return;
+    }
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث دور المستخدم')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('تعديل دور ${widget.user.name}'),
+      content: SizedBox(
+        width: 400,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _RoleFields(
+                role: _role,
+                customRoleId: _customRoleId,
+                departmentId: _departmentId,
+                onRoleChanged: (v) => setState(() => _role = v),
+                onCustomRoleChanged: (v) => setState(() => _customRoleId = v),
+                onDepartmentChanged: (v) => setState(() => _departmentId = v),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+        ElevatedButton(
+          onPressed: _busy ? null : _submit,
+          child: _busy
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Text('حفظ'),
+        ),
+      ],
+    );
+  }
+}
+
 class _UserFormDialog extends StatefulWidget {
   const _UserFormDialog();
 
@@ -224,6 +379,7 @@ class _UserFormDialogState extends State<_UserFormDialog> {
   final _phoneCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   UserRole _role = UserRole.projectOfficer;
+  String? _customRoleId;
   String? _departmentId;
   bool _busy = false;
   String? _error;
@@ -250,6 +406,10 @@ class _UserFormDialogState extends State<_UserFormDialog> {
       setState(() => _error = 'الرجاء اختيار الإدارة');
       return;
     }
+    if (_role == UserRole.custom && _customRoleId == null) {
+      setState(() => _error = 'الرجاء اختيار الدور المخصص');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -260,7 +420,8 @@ class _UserFormDialogState extends State<_UserFormDialog> {
           phone: _phoneCtrl.text.trim(),
           password: _passwordCtrl.text.trim(),
           role: _role,
-          departmentId: needsDept ? _departmentId : null,
+          customRoleId: _role == UserRole.custom ? _customRoleId : null,
+          departmentId: (needsDept || _role == UserRole.custom) ? _departmentId : null,
         );
     if (!mounted) return;
     if (error != null) {
@@ -275,9 +436,6 @@ class _UserFormDialogState extends State<_UserFormDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final store = context.watch<AppStore>();
-    final needsDept = _role == UserRole.departmentManager || _role == UserRole.projectOfficer;
-
     return AlertDialog(
       title: const Text('إضافة مستخدم مباشرة (بدون طلب تسجيل)'),
       content: SizedBox(
@@ -295,21 +453,14 @@ class _UserFormDialogState extends State<_UserFormDialog> {
               const SizedBox(height: 12),
               TextField(controller: _passwordCtrl, decoration: const InputDecoration(labelText: 'كلمة المرور المبدئية')),
               const SizedBox(height: 12),
-              DropdownButtonFormField<UserRole>(
-                initialValue: _role,
-                decoration: const InputDecoration(labelText: 'الدور'),
-                items: UserRole.values.map((r) => DropdownMenuItem(value: r, child: Text(r.label))).toList(),
-                onChanged: (v) => setState(() => _role = v ?? _role),
+              _RoleFields(
+                role: _role,
+                customRoleId: _customRoleId,
+                departmentId: _departmentId,
+                onRoleChanged: (v) => setState(() => _role = v),
+                onCustomRoleChanged: (v) => setState(() => _customRoleId = v),
+                onDepartmentChanged: (v) => setState(() => _departmentId = v),
               ),
-              if (needsDept) ...[
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _departmentId,
-                  decoration: const InputDecoration(labelText: 'الإدارة'),
-                  items: store.departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
-                  onChanged: (v) => setState(() => _departmentId = v),
-                ),
-              ],
               if (_error != null) ...[
                 const SizedBox(height: 10),
                 Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),

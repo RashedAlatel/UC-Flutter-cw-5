@@ -10,6 +10,7 @@ import '../models/approval_request.dart';
 import '../models/audit_log_entry.dart';
 import '../models/blocker.dart';
 import '../models/daily_update.dart';
+import '../models/custom_role.dart';
 import '../models/dashboard_widget_config.dart';
 import '../models/department.dart';
 import '../models/enums.dart';
@@ -50,6 +51,7 @@ class AppStore extends ChangeNotifier {
   List<ReportSnapshot> reports = [];
   List<AppUser> users = []; // يُملأ فقط لمسؤول النظام (إدارة المستخدمين)
   List<DashboardWidgetConfig> dashboardWidgets = DashboardWidgetConfig.defaults();
+  List<CustomRole> customRoles = [];
 
   StreamSubscription<fb_auth.User?>? _authSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
@@ -83,6 +85,7 @@ class AppStore extends ChangeNotifier {
     reports = [];
     users = [];
     dashboardWidgets = DashboardWidgetConfig.defaults();
+    customRoles = [];
   }
 
   Future<void> _onAuthChanged(fb_auth.User? user) async {
@@ -157,6 +160,10 @@ class AppStore extends ChangeNotifier {
     _dataSubs.add(_db.collection('reports').snapshots().listen((snap) {
       reports = snap.docs.map(ReportSnapshot.fromDoc).toList()
         ..sort((a, b) => b.generatedDate.compareTo(a.generatedDate));
+      notifyListeners();
+    }));
+    _dataSubs.add(_db.collection('roles').orderBy('name').snapshots().listen((snap) {
+      customRoles = snap.docs.map(CustomRole.fromDoc).toList();
       notifyListeners();
     }));
     _dataSubs.add(_db.collection('dashboardConfig').doc('main').snapshots().listen((doc) {
@@ -281,14 +288,25 @@ class AppStore extends ChangeNotifier {
   bool get isManager => currentUser?.role == UserRole.departmentManager;
   bool get isOfficer => currentUser?.role == UserRole.projectOfficer;
 
-  bool get canViewAllDepartments => isAdmin || isExecutive;
-  bool get canManageUsers => isAdmin;
-  bool get canViewAuditLog => isAdmin;
+  /// الدور المخصص الفعلي للمستخدم الحالي (إن وُجد)، محمَّل من مجموعة roles.
+  CustomRole? get myCustomRole {
+    if (currentUser?.role != UserRole.custom || currentUser?.customRoleId == null) return null;
+    final match = customRoles.where((r) => r.id == currentUser!.customRoleId);
+    return match.isEmpty ? null : match.first;
+  }
 
-  /// اعتماد "قرار تنفيذي" عام يجوز للمسؤول أو المستخدم التنفيذي.
-  /// أما تسجيل عضو / إضافة مشروع / تعديل موعد نهائي فلا يعتمدها إلا مسؤول النظام حصرياً.
+  bool get canViewAllDepartments => isAdmin || isExecutive || (myCustomRole?.viewAllDepartments ?? false);
+  bool get canManageUsers => isAdmin;
+  bool get canViewAuditLog => isAdmin || (myCustomRole?.viewAuditLog ?? false);
+  bool get canManageReports => isAdmin || isExecutive || (myCustomRole?.manageReports ?? false);
+  bool get canManageDashboard => isAdmin || (myCustomRole?.manageDashboard ?? false);
+
+  /// اعتماد "قرار تنفيذي" عام يجوز للمسؤول أو المستخدم التنفيذي أو دور مخصص
+  /// يملك صلاحية "اعتماد القرارات التنفيذية العامة" صراحة.
+  /// أما تسجيل عضو / إضافة مشروع / تعديل موعد نهائي فلا يعتمدها إلا مسؤول النظام حصرياً،
+  /// ولا يمكن لأي دور مخصص تجاوز هذا القيد مهما كانت صلاحياته.
   bool canApprove(ApprovalRequest r) {
-    if (r.type == ApprovalType.decision) return isAdmin || isExecutive;
+    if (r.type == ApprovalType.decision) return isAdmin || isExecutive || (myCustomRole?.approveGeneralDecisions ?? false);
     return isAdmin;
   }
 
@@ -666,6 +684,7 @@ class AppStore extends ChangeNotifier {
     required String phone,
     required String password,
     required UserRole role,
+    String? customRoleId,
     String? departmentId,
   }) async {
     try {
@@ -675,12 +694,40 @@ class AppStore extends ChangeNotifier {
         'phone': phone,
         'password': password,
         'role': role.name,
+        'customRoleId': customRoleId,
         'departmentId': departmentId,
       });
       return null;
     } on FirebaseFunctionsException catch (e) {
       return e.message ?? 'تعذر إنشاء المستخدم';
     }
+  }
+
+  Future<String?> setUserRole(AppUser user, {required UserRole role, String? customRoleId, String? departmentId}) async {
+    try {
+      await _functions.httpsCallable('setUserRole').call({
+        'uid': user.id,
+        'role': role.name,
+        'customRoleId': customRoleId,
+        'departmentId': departmentId,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذر تعديل دور المستخدم';
+    }
+  }
+
+  // ------------------------- الأدوار المخصصة -------------------------
+
+  Future<void> saveCustomRole(CustomRole role) async {
+    final ref = role.id.isEmpty ? _db.collection('roles').doc() : _db.collection('roles').doc(role.id);
+    await ref.set(role.toMap());
+    await _log('إدارة الأدوار', 'تم حفظ الدور المخصص "${role.name}"');
+  }
+
+  Future<void> deleteCustomRole(CustomRole role) async {
+    await _db.collection('roles').doc(role.id).delete();
+    await _log('إدارة الأدوار', 'تم حذف الدور المخصص "${role.name}"');
   }
 
   Future<String?> setUserStatus(AppUser user, UserStatus status) async {

@@ -59,7 +59,7 @@ class DashboardScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              if (store.isAdmin)
+              if (store.canManageDashboard)
                 OutlinedButton.icon(
                   onPressed: () => showDialog(context: context, builder: (_) => const CustomizeDashboardDialog()),
                   icon: const Icon(Icons.tune_rounded, size: 17),

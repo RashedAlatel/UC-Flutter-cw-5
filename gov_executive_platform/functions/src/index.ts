@@ -37,6 +37,30 @@ async function logAudit(userName: string, action: string, details: string): Prom
   await db().collection("auditLog").add({userName, action, details, timestamp: now()});
 }
 
+const CUSTOM_ROLE_PERM_KEYS = ["vad", "val", "mr", "md", "agd"] as const;
+
+/**
+ * يُحمّل مجموعة الصلاحيات المضغوطة (لتضمينها في Custom Claims) لدور مخصص.
+ * يرجع undefined للأدوار الأساسية الأربعة الثابتة (لا تحتاج أعلام إضافية).
+ */
+async function loadCustomRolePerms(role: string, customRoleId?: string | null): Promise<Record<string, boolean> | undefined> {
+  if (role !== "custom") return undefined;
+  if (!customRoleId) throw new HttpsError("invalid-argument", "الرجاء اختيار الدور المخصص");
+  const doc = await db().collection("roles").doc(customRoleId).get();
+  if (!doc.exists) throw new HttpsError("not-found", "الدور المخصص غير موجود");
+  const data = doc.data()!;
+  const perms: Record<string, boolean> = {};
+  for (const key of CUSTOM_ROLE_PERM_KEYS) {
+    perms[key] = false;
+  }
+  perms.vad = data.viewAllDepartments === true;
+  perms.val = data.viewAuditLog === true;
+  perms.mr = data.manageReports === true;
+  perms.md = data.manageDashboard === true;
+  perms.agd = data.approveGeneralDecisions === true;
+  return perms;
+}
+
 // ------------------------------------------------------------------
 // التهيئة الأولى: تعيين أول مسؤول نظام (مرة واحدة فقط لكل مشروع)
 // ------------------------------------------------------------------
@@ -72,8 +96,15 @@ export const bootstrapFirstAdmin = onCall(async (request) => {
 // (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي / قرار تنفيذي عام)
 // ------------------------------------------------------------------
 
-function checkApprovalPermission(type: string, callerRole: string | undefined) {
-  const allowed = type === "decision" ? callerRole === "systemAdmin" || callerRole === "executiveViewer" : callerRole === "systemAdmin";
+function checkApprovalPermission(type: string, auth: CallableRequest["auth"]) {
+  const callerRole = auth?.token.role as string | undefined;
+  const perms = auth?.token.perms as Record<string, boolean> | undefined;
+  // بوابات الموافقة الثلاث (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي) تبقى
+  // حصراً لمسؤول النظام ولا يمكن لأي دور مخصص تجاوزها مهما كانت صلاحياته.
+  const allowed =
+    type === "decision"
+      ? callerRole === "systemAdmin" || callerRole === "executiveViewer" || perms?.agd === true
+      : callerRole === "systemAdmin";
   if (!allowed) {
     throw new HttpsError("permission-denied", "ليست لديك صلاحية البت في هذا النوع من الطلبات");
   }
@@ -90,7 +121,7 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
   const data = snap.data()!;
   if (data.status !== "pending") throw new HttpsError("failed-precondition", "تم البت في هذا الطلب مسبقاً");
 
-  checkApprovalPermission(data.type, auth.token.role as string | undefined);
+  checkApprovalPermission(data.type, auth);
 
   const payload = (data.payload ?? {}) as Record<string, unknown>;
 
@@ -158,7 +189,7 @@ export const rejectRequest = onCall({secrets: notificationSecrets}, async (reque
   const data = snap.data()!;
   if (data.status !== "pending") throw new HttpsError("failed-precondition", "تم البت في هذا الطلب مسبقاً");
 
-  checkApprovalPermission(data.type, auth.token.role as string | undefined);
+  checkApprovalPermission(data.type, auth);
 
   if (data.type === "registration") {
     const uid = (data.payload as Record<string, unknown>)?.uid as string;
@@ -185,20 +216,28 @@ export const rejectRequest = onCall({secrets: notificationSecrets}, async (reque
 
 export const adminCreateUser = onCall(async (request) => {
   const auth = requireAdmin(request);
-  const {name, email, phone, password, role, departmentId} = (request.data ?? {}) as {
+  const {name, email, phone, password, role, customRoleId, departmentId} = (request.data ?? {}) as {
     name?: string;
     email?: string;
     phone?: string;
     password?: string;
     role?: string;
+    customRoleId?: string | null;
     departmentId?: string | null;
   };
   if (!name || !email || !password || !role) {
     throw new HttpsError("invalid-argument", "الرجاء تعبئة جميع الحقول المطلوبة");
   }
 
+  const perms = await loadCustomRolePerms(role, customRoleId);
+
   const userRecord = await admin.auth().createUser({email, password, displayName: name});
-  await admin.auth().setCustomUserClaims(userRecord.uid, {role, departmentId: departmentId ?? null, approved: true});
+  await admin.auth().setCustomUserClaims(userRecord.uid, {
+    role,
+    departmentId: departmentId ?? null,
+    approved: true,
+    ...(perms ? {perms} : {}),
+  });
   await db()
     .collection("users")
     .doc(userRecord.uid)
@@ -207,6 +246,7 @@ export const adminCreateUser = onCall(async (request) => {
       email,
       phone: phone ?? "",
       role,
+      customRoleId: role === "custom" ? customRoleId : null,
       departmentId: departmentId ?? null,
       status: "approved",
       createdAt: now(),
@@ -215,6 +255,40 @@ export const adminCreateUser = onCall(async (request) => {
   await logAudit(auth.token.name ?? "مسؤول النظام", "إضافة مستخدم مباشرة", `أضاف مسؤول النظام مستخدماً جديداً "${name}"`);
 
   return {ok: true, uid: userRecord.uid};
+});
+
+export const setUserRole = onCall(async (request) => {
+  const auth = requireAdmin(request);
+  const {uid, role, customRoleId, departmentId} = (request.data ?? {}) as {
+    uid?: string;
+    role?: string;
+    customRoleId?: string | null;
+    departmentId?: string | null;
+  };
+  if (!uid || !role) throw new HttpsError("invalid-argument", "بيانات ناقصة");
+
+  const userRef = db().collection("users").doc(uid);
+  const userDoc = await userRef.get();
+  if (!userDoc.exists) throw new HttpsError("not-found", "المستخدم غير موجود");
+  const current = userDoc.data()!;
+
+  const perms = await loadCustomRolePerms(role, customRoleId);
+
+  await userRef.update({
+    role,
+    customRoleId: role === "custom" ? customRoleId : null,
+    departmentId: departmentId ?? null,
+  });
+  await admin.auth().setCustomUserClaims(uid, {
+    role,
+    departmentId: departmentId ?? null,
+    approved: current.status === "approved",
+    ...(perms ? {perms} : {}),
+  });
+
+  await logAudit(auth.token.name ?? "مسؤول النظام", "تعديل دور مستخدم", `تم تغيير دور المستخدم "${current.name}"`);
+
+  return {ok: true};
 });
 
 export const setUserStatus = onCall(async (request) => {
@@ -230,10 +304,12 @@ export const setUserStatus = onCall(async (request) => {
   await userRef.update({status});
 
   const approved = status === "approved";
+  const perms = await loadCustomRolePerms(current.role, current.customRoleId);
   await admin.auth().setCustomUserClaims(uid, {
     role: current.role,
     departmentId: current.departmentId ?? null,
     approved,
+    ...(perms ? {perms} : {}),
   });
   await admin.auth().updateUser(uid, {disabled: !approved});
   if (!approved) {

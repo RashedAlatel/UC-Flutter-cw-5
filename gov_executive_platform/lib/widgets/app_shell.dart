@@ -8,7 +8,9 @@ import '../screens/dashboard_screen.dart';
 import '../screens/decision_center_screen.dart';
 import '../screens/department_detail_screen.dart';
 import '../screens/departments_list_screen.dart';
+import '../screens/projects_list_screen.dart';
 import '../screens/reports_screen.dart';
+import '../screens/roles_management_screen.dart';
 import '../screens/user_management_screen.dart';
 import '../theme/app_theme.dart';
 
@@ -48,6 +50,8 @@ class _AppShellState extends State<AppShell> {
       ));
     }
 
+    entries.add(const _NavEntry(label: 'المشاريع', icon: Icons.folder_copy_rounded, page: ProjectsListScreen()));
+
     if (store.currentUser?.role != UserRole.projectOfficer) {
       entries.add(const _NavEntry(
         label: 'مركز القرارات',
@@ -66,6 +70,7 @@ class _AppShellState extends State<AppShell> {
     }
     if (store.canManageUsers) {
       entries.add(const _NavEntry(label: 'المستخدمون', icon: Icons.manage_accounts_rounded, page: UserManagementScreen()));
+      entries.add(const _NavEntry(label: 'إدارة الأدوار', icon: Icons.badge_outlined, page: RolesManagementScreen()));
     }
     return entries;
   }

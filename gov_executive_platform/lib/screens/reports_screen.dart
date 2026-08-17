@@ -33,7 +33,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final canGenerate = store.isAdmin || store.isExecutive;
+    final canGenerate = store.canManageReports;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -8,7 +8,12 @@ import {notificationSecrets} from "./secrets";
 admin.initializeApp();
 
 // منطقة قريبة من دول الخليج لتقليل زمن الاستجابة؛ عدّلها إن نشرت في منطقة أخرى.
-setGlobalOptions({region: "europe-west1", maxInstances: 10});
+// invoker: "public" يجعل الدوال قابلة للاستدعاء عبر HTTPS من تطبيق العميل
+// (وهو المطلوب لأي دالة callable)، بينما التحقق من الهوية والصلاحية الفعلي
+// يبقى داخل كود كل دالة (requireAuth/requireAdmin) عبر توكن Firebase Auth.
+// بدون هذا الخيار، تحتاج لضبط "Allow public access" يدوياً من Google Cloud
+// Console بعد كل نشر جديد للدوال.
+setGlobalOptions({region: "europe-west1", maxInstances: 10, invoker: "public"});
 
 const db = () => admin.firestore();
 const now = () => admin.firestore.Timestamp.now();

@@ -30,7 +30,9 @@ import 'default_departments.dart';
 class AppStore extends ChangeNotifier {
   final _auth = fb_auth.FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
-  final _functions = FirebaseFunctions.instance;
+  // يجب أن تطابق المنطقة (region) المحددة في functions/src/index.ts
+  // (setGlobalOptions)، وإلا تفشل كل استدعاءات httpsCallable بصمت.
+  final _functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
 
   AppUser? currentUser;
   bool _ready = false;

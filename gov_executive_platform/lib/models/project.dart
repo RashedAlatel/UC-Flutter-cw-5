@@ -13,6 +13,7 @@ class Project {
   final PriorityLevel priority;
   final double progressPercent; // 0-100
   final int delayDays; // أيام التأخير عن الخطة (0 = لا يوجد تأخير)
+  final String executorName; // الشخص المنفذ/المسؤول عن المشروع
   final String createdByUid;
 
   const Project({
@@ -26,6 +27,7 @@ class Project {
     required this.priority,
     required this.progressPercent,
     required this.delayDays,
+    this.executorName = '',
     this.createdByUid = '',
   });
 
@@ -38,6 +40,7 @@ class Project {
     PriorityLevel? priority,
     double? progressPercent,
     int? delayDays,
+    String? executorName,
   }) {
     return Project(
       id: id,
@@ -50,6 +53,7 @@ class Project {
       priority: priority ?? this.priority,
       progressPercent: progressPercent ?? this.progressPercent,
       delayDays: delayDays ?? this.delayDays,
+      executorName: executorName ?? this.executorName,
       createdByUid: createdByUid,
     );
   }
@@ -64,6 +68,7 @@ class Project {
         'priority': priority.name,
         'progressPercent': progressPercent,
         'delayDays': delayDays,
+        'executorName': executorName,
         'createdByUid': createdByUid,
       };
 
@@ -80,6 +85,7 @@ class Project {
       priority: PriorityLevel.fromName(json['priority'] as String? ?? PriorityLevel.medium.name),
       progressPercent: (json['progressPercent'] as num?)?.toDouble() ?? 0,
       delayDays: (json['delayDays'] as num?)?.toInt() ?? 0,
+      executorName: json['executorName'] as String? ?? '',
       createdByUid: json['createdByUid'] as String? ?? '',
     );
   }

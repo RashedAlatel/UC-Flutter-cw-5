@@ -127,7 +127,13 @@ class _Sidebar extends StatelessWidget {
     final user = store.currentUser;
     return Container(
       width: 260,
-      color: AppColors.primary,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AppColors.primaryDark, AppColors.primary],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -158,7 +164,7 @@ class _Sidebar extends StatelessWidget {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Material(
-                      color: isSelected ? Colors.white.withValues(alpha: 0.14) : Colors.transparent,
+                      color: isSelected ? Colors.white.withValues(alpha: 0.12) : Colors.transparent,
                       borderRadius: BorderRadius.circular(10),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(10),
@@ -170,7 +176,16 @@ class _Sidebar extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
                           child: Row(
                             children: [
-                              Icon(e.icon, color: Colors.white, size: 20),
+                              if (isSelected)
+                                Container(
+                                  width: 3,
+                                  height: 16,
+                                  margin: const EdgeInsets.only(left: 9),
+                                  decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(3)),
+                                )
+                              else
+                                const SizedBox(width: 12),
+                              Icon(e.icon, color: isSelected ? AppColors.accent : Colors.white70, size: 20),
                               const SizedBox(width: 12),
                               Text(
                                 e.label,

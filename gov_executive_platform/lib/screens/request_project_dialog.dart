@@ -5,8 +5,9 @@ import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
 
-/// نموذج "طلب إضافة مشروع جديد" — لا يُنشئ المشروع مباشرة، بل يرسل طلباً
-/// إلى مركز القرارات التنفيذية بانتظار اعتماد مسؤول النظام.
+/// نموذج إضافة مشروع: لمسؤول النظام يُنشئ المشروع مباشرة (موافقته الذاتية
+/// كافية)، ولأي دور آخر يُرسل "طلب إضافة مشروع" ينتظر اعتماد مسؤول النظام
+/// من مركز القرارات التنفيذية.
 class RequestProjectDialog extends StatefulWidget {
   final String departmentId;
   const RequestProjectDialog({super.key, required this.departmentId});
@@ -18,6 +19,7 @@ class RequestProjectDialog extends StatefulWidget {
 class _RequestProjectDialogState extends State<RequestProjectDialog> {
   final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
+  final _executorCtrl = TextEditingController();
   PriorityLevel _priority = PriorityLevel.medium;
   DateTime _startDate = DateTime.now();
   DateTime _dueDate = DateTime.now().add(const Duration(days: 60));
@@ -28,6 +30,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
   void dispose() {
     _nameCtrl.dispose();
     _descCtrl.dispose();
+    _executorCtrl.dispose();
     super.dispose();
   }
 
@@ -52,25 +55,41 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
       _busy = true;
       _error = null;
     });
-    await context.read<AppStore>().submitProjectRequest(
-          departmentId: widget.departmentId,
-          name: _nameCtrl.text.trim(),
-          description: _descCtrl.text.trim(),
-          startDate: _startDate,
-          dueDate: _dueDate,
-          priority: _priority,
-        );
+    final store = context.read<AppStore>();
+    final isAdmin = store.isAdmin;
+    if (isAdmin) {
+      await store.createProjectDirect(
+        departmentId: widget.departmentId,
+        name: _nameCtrl.text.trim(),
+        description: _descCtrl.text.trim(),
+        startDate: _startDate,
+        dueDate: _dueDate,
+        priority: _priority,
+        executorName: _executorCtrl.text.trim(),
+      );
+    } else {
+      await store.submitProjectRequest(
+        departmentId: widget.departmentId,
+        name: _nameCtrl.text.trim(),
+        description: _descCtrl.text.trim(),
+        startDate: _startDate,
+        dueDate: _dueDate,
+        priority: _priority,
+        executorName: _executorCtrl.text.trim(),
+      );
+    }
     if (!mounted) return;
     Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم إرسال طلب إضافة المشروع لمسؤول النظام للاعتماد')),
+      SnackBar(content: Text(isAdmin ? 'تمت إضافة المشروع بنجاح' : 'تم إرسال طلب إضافة المشروع لمسؤول النظام للاعتماد')),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = context.watch<AppStore>().isAdmin;
     return AlertDialog(
-      title: const Text('طلب إضافة مشروع جديد'),
+      title: Text(isAdmin ? 'إضافة مشروع جديد' : 'طلب إضافة مشروع جديد'),
       content: SizedBox(
         width: 420,
         child: SingleChildScrollView(
@@ -81,6 +100,8 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
               TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: 'اسم المشروع')),
               const SizedBox(height: 12),
               TextField(controller: _descCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'وصف المشروع')),
+              const SizedBox(height: 12),
+              TextField(controller: _executorCtrl, decoration: const InputDecoration(labelText: 'الشخص المنفذ / المسؤول عن المشروع')),
               const SizedBox(height: 12),
               DropdownButtonFormField<PriorityLevel>(
                 initialValue: _priority,
@@ -122,7 +143,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
           onPressed: _busy ? null : _submit,
           child: _busy
               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Text('إرسال الطلب'),
+              : Text(isAdmin ? 'إضافة المشروع' : 'إرسال الطلب'),
         ),
       ],
     );

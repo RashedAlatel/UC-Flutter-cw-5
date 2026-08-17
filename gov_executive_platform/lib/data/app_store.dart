@@ -10,6 +10,7 @@ import '../models/approval_request.dart';
 import '../models/audit_log_entry.dart';
 import '../models/blocker.dart';
 import '../models/daily_update.dart';
+import '../models/dashboard_widget_config.dart';
 import '../models/department.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
@@ -48,6 +49,7 @@ class AppStore extends ChangeNotifier {
   List<AuditLogEntry> auditLog = [];
   List<ReportSnapshot> reports = [];
   List<AppUser> users = []; // يُملأ فقط لمسؤول النظام (إدارة المستخدمين)
+  List<DashboardWidgetConfig> dashboardWidgets = DashboardWidgetConfig.defaults();
 
   StreamSubscription<fb_auth.User?>? _authSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
@@ -80,6 +82,7 @@ class AppStore extends ChangeNotifier {
     auditLog = [];
     reports = [];
     users = [];
+    dashboardWidgets = DashboardWidgetConfig.defaults();
   }
 
   Future<void> _onAuthChanged(fb_auth.User? user) async {
@@ -154,6 +157,13 @@ class AppStore extends ChangeNotifier {
     _dataSubs.add(_db.collection('reports').snapshots().listen((snap) {
       reports = snap.docs.map(ReportSnapshot.fromDoc).toList()
         ..sort((a, b) => b.generatedDate.compareTo(a.generatedDate));
+      notifyListeners();
+    }));
+    _dataSubs.add(_db.collection('dashboardConfig').doc('main').snapshots().listen((doc) {
+      final widgets = doc.data()?['widgets'] as List?;
+      dashboardWidgets = widgets == null || widgets.isEmpty
+          ? DashboardWidgetConfig.defaults()
+          : widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList();
       notifyListeners();
     }));
 
@@ -525,6 +535,7 @@ class AppStore extends ChangeNotifier {
     required DateTime startDate,
     required DateTime dueDate,
     required PriorityLevel priority,
+    String executorName = '',
   }) async {
     final now = DateTime.now();
     await _db.collection('approvalRequests').add(ApprovalRequest(
@@ -546,9 +557,39 @@ class AppStore extends ChangeNotifier {
             'startDate': startDate.toIso8601String(),
             'dueDate': dueDate.toIso8601String(),
             'priority': priority.name,
+            'executorName': executorName,
           },
         ).toMap());
     await _log('طلب مشروع جديد', 'قدّم ${currentUser?.name} طلب إضافة مشروع "$name"');
+  }
+
+  /// إضافة مشروع مباشرة (مسؤول النظام فقط) دون المرور بدورة طلب/اعتماد،
+  /// لأن موافقته الذاتية كمسؤول نظام تُعد كافية أصلاً.
+  Future<void> createProjectDirect({
+    required String departmentId,
+    required String name,
+    required String description,
+    required DateTime startDate,
+    required DateTime dueDate,
+    required PriorityLevel priority,
+    String executorName = '',
+  }) async {
+    final ref = _db.collection('projects').doc();
+    await ref.set(Project(
+      id: ref.id,
+      departmentId: departmentId,
+      name: name,
+      description: description,
+      startDate: startDate,
+      dueDate: dueDate,
+      status: ProjectStatus.onTrack,
+      priority: priority,
+      progressPercent: 0,
+      delayDays: 0,
+      executorName: executorName,
+      createdByUid: currentUser?.id ?? '',
+    ).toMap());
+    await _log('إضافة مشروع', 'أضاف ${currentUser?.name} مشروعاً جديداً "$name" مباشرة');
   }
 
   Future<void> submitDeadlineChangeRequest({
@@ -684,6 +725,20 @@ class AppStore extends ChangeNotifier {
     }
     await batch.commit();
     await _log('إدارة الإدارات', 'تم استيراد الإدارات الافتراضية');
+  }
+
+  // ------------------------- تخصيص لوحة القيادة -------------------------
+
+  List<DailyUpdate> get recentUpdates {
+    final list = dailyUpdates.toList()..sort((a, b) => b.date.compareTo(a.date));
+    return list.take(8).toList();
+  }
+
+  Future<void> saveDashboardWidgets(List<DashboardWidgetConfig> widgets) async {
+    await _db.collection('dashboardConfig').doc('main').set({
+      'widgets': widgets.map((w) => w.toMap()).toList(),
+    });
+    await _log('تخصيص لوحة القيادة', 'قام ${currentUser?.name} بتحديث تخطيط لوحة القيادة الرئيسية');
   }
 
   // ------------------------- التقارير -------------------------

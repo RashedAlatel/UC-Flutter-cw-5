@@ -63,6 +63,8 @@ class ProjectDetailScreen extends StatelessWidget {
                     runSpacing: 10,
                     children: [
                       _MetaBit(icon: Icons.flag_outlined, label: 'الأولوية', child: PriorityChip(priority: project.priority)),
+                      if (project.executorName.isNotEmpty)
+                        _MetaBit(icon: Icons.badge_outlined, label: 'الشخص المنفذ', value: project.executorName),
                       _MetaBit(icon: Icons.event_outlined, label: 'تاريخ البدء', value: Formatters.shortDate(project.startDate)),
                       _MetaBit(
                         icon: Icons.event_available_outlined,

@@ -2,20 +2,21 @@ import 'package:flutter/material.dart';
 
 /// نظام الألوان والتنسيق الموحد للمنصة
 class AppColors {
-  static const Color primary = Color(0xFF0B3D66); // أزرق حكومي داكن
-  static const Color primaryLight = Color(0xFF1565A6);
-  static const Color accent = Color(0xFFC9A227); // ذهبي
-  static const Color background = Color(0xFFF4F6F9);
+  static const Color primary = Color(0xFF0A3358); // أزرق حكومي عميق
+  static const Color primaryLight = Color(0xFF1D6FA8);
+  static const Color primaryDark = Color(0xFF06213B);
+  static const Color accent = Color(0xFFCB9B3C); // ذهبي دافئ
+  static const Color background = Color(0xFFF3F5F9);
   static const Color surface = Colors.white;
 
-  static const Color success = Color(0xFF2E7D32);
-  static const Color warning = Color(0xFFE8A33D);
-  static const Color danger = Color(0xFFC62828);
-  static const Color info = Color(0xFF1565A6);
+  static const Color success = Color(0xFF2E8B57);
+  static const Color warning = Color(0xFFE0982E);
+  static const Color danger = Color(0xFFD1453B);
+  static const Color info = Color(0xFF2874A6);
 
-  static const Color textPrimary = Color(0xFF1C2733);
-  static const Color textSecondary = Color(0xFF5B6B79);
-  static const Color border = Color(0xFFE1E6EB);
+  static const Color textPrimary = Color(0xFF1A2531);
+  static const Color textSecondary = Color(0xFF64707E);
+  static const Color border = Color(0xFFE6EAF0);
 
   static Color statusColor(String status) {
     switch (status) {
@@ -35,11 +36,11 @@ class AppColors {
   static Color priorityColor(String priority) {
     switch (priority) {
       case 'low':
-        return const Color(0xFF64A56E);
+        return const Color(0xFF5C9E68);
       case 'medium':
         return warning;
       case 'high':
-        return const Color(0xFFE0692B);
+        return const Color(0xFFD97A3A);
       case 'critical':
         return danger;
       default:
@@ -49,9 +50,12 @@ class AppColors {
 }
 
 class AppTheme {
+  static const String fontFamily = 'Tajawal';
+
   static ThemeData get theme {
     final base = ThemeData(
       useMaterial3: true,
+      fontFamily: fontFamily,
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primary,
         primary: AppColors.primary,
@@ -59,20 +63,29 @@ class AppTheme {
         surface: AppColors.surface,
       ),
       scaffoldBackgroundColor: AppColors.background,
+      visualDensity: VisualDensity.standard,
     );
 
     return base.copyWith(
+      textTheme: base.textTheme.apply(fontFamily: fontFamily),
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,
+        titleTextStyle: TextStyle(
+          fontFamily: fontFamily,
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
       ),
       cardTheme: CardThemeData(
         color: AppColors.surface,
         elevation: 0,
+        shadowColor: AppColors.primary.withValues(alpha: 0.08),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           side: const BorderSide(color: AppColors.border),
         ),
         margin: EdgeInsets.zero,
@@ -81,33 +94,68 @@ class AppTheme {
         filled: true,
         fillColor: AppColors.background,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.primary, width: 1.6),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        labelStyle: const TextStyle(fontFamily: fontFamily, color: AppColors.textSecondary, fontSize: 13.5),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle: const TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w700, fontSize: 13.5),
           elevation: 0,
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.border, width: 1.2),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle: const TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w700, fontSize: 13.5),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          textStyle: const TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w700, fontSize: 13.5),
         ),
       ),
       chipTheme: base.chipTheme.copyWith(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         side: BorderSide.none,
+        labelStyle: const TextStyle(fontFamily: fontFamily),
+        secondaryLabelStyle: const TextStyle(fontFamily: fontFamily),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        titleTextStyle: const TextStyle(
+          fontFamily: fontFamily,
+          fontSize: 16.5,
+          fontWeight: FontWeight.w800,
+          color: AppColors.textPrimary,
+        ),
       ),
       dividerTheme: const DividerThemeData(color: AppColors.border),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: AppColors.textPrimary,
+        contentTextStyle: const TextStyle(fontFamily: fontFamily, color: Colors.white, fontSize: 13),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
     );
   }
 }

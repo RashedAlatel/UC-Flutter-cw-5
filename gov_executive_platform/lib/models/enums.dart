@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 /// أدوار المستخدمين في المنصة
 enum UserRole {
   systemAdmin, // مسؤول نظام - كامل الصلاحيات
@@ -200,6 +202,48 @@ enum ApprovalType {
 
   static ApprovalType fromName(String name) =>
       ApprovalType.values.firstWhere((e) => e.name == name, orElse: () => ApprovalType.decision);
+}
+
+/// أنواع الودجات القابلة للإضافة إلى لوحة القيادة الرئيسية
+enum DashboardWidgetType {
+  deptBarChart,
+  statusPieChart,
+  pendingApprovalsList,
+  departmentRankingList,
+  recentUpdatesList;
+
+  String get label {
+    switch (this) {
+      case DashboardWidgetType.deptBarChart:
+        return 'رسم بياني: ترتيب الإدارات (أعمدة)';
+      case DashboardWidgetType.statusPieChart:
+        return 'رسم بياني: توزيع حالة المشاريع (دائري)';
+      case DashboardWidgetType.pendingApprovalsList:
+        return 'قائمة: قرارات مطلوبة من القيادة';
+      case DashboardWidgetType.departmentRankingList:
+        return 'قائمة: تفاصيل ترتيب الإدارات';
+      case DashboardWidgetType.recentUpdatesList:
+        return 'قائمة: أحدث التحديثات اليومية';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case DashboardWidgetType.deptBarChart:
+        return Icons.bar_chart_rounded;
+      case DashboardWidgetType.statusPieChart:
+        return Icons.pie_chart_rounded;
+      case DashboardWidgetType.pendingApprovalsList:
+        return Icons.gavel_rounded;
+      case DashboardWidgetType.departmentRankingList:
+        return Icons.leaderboard_rounded;
+      case DashboardWidgetType.recentUpdatesList:
+        return Icons.history_edu_rounded;
+    }
+  }
+
+  static DashboardWidgetType fromName(String name) => DashboardWidgetType.values
+      .firstWhere((e) => e.name == name, orElse: () => DashboardWidgetType.deptBarChart);
 }
 
 /// قنوات إرسال الإشعارات للمستخدمين

@@ -43,9 +43,10 @@ service cloud.firestore {
     // ------------------------- المشاريع -------------------------
     match /projects/{id} {
       allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
-      // لا يُنشأ أي مشروع مباشرة من العميل؛ الإنشاء يتم فقط عبر Cloud Function
-      // بعد اعتماد طلب "إضافة مشروع" من مسؤول النظام.
-      allow create: if false;
+      // مسؤول النظام يملك صلاحية إضافة مشروع مباشرة (موافقته الذاتية كافية).
+      // أي دور آخر لا يُنشئ مشروعاً مباشرة؛ الإنشاء عندها يتم فقط عبر Cloud
+      // Function بعد اعتماد طلب "إضافة مشروع" من مسؤول النظام.
+      allow create: if isAdmin();
       // يمكن لمدير/ضابط الإدارة تحديث حقول التقدم والحالة فقط، دون المساس بالموعد النهائي
       // أو نقل المشروع لإدارة أخرى - أي تغيير في الموعد النهائي يمر عبر طلب موافقة منفصل.
       allow update: if isAdmin()
@@ -112,6 +113,12 @@ service cloud.firestore {
       allow read: if isApproved();
       allow create, update: if isAdmin() || isExecutive();
       allow delete: if isAdmin();
+    }
+
+    // ------------------------- تخصيص لوحة القيادة -------------------------
+    match /dashboardConfig/{id} {
+      allow read: if isApproved();
+      allow write: if isAdmin();
     }
   }
 }

@@ -59,7 +59,7 @@ class DepartmentDetailScreen extends StatelessWidget {
                     builder: (_) => RequestProjectDialog(departmentId: departmentId),
                   ),
                   icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('طلب إضافة مشروع'),
+                  label: Text(store.isAdmin ? 'إضافة مشروع' : 'طلب إضافة مشروع'),
                 ),
             ],
           ),
@@ -150,6 +150,8 @@ class _ProjectCard extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   _InfoBit(icon: Icons.flag_outlined, text: project.priority.label),
+                  if (project.executorName.isNotEmpty)
+                    _InfoBit(icon: Icons.badge_outlined, text: 'المنفذ: ${project.executorName}'),
                   _InfoBit(icon: Icons.event_outlined, text: 'الاستحقاق: ${Formatters.shortDate(project.dueDate)}'),
                   _InfoBit(
                     icon: Icons.schedule_rounded,

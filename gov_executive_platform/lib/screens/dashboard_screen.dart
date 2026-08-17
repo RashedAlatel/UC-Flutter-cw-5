@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/department.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
 import '../widgets/kpi_card.dart';
 import '../widgets/status_chip.dart';
+import 'customize_dashboard_dialog.dart';
 import 'decision_center_screen.dart';
 import 'department_detail_screen.dart';
+import 'project_detail_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -35,16 +38,34 @@ class DashboardScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            scoped ? 'لوحة قيادة إدارتي' : 'لوحة القيادة المركزية',
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            scoped
-                ? 'مؤشرات فورية على أداء مشاريع إدارتك'
-                : 'مؤشرات فورية على أداء الخطة الاستراتيجية ومشاريع الوزارة',
-            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      scoped ? 'لوحة قيادة إدارتي' : 'لوحة القيادة المركزية',
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      scoped
+                          ? 'مؤشرات فورية على أداء مشاريع إدارتك'
+                          : 'مؤشرات فورية على أداء الخطة الاستراتيجية ومشاريع الوزارة',
+                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+                    ),
+                  ],
+                ),
+              ),
+              if (store.isAdmin)
+                OutlinedButton.icon(
+                  onPressed: () => showDialog(context: context, builder: (_) => const CustomizeDashboardDialog()),
+                  icon: const Icon(Icons.tune_rounded, size: 17),
+                  label: const Text('تخصيص اللوحة'),
+                ),
+            ],
           ),
           if (!store.isAdmin) ...[
             const SizedBox(height: 16),
@@ -53,43 +74,46 @@ class DashboardScreen extends StatelessWidget {
           const SizedBox(height: 22),
           _KpiGrid(store: store, projects: projects.map((p) => p).toList()),
           const SizedBox(height: 24),
-          LayoutBuilder(builder: (context, constraints) {
-            final wide = constraints.maxWidth > 900;
-            final rankingCard = _ChartCard(
-              title: scoped ? 'أداء إدارتي' : 'ترتيب الإدارات حسب الأداء',
-              height: 300,
-              child: ranking.isEmpty
-                  ? const Center(child: Text('لا توجد بيانات', style: TextStyle(color: AppColors.textSecondary)))
-                  : DepartmentBarChart(ranking: ranking),
-            );
-            final statusCard = _ChartCard(
-              title: 'توزيع حالة المشاريع',
-              height: 300,
-              child: StatusPieChart(data: statusCounts, colors: statusColors),
-            );
-            if (!wide) {
-              return Column(children: [rankingCard, const SizedBox(height: 16), statusCard]);
-            }
-            return IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(flex: 6, child: rankingCard),
-                  const SizedBox(width: 16),
-                  Expanded(flex: 5, child: statusCard),
-                ],
-              ),
-            );
-          }),
-          const SizedBox(height: 24),
-          _PendingDecisionsCard(store: store),
-          if (!scoped) ...[
-            const SizedBox(height: 24),
-            _DepartmentRankingList(store: store, ranking: ranking),
-          ],
+          ...store.dashboardWidgets.map((w) => Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: _buildWidget(context, w.type, store, scoped, ranking, statusCounts, statusColors),
+              )),
         ],
       ),
     );
+  }
+
+  Widget _buildWidget(
+    BuildContext context,
+    DashboardWidgetType type,
+    AppStore store,
+    bool scoped,
+    List<MapEntry<Department, double>> ranking,
+    Map<String, int> statusCounts,
+    Map<String, Color> statusColors,
+  ) {
+    switch (type) {
+      case DashboardWidgetType.deptBarChart:
+        return _ChartCard(
+          title: scoped ? 'أداء إدارتي' : 'ترتيب الإدارات حسب الأداء',
+          height: 300,
+          child: ranking.isEmpty
+              ? const Center(child: Text('لا توجد بيانات', style: TextStyle(color: AppColors.textSecondary)))
+              : DepartmentBarChart(ranking: ranking),
+        );
+      case DashboardWidgetType.statusPieChart:
+        return _ChartCard(
+          title: 'توزيع حالة المشاريع',
+          height: 300,
+          child: StatusPieChart(data: statusCounts, colors: statusColors),
+        );
+      case DashboardWidgetType.pendingApprovalsList:
+        return _PendingDecisionsCard(store: store);
+      case DashboardWidgetType.departmentRankingList:
+        return _DepartmentRankingList(store: store, ranking: ranking);
+      case DashboardWidgetType.recentUpdatesList:
+        return _RecentUpdatesCard(store: store);
+    }
   }
 }
 
@@ -313,6 +337,82 @@ class _DepartmentRankingList extends StatelessWidget {
                 ),
               );
             }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentUpdatesCard extends StatelessWidget {
+  final AppStore store;
+  const _RecentUpdatesCard({required this.store});
+
+  @override
+  Widget build(BuildContext context) {
+    final updates = store.recentUpdates;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('أحدث التحديثات اليومية', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+            const Divider(height: 20),
+            if (updates.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text('لا توجد تحديثات بعد', style: TextStyle(color: AppColors.textSecondary)),
+              )
+            else
+              ...updates.map((u) {
+                final project = store.projectById(u.projectId);
+                return InkWell(
+                  onTap: project == null
+                      ? null
+                      : () => Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => Scaffold(
+                              appBar: AppBar(title: Text(project.name)),
+                              body: ProjectDetailScreen(projectId: project.id),
+                            ),
+                          )),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                          child: Text(u.authorName.isNotEmpty ? u.authorName.substring(0, 1) : '?',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.primary)),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text('${u.authorName} · ${project?.name ?? ''}',
+                                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis),
+                                  ),
+                                  Text(Formatters.timeAgo(u.date), style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(u.achievements, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary), maxLines: 2, overflow: TextOverflow.ellipsis),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
           ],
         ),
       ),

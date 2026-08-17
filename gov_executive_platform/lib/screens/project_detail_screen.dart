@@ -9,6 +9,7 @@ import '../utils/formatters.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
+import 'request_deadline_change_dialog.dart';
 
 class ProjectDetailScreen extends StatelessWidget {
   final String projectId;
@@ -63,7 +64,27 @@ class ProjectDetailScreen extends StatelessWidget {
                     children: [
                       _MetaBit(icon: Icons.flag_outlined, label: 'الأولوية', child: PriorityChip(priority: project.priority)),
                       _MetaBit(icon: Icons.event_outlined, label: 'تاريخ البدء', value: Formatters.shortDate(project.startDate)),
-                      _MetaBit(icon: Icons.event_available_outlined, label: 'تاريخ الاستحقاق', value: Formatters.shortDate(project.dueDate)),
+                      _MetaBit(
+                        icon: Icons.event_available_outlined,
+                        label: 'تاريخ الاستحقاق',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(Formatters.shortDate(project.dueDate),
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                            if (canEdit) ...[
+                              const SizedBox(width: 4),
+                              InkWell(
+                                onTap: () => showDialog(
+                                  context: context,
+                                  builder: (_) => RequestDeadlineChangeDialog(project: project),
+                                ),
+                                child: const Icon(Icons.edit_outlined, size: 14, color: AppColors.primary),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                       _MetaBit(
                         icon: Icons.schedule_rounded,
                         label: 'التأخير عن الخطة',
@@ -120,7 +141,7 @@ class ProjectDetailScreen extends StatelessWidget {
               const Spacer(),
               if (canEdit)
                 OutlinedButton.icon(
-                  onPressed: () => _showAddTaskDialog(context, projectId),
+                  onPressed: () => _showAddTaskDialog(context, projectId, project.departmentId),
                   icon: const Icon(Icons.add_rounded, size: 18),
                   label: const Text('إضافة مهمة'),
                 ),
@@ -165,8 +186,8 @@ class ProjectDetailScreen extends StatelessWidget {
     );
   }
 
-  void _showAddTaskDialog(BuildContext context, String projectId) {
-    showDialog(context: context, builder: (_) => _AddTaskDialog(projectId: projectId));
+  void _showAddTaskDialog(BuildContext context, String projectId, String departmentId) {
+    showDialog(context: context, builder: (_) => _AddTaskDialog(projectId: projectId, departmentId: departmentId));
   }
 }
 
@@ -474,7 +495,8 @@ class _TaskCard extends StatelessWidget {
 
 class _AddTaskDialog extends StatefulWidget {
   final String projectId;
-  const _AddTaskDialog({required this.projectId});
+  final String departmentId;
+  const _AddTaskDialog({required this.projectId, required this.departmentId});
 
   @override
   State<_AddTaskDialog> createState() => _AddTaskDialogState();
@@ -523,6 +545,7 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
             context.read<AppStore>().addTask(ProjectTask(
                   id: '${widget.projectId}_t${DateTime.now().microsecondsSinceEpoch}',
                   projectId: widget.projectId,
+                  departmentId: widget.departmentId,
                   title: _titleCtrl.text.trim(),
                   assigneeName: _assigneeCtrl.text.trim(),
                   status: TaskStatus.todo,

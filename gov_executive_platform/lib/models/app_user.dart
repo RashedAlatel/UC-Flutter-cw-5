@@ -1,60 +1,71 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'enums.dart';
 
 class AppUser {
-  final String id;
+  final String id; // Firebase Auth UID
   final String name;
-  final String username;
-  final String password;
+  final String email;
+  final String phone; // بصيغة دولية E.164 مثل ‎+9715xxxxxxxx لإرسال واتساب
   final UserRole role;
   final String? departmentId; // null لمسؤول النظام والمستخدم التنفيذي
-  final bool active;
+  final UserStatus status;
+  final DateTime createdAt;
 
   const AppUser({
     required this.id,
     required this.name,
-    required this.username,
-    required this.password,
+    required this.email,
+    required this.phone,
     required this.role,
     this.departmentId,
-    this.active = true,
+    required this.status,
+    required this.createdAt,
   });
+
+  bool get active => status == UserStatus.approved;
 
   AppUser copyWith({
     String? name,
-    String? username,
-    String? password,
+    String? email,
+    String? phone,
     UserRole? role,
     String? departmentId,
-    bool? active,
+    UserStatus? status,
   }) {
     return AppUser(
       id: id,
       name: name ?? this.name,
-      username: username ?? this.username,
-      password: password ?? this.password,
+      email: email ?? this.email,
+      phone: phone ?? this.phone,
       role: role ?? this.role,
       departmentId: departmentId ?? this.departmentId,
-      active: active ?? this.active,
+      status: status ?? this.status,
+      createdAt: createdAt,
     );
   }
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
+  Map<String, dynamic> toMap() => {
         'name': name,
-        'username': username,
-        'password': password,
+        'email': email,
+        'phone': phone,
         'role': role.name,
         'departmentId': departmentId,
-        'active': active,
+        'status': status.name,
+        'createdAt': Timestamp.fromDate(createdAt),
       };
 
-  factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        username: json['username'] as String,
-        password: json['password'] as String,
-        role: UserRole.fromName(json['role'] as String),
-        departmentId: json['departmentId'] as String?,
-        active: json['active'] as bool? ?? true,
-      );
+  factory AppUser.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final json = doc.data() ?? {};
+    return AppUser(
+      id: doc.id,
+      name: json['name'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      phone: json['phone'] as String? ?? '',
+      role: UserRole.fromName(json['role'] as String? ?? UserRole.projectOfficer.name),
+      departmentId: json['departmentId'] as String?,
+      status: UserStatus.fromName(json['status'] as String? ?? UserStatus.pending.name),
+      createdAt: (json['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
 }

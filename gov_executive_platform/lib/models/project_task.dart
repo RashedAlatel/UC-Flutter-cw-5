@@ -1,8 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'enums.dart';
 
 class ProjectTask {
   final String id;
   final String projectId;
+  final String departmentId;
   final String title;
   final String assigneeName;
   final TaskStatus status;
@@ -14,6 +17,7 @@ class ProjectTask {
   const ProjectTask({
     required this.id,
     required this.projectId,
+    required this.departmentId,
     required this.title,
     required this.assigneeName,
     required this.status,
@@ -35,6 +39,7 @@ class ProjectTask {
     return ProjectTask(
       id: id,
       projectId: projectId,
+      departmentId: departmentId,
       title: title ?? this.title,
       assigneeName: assigneeName ?? this.assigneeName,
       status: status ?? this.status,
@@ -45,27 +50,31 @@ class ProjectTask {
     );
   }
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
+  Map<String, dynamic> toMap() => {
         'projectId': projectId,
+        'departmentId': departmentId,
         'title': title,
         'assigneeName': assigneeName,
         'status': status.name,
         'progressPercent': progressPercent,
-        'lastUpdated': lastUpdated.toIso8601String(),
-        'dueDate': dueDate.toIso8601String(),
+        'lastUpdated': Timestamp.fromDate(lastUpdated),
+        'dueDate': Timestamp.fromDate(dueDate),
         'priority': priority.name,
       };
 
-  factory ProjectTask.fromJson(Map<String, dynamic> json) => ProjectTask(
-        id: json['id'] as String,
-        projectId: json['projectId'] as String,
-        title: json['title'] as String,
-        assigneeName: json['assigneeName'] as String,
-        status: TaskStatus.fromName(json['status'] as String),
-        progressPercent: (json['progressPercent'] as num).toDouble(),
-        lastUpdated: DateTime.parse(json['lastUpdated'] as String),
-        dueDate: DateTime.parse(json['dueDate'] as String),
-        priority: PriorityLevel.fromName(json['priority'] as String),
-      );
+  factory ProjectTask.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final json = doc.data() ?? {};
+    return ProjectTask(
+      id: doc.id,
+      projectId: json['projectId'] as String? ?? '',
+      departmentId: json['departmentId'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      assigneeName: json['assigneeName'] as String? ?? '',
+      status: TaskStatus.fromName(json['status'] as String? ?? TaskStatus.todo.name),
+      progressPercent: (json['progressPercent'] as num?)?.toDouble() ?? 0,
+      lastUpdated: (json['lastUpdated'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      dueDate: (json['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      priority: PriorityLevel.fromName(json['priority'] as String? ?? PriorityLevel.medium.name),
+    );
+  }
 }

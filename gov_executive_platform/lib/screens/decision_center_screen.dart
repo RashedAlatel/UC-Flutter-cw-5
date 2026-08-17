@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
-import '../models/decision_request.dart';
+import '../models/approval_request.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
@@ -16,16 +16,20 @@ class DecisionCenterScreen extends StatefulWidget {
 }
 
 class _DecisionCenterScreenState extends State<DecisionCenterScreen> {
-  DecisionStatus? _filter = DecisionStatus.pending;
+  DecisionStatus? _statusFilter = DecisionStatus.pending;
+  ApprovalType? _typeFilter;
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    var decisions = store.decisions.where((d) => store.canViewDepartment(d.departmentId)).toList();
-    if (_filter != null) {
-      decisions = decisions.where((d) => d.status == _filter).toList();
+    var requests = store.approvalRequests.toList();
+    if (_statusFilter != null) {
+      requests = requests.where((r) => r.status == _statusFilter).toList();
     }
-    decisions.sort((a, b) {
+    if (_typeFilter != null) {
+      requests = requests.where((r) => r.type == _typeFilter).toList();
+    }
+    requests.sort((a, b) {
       final p = b.priority.index.compareTo(a.priority.index);
       if (p != 0) return p;
       return b.delayImpactDays.compareTo(a.delayImpactDays);
@@ -38,36 +42,50 @@ class _DecisionCenterScreenState extends State<DecisionCenterScreen> {
         children: [
           const Text('مركز القرارات التنفيذية', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
           const SizedBox(height: 4),
-          const Text('جميع الطلبات المعلقة مرتبة حسب الأولوية وتأثير التأخير على المشروع', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+          const Text(
+            'كل طلبات تسجيل الأعضاء وإضافة المشاريع وتعديل المواعيد النهائية والقرارات التنفيذية تمر من هنا، مرتبة حسب الأولوية وتأثير التأخير.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+          ),
           const SizedBox(height: 18),
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
-              _FilterChip(label: 'بانتظار القرار', selected: _filter == DecisionStatus.pending, onTap: () => setState(() => _filter = DecisionStatus.pending)),
-              _FilterChip(label: 'تمت الموافقة', selected: _filter == DecisionStatus.approved, onTap: () => setState(() => _filter = DecisionStatus.approved)),
-              _FilterChip(label: 'مرفوض', selected: _filter == DecisionStatus.rejected, onTap: () => setState(() => _filter = DecisionStatus.rejected)),
-              _FilterChip(label: 'الكل', selected: _filter == null, onTap: () => setState(() => _filter = null)),
+              _Chip(label: 'بانتظار القرار', selected: _statusFilter == DecisionStatus.pending, onTap: () => setState(() => _statusFilter = DecisionStatus.pending)),
+              _Chip(label: 'تمت الموافقة', selected: _statusFilter == DecisionStatus.approved, onTap: () => setState(() => _statusFilter = DecisionStatus.approved)),
+              _Chip(label: 'مرفوض', selected: _statusFilter == DecisionStatus.rejected, onTap: () => setState(() => _statusFilter = DecisionStatus.rejected)),
+              _Chip(label: 'كل الحالات', selected: _statusFilter == null, onTap: () => setState(() => _statusFilter = null)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _Chip(label: 'الكل', selected: _typeFilter == null, onTap: () => setState(() => _typeFilter = null)),
+              for (final t in ApprovalType.values)
+                _Chip(label: t.label, selected: _typeFilter == t, onTap: () => setState(() => _typeFilter = t)),
             ],
           ),
           const SizedBox(height: 18),
-          if (decisions.isEmpty)
+          if (requests.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 30),
               child: Center(child: Text('لا توجد طلبات ضمن هذا التصنيف', style: TextStyle(color: AppColors.textSecondary))),
             )
           else
-            ...decisions.map((d) => _DecisionCard(decision: d)),
+            ...requests.map((r) => _RequestCard(request: r)),
         ],
       ),
     );
   }
 }
 
-class _FilterChip extends StatelessWidget {
+class _Chip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  const _FilterChip({required this.label, required this.selected, required this.onTap});
+  const _Chip({required this.label, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -82,15 +100,24 @@ class _FilterChip extends StatelessWidget {
   }
 }
 
-class _DecisionCard extends StatelessWidget {
-  final DecisionRequest decision;
-  const _DecisionCard({required this.decision});
+class _RequestCard extends StatefulWidget {
+  final ApprovalRequest request;
+  const _RequestCard({required this.request});
+
+  @override
+  State<_RequestCard> createState() => _RequestCardState();
+}
+
+class _RequestCardState extends State<_RequestCard> {
+  bool _busy = false;
+  String? _error;
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final dept = store.departmentById(decision.departmentId);
-    final project = store.projectById(decision.projectId);
+    final r = widget.request;
+    final dept = r.departmentId != null ? store.departmentById(r.departmentId!) : null;
+    final project = r.projectId != null ? store.projectById(r.projectId!) : null;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
@@ -102,47 +129,52 @@ class _DecisionCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                PriorityChip(priority: decision.priority),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(decision.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+                  child: Text(r.type.label, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 11)),
                 ),
-                _DecisionStatusBadge(status: decision.status),
+                const SizedBox(width: 8),
+                PriorityChip(priority: r.priority),
+                const SizedBox(width: 10),
+                Expanded(child: Text(r.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5))),
+                _StatusBadge(status: r.status),
               ],
             ),
             const SizedBox(height: 10),
-            Text(decision.description, style: const TextStyle(fontSize: 12.5, color: AppColors.textPrimary, height: 1.6)),
+            Text(r.description, style: const TextStyle(fontSize: 12.5, color: AppColors.textPrimary, height: 1.6)),
             const SizedBox(height: 12),
             Wrap(
               spacing: 18,
               runSpacing: 8,
               children: [
-                _InfoChip(icon: Icons.account_balance_rounded, text: dept?.name ?? ''),
-                _InfoChip(icon: Icons.folder_copy_outlined, text: project?.name ?? ''),
-                _InfoChip(icon: Icons.person_outline_rounded, text: decision.requestedBy),
-                _InfoChip(icon: Icons.event_outlined, text: Formatters.shortDate(decision.requestedDate)),
-                _InfoChip(
-                  icon: Icons.schedule_rounded,
-                  text: 'أثر التأخير: ${decision.delayImpactDays} يوم',
-                  color: AppColors.danger,
-                ),
+                if (dept != null) _InfoChip(icon: Icons.account_balance_rounded, text: dept.name),
+                if (project != null) _InfoChip(icon: Icons.folder_copy_outlined, text: project.name),
+                _InfoChip(icon: Icons.person_outline_rounded, text: r.requestedByName),
+                _InfoChip(icon: Icons.event_outlined, text: Formatters.shortDate(r.requestedDate)),
+                if (r.delayImpactDays > 0)
+                  _InfoChip(icon: Icons.schedule_rounded, text: 'أثر التأخير: ${r.delayImpactDays} يوم', color: AppColors.danger),
               ],
             ),
-            if (decision.resolutionNote != null && decision.resolutionNote!.isNotEmpty) ...[
+            if (r.resolutionNote != null && r.resolutionNote!.isNotEmpty) ...[
               const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(8)),
-                child: Text(decision.resolutionNote!, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                child: Text(r.resolutionNote!, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
               ),
             ],
-            if (decision.status == DecisionStatus.pending && store.canResolveDecisions) ...[
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+            ],
+            if (r.status == DecisionStatus.pending && store.canApprove(r)) ...[
               const SizedBox(height: 14),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => _resolve(context, decision, DecisionStatus.rejected),
+                      onPressed: _busy ? null : () => _resolve(context, approve: false),
                       icon: const Icon(Icons.close_rounded, size: 17, color: AppColors.danger),
                       label: const Text('رفض', style: TextStyle(color: AppColors.danger)),
                       style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger)),
@@ -151,8 +183,10 @@ class _DecisionCard extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () => _resolve(context, decision, DecisionStatus.approved),
-                      icon: const Icon(Icons.check_rounded, size: 17),
+                      onPressed: _busy ? null : () => _resolve(context, approve: true),
+                      icon: _busy
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.check_rounded, size: 17),
                       label: const Text('موافقة'),
                       style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
                     ),
@@ -166,13 +200,13 @@ class _DecisionCard extends StatelessWidget {
     );
   }
 
-  void _resolve(BuildContext context, DecisionRequest decision, DecisionStatus status) {
+  void _resolve(BuildContext context, {required bool approve}) {
     showDialog(
       context: context,
       builder: (ctx) {
         final noteCtrl = TextEditingController();
         return AlertDialog(
-          title: Text(status == DecisionStatus.approved ? 'الموافقة على القرار' : 'رفض القرار'),
+          title: Text(approve ? 'الموافقة على الطلب' : 'رفض الطلب'),
           content: SizedBox(
             width: 380,
             child: TextField(
@@ -184,9 +218,21 @@ class _DecisionCard extends StatelessWidget {
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
             ElevatedButton(
-              onPressed: () {
-                context.read<AppStore>().resolveDecision(decision, status, note: noteCtrl.text.trim());
+              onPressed: () async {
                 Navigator.pop(ctx);
+                setState(() {
+                  _busy = true;
+                  _error = null;
+                });
+                final store = context.read<AppStore>();
+                final error = approve
+                    ? await store.approveRequest(widget.request, note: noteCtrl.text.trim())
+                    : await store.rejectRequest(widget.request, note: noteCtrl.text.trim());
+                if (!mounted) return;
+                setState(() {
+                  _busy = false;
+                  _error = error;
+                });
               },
               child: const Text('تأكيد'),
             ),
@@ -197,9 +243,9 @@ class _DecisionCard extends StatelessWidget {
   }
 }
 
-class _DecisionStatusBadge extends StatelessWidget {
+class _StatusBadge extends StatelessWidget {
   final DecisionStatus status;
-  const _DecisionStatusBadge({required this.status});
+  const _StatusBadge({required this.status});
 
   @override
   Widget build(BuildContext context) {

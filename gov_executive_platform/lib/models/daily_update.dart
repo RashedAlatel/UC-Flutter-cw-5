@@ -1,7 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class DailyUpdate {
   final String id;
   final String projectId;
   final String departmentId;
+  final String authorUid;
   final String authorName;
   final DateTime date;
   final String achievements; // الإنجازات
@@ -15,6 +18,7 @@ class DailyUpdate {
     required this.id,
     required this.projectId,
     required this.departmentId,
+    required this.authorUid,
     required this.authorName,
     required this.date,
     required this.achievements,
@@ -25,12 +29,12 @@ class DailyUpdate {
     required this.progressPercent,
   });
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
+  Map<String, dynamic> toMap() => {
         'projectId': projectId,
         'departmentId': departmentId,
+        'authorUid': authorUid,
         'authorName': authorName,
-        'date': date.toIso8601String(),
+        'date': Timestamp.fromDate(date),
         'achievements': achievements,
         'completedTasks': completedTasks,
         'newRisks': newRisks,
@@ -39,17 +43,21 @@ class DailyUpdate {
         'progressPercent': progressPercent,
       };
 
-  factory DailyUpdate.fromJson(Map<String, dynamic> json) => DailyUpdate(
-        id: json['id'] as String,
-        projectId: json['projectId'] as String,
-        departmentId: json['departmentId'] as String,
-        authorName: json['authorName'] as String,
-        date: DateTime.parse(json['date'] as String),
-        achievements: json['achievements'] as String,
-        completedTasks: List<String>.from(json['completedTasks'] as List),
-        newRisks: List<String>.from(json['newRisks'] as List),
-        blockers: List<String>.from(json['blockers'] as List),
-        decisionsRequired: List<String>.from(json['decisionsRequired'] as List),
-        progressPercent: (json['progressPercent'] as num).toDouble(),
-      );
+  factory DailyUpdate.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final json = doc.data() ?? {};
+    return DailyUpdate(
+      id: doc.id,
+      projectId: json['projectId'] as String? ?? '',
+      departmentId: json['departmentId'] as String? ?? '',
+      authorUid: json['authorUid'] as String? ?? '',
+      authorName: json['authorName'] as String? ?? '',
+      date: (json['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      achievements: json['achievements'] as String? ?? '',
+      completedTasks: List<String>.from(json['completedTasks'] as List? ?? const []),
+      newRisks: List<String>.from(json['newRisks'] as List? ?? const []),
+      blockers: List<String>.from(json['blockers'] as List? ?? const []),
+      decisionsRequired: List<String>.from(json['decisionsRequired'] as List? ?? const []),
+      progressPercent: (json['progressPercent'] as num?)?.toDouble() ?? 0,
+    );
+  }
 }

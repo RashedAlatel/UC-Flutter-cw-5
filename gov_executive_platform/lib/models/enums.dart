@@ -22,6 +22,30 @@ enum UserRole {
       UserRole.values.firstWhere((e) => e.name == name, orElse: () => UserRole.projectOfficer);
 }
 
+/// حالة اعتماد حساب المستخدم
+enum UserStatus {
+  pending, // بانتظار موافقة مسؤول النظام
+  approved, // مفعّل
+  rejected, // مرفوض
+  suspended; // موقوف
+
+  String get label {
+    switch (this) {
+      case UserStatus.pending:
+        return 'بانتظار الموافقة';
+      case UserStatus.approved:
+        return 'مفعّل';
+      case UserStatus.rejected:
+        return 'مرفوض';
+      case UserStatus.suspended:
+        return 'موقوف';
+    }
+  }
+
+  static UserStatus fromName(String name) =>
+      UserStatus.values.firstWhere((e) => e.name == name, orElse: () => UserStatus.pending);
+}
+
 enum ProjectStatus {
   onTrack, // على المسار
   atRisk, // مهدد بالخطر
@@ -152,4 +176,46 @@ enum ReportPeriod {
 
   static ReportPeriod fromName(String name) =>
       ReportPeriod.values.firstWhere((e) => e.name == name, orElse: () => ReportPeriod.weekly);
+}
+
+/// أنواع طلبات الموافقة التي تمر عبر مركز القرارات التنفيذية
+enum ApprovalType {
+  registration, // تسجيل عضو جديد
+  projectCreate, // إضافة مشروع جديد
+  deadlineChange, // تعديل موعد نهائي لمشروع
+  decision; // قرار تنفيذي عام مطلوب من القيادة
+
+  String get label {
+    switch (this) {
+      case ApprovalType.registration:
+        return 'تسجيل عضو جديد';
+      case ApprovalType.projectCreate:
+        return 'إضافة مشروع جديد';
+      case ApprovalType.deadlineChange:
+        return 'تعديل موعد نهائي';
+      case ApprovalType.decision:
+        return 'قرار تنفيذي';
+    }
+  }
+
+  static ApprovalType fromName(String name) =>
+      ApprovalType.values.firstWhere((e) => e.name == name, orElse: () => ApprovalType.decision);
+}
+
+/// قنوات إرسال الإشعارات للمستخدمين
+enum NotifyChannel {
+  email,
+  whatsapp,
+  both;
+
+  String get label {
+    switch (this) {
+      case NotifyChannel.email:
+        return 'البريد الإلكتروني';
+      case NotifyChannel.whatsapp:
+        return 'واتساب';
+      case NotifyChannel.both:
+        return 'البريد وواتساب معاً';
+    }
+  }
 }

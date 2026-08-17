@@ -1,13 +1,19 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'data/app_store.dart';
+import 'firebase_options.dart';
+import 'models/enums.dart';
 import 'screens/login_screen.dart';
+import 'screens/pending_approval_screen.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_shell.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const GovExecutivePlatformApp());
 }
 
@@ -48,8 +54,12 @@ class _RootGate extends StatelessWidget {
         body: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
-    if (store.currentUser == null) {
+    final user = store.currentUser;
+    if (user == null) {
       return const LoginScreen();
+    }
+    if (user.status != UserStatus.approved) {
+      return const PendingApprovalScreen();
     }
     return const AppShell();
   }

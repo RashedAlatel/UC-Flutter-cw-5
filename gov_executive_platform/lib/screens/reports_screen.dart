@@ -97,7 +97,7 @@ class _ReportsList extends StatelessWidget {
         children: [
           if (canGenerate)
             ElevatedButton.icon(
-              onPressed: () => context.read<AppStore>().generateReport(period),
+              onPressed: () async => context.read<AppStore>().generateReport(period),
               icon: const Icon(Icons.auto_awesome_rounded, size: 18),
               label: Text('توليد تقرير ${period.label} جديد'),
             ),
@@ -126,6 +126,8 @@ class _ReportCard extends StatefulWidget {
 
 class _ReportCardState extends State<_ReportCard> {
   late TextEditingController _commentCtrl;
+  bool _dirty = false;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -137,6 +139,16 @@ class _ReportCardState extends State<_ReportCard> {
   void dispose() {
     _commentCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveComment() async {
+    setState(() => _saving = true);
+    await context.read<AppStore>().updateReportComment(widget.report, _commentCtrl.text);
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _dirty = false;
+    });
   }
 
   @override
@@ -219,8 +231,21 @@ class _ReportCardState extends State<_ReportCard> {
               maxLines: 3,
               enabled: widget.editable,
               decoration: const InputDecoration(hintText: 'أضف ملاحظات أو توجيهات تنفيذية على هذا التقرير...'),
-              onChanged: (v) => context.read<AppStore>().updateReportComment(r, v),
+              onChanged: (v) => setState(() => _dirty = true),
             ),
+            if (widget.editable && _dirty) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ElevatedButton.icon(
+                  onPressed: _saving ? null : _saveComment,
+                  icon: _saving
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.save_outlined, size: 16),
+                  label: const Text('حفظ التعليق'),
+                ),
+              ),
+            ],
           ],
         ),
       ),

@@ -130,8 +130,8 @@ class _KpiGrid extends StatelessWidget {
           color: const Color(0xFFE0692B),
         ),
         KpiCard(
-          title: 'قرارات بانتظار القيادة',
-          value: '${store.pendingDecisionsCount}',
+          title: 'طلبات بانتظار القيادة',
+          value: '${store.pendingApprovalsCount}',
           icon: Icons.gavel_rounded,
           color: AppColors.info,
         ),
@@ -179,10 +179,7 @@ class _PendingDecisionsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final decisions = store.pendingDecisionsSorted
-        .where((d) => store.canViewDepartment(d.departmentId))
-        .take(5)
-        .toList();
+    final decisions = store.pendingApprovalsSorted.take(5).toList();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -213,7 +210,7 @@ class _PendingDecisionsCard extends StatelessWidget {
               )
             else
               ...decisions.map((d) {
-                final dept = store.departmentById(d.departmentId);
+                final dept = d.departmentId != null ? store.departmentById(d.departmentId!) : null;
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Row(
@@ -225,10 +222,12 @@ class _PendingDecisionsCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(d.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                            Text('[${d.type.label}] ${d.title}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                             const SizedBox(height: 2),
-                            Text('${dept?.name ?? ''} · أثر التأخير: ${d.delayImpactDays} يوم',
-                                style: const TextStyle(color: AppColors.textSecondary, fontSize: 11.5)),
+                            Text(
+                              '${dept?.name ?? 'عام'}${d.delayImpactDays > 0 ? ' · أثر التأخير: ${d.delayImpactDays} يوم' : ''}',
+                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 11.5),
+                            ),
                           ],
                         ),
                       ),

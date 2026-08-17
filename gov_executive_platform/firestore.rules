@@ -1,0 +1,117 @@
+rules_version = '2';
+
+// قواعد أمان قاعدة البيانات للمنصة التنفيذية الحكومية.
+// المصدر الوحيد للحقيقة بخصوص الصلاحيات هو Custom Claims على حساب Firebase Auth
+// (role, departmentId, approved) والتي لا تُضبط إلا عبر Cloud Functions بصلاحيات المسؤول،
+// بحيث لا يستطيع أي مستخدم من جهة العميل ترقية صلاحياته بنفسه.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isApproved() { return isSignedIn() && request.auth.token.approved == true; }
+    function role() { return request.auth.token.role; }
+    function isAdmin() { return isApproved() && role() == 'systemAdmin'; }
+    function isExecutive() { return isApproved() && role() == 'executiveViewer'; }
+    function canViewAll() { return isAdmin() || isExecutive(); }
+    function myDept() { return request.auth.token.departmentId; }
+    function isMyDept(deptId) { return isApproved() && deptId != null && myDept() == deptId; }
+    function canEditDept(deptId) { return isAdmin() || isMyDept(deptId); }
+
+    // ------------------------- المستخدمون -------------------------
+    match /users/{uid} {
+      allow get: if isSignedIn() && (request.auth.uid == uid || isApproved());
+      allow list: if isApproved();
+      // التسجيل الذاتي: يُنشئ المستخدم سجله الخاص فقط بحالة "بانتظار الموافقة" ودور أساسي،
+      // لا يمكنه منح نفسه دوراً أعلى أو حالة معتمدة مباشرة.
+      allow create: if isSignedIn()
+                    && request.auth.uid == uid
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.role == 'projectOfficer';
+      // أي تغيير على الدور/الحالة/الإدارة لا يتم إلا عبر مسؤول النظام (عادة عبر Cloud Function).
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- الإدارات -------------------------
+    // قراءة عامة (حتى قبل تسجيل الدخول) لأن أسماء الإدارات تُعرض في نموذج إنشاء الحساب
+    // لاختيار الإدارة المطلوبة؛ لا تحتوي على أي بيانات حساسة.
+    match /departments/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ------------------------- المشاريع -------------------------
+    match /projects/{id} {
+      allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
+      // لا يُنشأ أي مشروع مباشرة من العميل؛ الإنشاء يتم فقط عبر Cloud Function
+      // بعد اعتماد طلب "إضافة مشروع" من مسؤول النظام.
+      allow create: if false;
+      // يمكن لمدير/ضابط الإدارة تحديث حقول التقدم والحالة فقط، دون المساس بالموعد النهائي
+      // أو نقل المشروع لإدارة أخرى - أي تغيير في الموعد النهائي يمر عبر طلب موافقة منفصل.
+      allow update: if isAdmin()
+                    || (canEditDept(resource.data.departmentId)
+                        && !request.resource.data.diff(resource.data).affectedKeys()
+                              .hasAny(['dueDate', 'departmentId', 'createdByUid']));
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- مهام المشاريع -------------------------
+    match /tasks/{id} {
+      allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
+      allow create: if canEditDept(request.resource.data.departmentId);
+      allow update: if canEditDept(resource.data.departmentId);
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- التحديثات اليومية (سجل غير قابل للتعديل) -------------------------
+    match /dailyUpdates/{id} {
+      allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
+      allow create: if canEditDept(request.resource.data.departmentId);
+      allow update, delete: if false;
+    }
+
+    // ------------------------- المخاطر والعوائق -------------------------
+    match /risks/{id} {
+      allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
+      allow create: if canEditDept(request.resource.data.departmentId);
+      allow update: if canEditDept(resource.data.departmentId);
+      allow delete: if isAdmin();
+    }
+
+    match /blockers/{id} {
+      allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
+      allow create: if canEditDept(request.resource.data.departmentId);
+      allow update: if canEditDept(resource.data.departmentId);
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- طلبات الموافقة (مركز القرارات التنفيذية) -------------------------
+    // تسجيل عضو / إضافة مشروع / تعديل موعد نهائي / قرار تنفيذي عام.
+    match /approvalRequests/{id} {
+      allow read: if isApproved()
+                  && (isAdmin() || isExecutive()
+                      || resource.data.requestedByUid == request.auth.uid
+                      || isMyDept(resource.data.departmentId));
+      // يُسمح بالإنشاء حتى لمستخدم غير معتمد بعد (حالة التسجيل الذاتي).
+      allow create: if isSignedIn();
+      // لا يُعدَّل حقل الحالة (اعتماد/رفض) مباشرة من العميل بأي حال؛
+      // الاعتماد الفعلي يتم حصرياً عبر Cloud Functions (approveRequest / rejectRequest)
+      // التي تستخدم صلاحيات المسؤول الخلفية وتتحقق من الدور فعلياً على الخادم.
+      allow update, delete: if false;
+    }
+
+    // ------------------------- سجل التدقيق -------------------------
+    match /auditLog/{id} {
+      allow read: if isAdmin();
+      allow create: if isApproved();
+      allow update, delete: if false;
+    }
+
+    // ------------------------- التقارير -------------------------
+    match /reports/{id} {
+      allow read: if isApproved();
+      allow create, update: if isAdmin() || isExecutive();
+      allow delete: if isAdmin();
+    }
+  }
+}

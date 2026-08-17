@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../theme/app_theme.dart';
+import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -12,29 +13,32 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _usernameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   String? _error;
   bool _obscure = true;
+  bool _busy = false;
 
-  static const _demoAccounts = [
-    ('admin', 'admin123', 'مسؤول نظام'),
-    ('exec', 'exec123', 'مستخدم تنفيذي'),
-    ('mgr.it', 'mgr123', 'مدير إدارة تقنية المعلومات'),
-    ('officer.it', 'off123', 'ضابط مشروع'),
-  ];
-
-  void _submit() {
-    final store = context.read<AppStore>();
-    final ok = store.login(_usernameCtrl.text, _passwordCtrl.text);
+  Future<void> _submit() async {
+    if (_emailCtrl.text.trim().isEmpty || _passwordCtrl.text.isEmpty) {
+      setState(() => _error = 'الرجاء إدخال البريد الإلكتروني وكلمة المرور');
+      return;
+    }
     setState(() {
-      _error = ok ? null : 'اسم المستخدم أو كلمة المرور غير صحيحة';
+      _busy = true;
+      _error = null;
+    });
+    final error = await context.read<AppStore>().login(_emailCtrl.text, _passwordCtrl.text);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = error;
     });
   }
 
   @override
   void dispose() {
-    _usernameCtrl.dispose();
+    _emailCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
   }
@@ -120,9 +124,10 @@ class _LoginScreenState extends State<LoginScreen> {
           const Text('الرجاء إدخال بيانات الدخول الخاصة بك', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           const SizedBox(height: 24),
           TextField(
-            controller: _usernameCtrl,
+            controller: _emailCtrl,
+            keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(labelText: 'اسم المستخدم', prefixIcon: Icon(Icons.person_outline_rounded)),
+            decoration: const InputDecoration(labelText: 'البريد الإلكتروني', prefixIcon: Icon(Icons.mail_outline_rounded)),
           ),
           const SizedBox(height: 14),
           TextField(
@@ -144,29 +149,20 @@ class _LoginScreenState extends State<LoginScreen> {
           ],
           const SizedBox(height: 18),
           ElevatedButton(
-            onPressed: _submit,
-            child: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 2),
-              child: Text('دخول', style: TextStyle(fontWeight: FontWeight.w700)),
+            onPressed: _busy ? null : _submit,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: _busy
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('دخول', style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ),
-          const SizedBox(height: 22),
-          const Text('حسابات تجريبية للدخول السريع:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.textSecondary)),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _demoAccounts.map((a) {
-              return ActionChip(
-                label: Text(a.$3, style: const TextStyle(fontSize: 11.5)),
-                backgroundColor: AppColors.background,
-                onPressed: () {
-                  _usernameCtrl.text = a.$1;
-                  _passwordCtrl.text = a.$2;
-                  _submit();
-                },
-              );
-            }).toList(),
+          const SizedBox(height: 16),
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SignupScreen())),
+              child: const Text('ليس لديك حساب؟ إنشاء حساب جديد'),
+            ),
           ),
         ],
       ),

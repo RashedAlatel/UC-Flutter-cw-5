@@ -20,6 +20,7 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
   final List<String> _blockers = [];
   final List<String> _decisions = [];
   late double _progress;
+  bool _busy = false;
 
   @override
   void initState() {
@@ -33,22 +34,30 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (_achievementsCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الرجاء إدخال ملخص الإنجازات')));
       return;
     }
-    context.read<AppStore>().addDailyUpdate(
-          project: widget.project,
-          achievements: _achievementsCtrl.text.trim(),
-          completedTasks: _completedTasks,
-          newRisks: _newRisks,
-          blockersText: _blockers,
-          decisionsRequired: _decisions,
-          progressPercent: _progress,
-        );
-    Navigator.of(context).pop();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ التحديث اليومي بنجاح')));
+    setState(() => _busy = true);
+    try {
+      await context.read<AppStore>().addDailyUpdate(
+            project: widget.project,
+            achievements: _achievementsCtrl.text.trim(),
+            completedTasks: _completedTasks,
+            newRisks: _newRisks,
+            blockersText: _blockers,
+            decisionsRequired: _decisions,
+            progressPercent: _progress,
+          );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ التحديث اليومي بنجاح')));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر حفظ التحديث، حاول مرة أخرى')));
+    }
   }
 
   @override
@@ -161,8 +170,10 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
                   Expanded(
                     flex: 2,
                     child: ElevatedButton(
-                      onPressed: _submit,
-                      child: const Text('حفظ التحديث'),
+                      onPressed: _busy ? null : _submit,
+                      child: _busy
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('حفظ التحديث'),
                     ),
                   ),
                 ],

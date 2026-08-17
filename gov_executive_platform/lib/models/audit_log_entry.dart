@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class AuditLogEntry {
   final String id;
   final String userName;
@@ -13,19 +15,21 @@ class AuditLogEntry {
     required this.timestamp,
   });
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
+  Map<String, dynamic> toMap() => {
         'userName': userName,
         'action': action,
         'details': details,
-        'timestamp': timestamp.toIso8601String(),
+        'timestamp': Timestamp.fromDate(timestamp),
       };
 
-  factory AuditLogEntry.fromJson(Map<String, dynamic> json) => AuditLogEntry(
-        id: json['id'] as String,
-        userName: json['userName'] as String,
-        action: json['action'] as String,
-        details: json['details'] as String,
-        timestamp: DateTime.parse(json['timestamp'] as String),
-      );
+  factory AuditLogEntry.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final json = doc.data() ?? {};
+    return AuditLogEntry(
+      id: doc.id,
+      userName: json['userName'] as String? ?? '',
+      action: json['action'] as String? ?? '',
+      details: json['details'] as String? ?? '',
+      timestamp: (json['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
 }

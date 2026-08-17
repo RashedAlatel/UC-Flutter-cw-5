@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'enums.dart';
 
 class Project {
@@ -11,6 +13,7 @@ class Project {
   final PriorityLevel priority;
   final double progressPercent; // 0-100
   final int delayDays; // أيام التأخير عن الخطة (0 = لا يوجد تأخير)
+  final String createdByUid;
 
   const Project({
     required this.id,
@@ -23,6 +26,7 @@ class Project {
     required this.priority,
     required this.progressPercent,
     required this.delayDays,
+    this.createdByUid = '',
   });
 
   Project copyWith({
@@ -46,32 +50,37 @@ class Project {
       priority: priority ?? this.priority,
       progressPercent: progressPercent ?? this.progressPercent,
       delayDays: delayDays ?? this.delayDays,
+      createdByUid: createdByUid,
     );
   }
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
+  Map<String, dynamic> toMap() => {
         'departmentId': departmentId,
         'name': name,
         'description': description,
-        'startDate': startDate.toIso8601String(),
-        'dueDate': dueDate.toIso8601String(),
+        'startDate': Timestamp.fromDate(startDate),
+        'dueDate': Timestamp.fromDate(dueDate),
         'status': status.name,
         'priority': priority.name,
         'progressPercent': progressPercent,
         'delayDays': delayDays,
+        'createdByUid': createdByUid,
       };
 
-  factory Project.fromJson(Map<String, dynamic> json) => Project(
-        id: json['id'] as String,
-        departmentId: json['departmentId'] as String,
-        name: json['name'] as String,
-        description: json['description'] as String,
-        startDate: DateTime.parse(json['startDate'] as String),
-        dueDate: DateTime.parse(json['dueDate'] as String),
-        status: ProjectStatus.fromName(json['status'] as String),
-        priority: PriorityLevel.fromName(json['priority'] as String),
-        progressPercent: (json['progressPercent'] as num).toDouble(),
-        delayDays: json['delayDays'] as int,
-      );
+  factory Project.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final json = doc.data() ?? {};
+    return Project(
+      id: doc.id,
+      departmentId: json['departmentId'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      startDate: (json['startDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      dueDate: (json['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      status: ProjectStatus.fromName(json['status'] as String? ?? ProjectStatus.onTrack.name),
+      priority: PriorityLevel.fromName(json['priority'] as String? ?? PriorityLevel.medium.name),
+      progressPercent: (json['progressPercent'] as num?)?.toDouble() ?? 0,
+      delayDays: (json['delayDays'] as num?)?.toInt() ?? 0,
+      createdByUid: json['createdByUid'] as String? ?? '',
+    );
+  }
 }

@@ -1,102 +1,265 @@
-import 'dart:convert';
+import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
 
 import '../models/app_user.dart';
+import '../models/approval_request.dart';
 import '../models/audit_log_entry.dart';
 import '../models/blocker.dart';
 import '../models/daily_update.dart';
-import '../models/decision_request.dart';
 import '../models/department.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
 import '../models/report.dart';
 import '../models/risk.dart';
-import 'seed_data.dart';
+import '../utils/formatters.dart';
+import 'default_departments.dart';
 
-/// طبقة إدارة الحالة المركزية للمنصة (بيانات + منطق أعمال + صلاحيات).
-/// تُخزَّن البيانات محلياً عبر SharedPreferences، ويمكن استبدالها لاحقاً
-/// بخدمة API حقيقية دون التأثير على واجهات المستخدم.
+/// طبقة إدارة الحالة المركزية للمنصة، مبنية بالكامل على Firebase:
+/// - المصادقة: Firebase Authentication (بريد إلكتروني/كلمة مرور)
+/// - البيانات: Cloud Firestore (استماع لحظي real-time لكل المجموعات)
+/// - العمليات الحساسة (اعتماد الطلبات، إرسال الإشعارات): Cloud Functions
+///
+/// لا تُجرى أي عملية اعتماد (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي) مباشرة من
+/// هذا الملف؛ كل ما يفعله الطلب هو إنشاء وثيقة "طلب موافقة" في Firestore، والتنفيذ
+/// الفعلي يتم حصرياً داخل Cloud Functions بعد تحقق الخادم من صلاحية مسؤول النظام.
 class AppStore extends ChangeNotifier {
-  static const _prefsKey = 'gov_platform_state_v1';
-  static const _uuid = Uuid();
+  final _auth = fb_auth.FirebaseAuth.instance;
+  final _db = FirebaseFirestore.instance;
+  final _functions = FirebaseFunctions.instance;
 
   AppUser? currentUser;
+  bool _ready = false;
+  bool get ready => _ready;
 
-  List<AppUser> users = [];
   List<Department> departments = [];
   List<Project> projects = [];
   List<ProjectTask> tasks = [];
   List<ProjectRisk> risks = [];
   List<ProjectBlocker> blockers = [];
-  List<DecisionRequest> decisions = [];
   List<DailyUpdate> dailyUpdates = [];
+  List<ApprovalRequest> approvalRequests = [];
   List<AuditLogEntry> auditLog = [];
   List<ReportSnapshot> reports = [];
+  List<AppUser> users = []; // يُملأ فقط لمسؤول النظام (إدارة المستخدمين)
 
-  bool _ready = false;
-  bool get ready => _ready;
+  StreamSubscription<fb_auth.User?>? _authSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
+  final List<StreamSubscription> _dataSubs = [];
 
   Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefsKey);
-    if (raw != null) {
-      try {
-        _loadFromJson(jsonDecode(raw) as Map<String, dynamic>);
-        _ready = true;
-        notifyListeners();
-        return;
-      } catch (_) {
-        // في حال تلف البيانات المخزنة، أعد التهيئة من البيانات الافتراضية
-      }
-    }
-    _seed();
-    _ready = true;
-    notifyListeners();
+    _authSub = _auth.authStateChanges().listen(_onAuthChanged);
   }
 
-  void _seed() {
-    departments = SeedData.departments();
-    users = SeedData.users();
-    projects = SeedData.projects();
-    tasks = SeedData.tasks();
-    risks = SeedData.risks();
-    blockers = SeedData.blockers();
-    decisions = SeedData.decisions();
-    dailyUpdates = SeedData.dailyUpdates();
-    auditLog = [
-      AuditLogEntry(
-        id: _uuid.v4(),
-        userName: 'النظام',
-        action: 'تهيئة المنصة',
-        details: 'تم تحميل البيانات الأولية للمنصة التنفيذية الحكومية.',
-        timestamp: DateTime.now(),
-      ),
-    ];
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    _userDocSub?.cancel();
+    _cancelDataSubs();
+    super.dispose();
+  }
+
+  void _cancelDataSubs() {
+    for (final s in _dataSubs) {
+      s.cancel();
+    }
+    _dataSubs.clear();
+    departments = [];
+    projects = [];
+    tasks = [];
+    risks = [];
+    blockers = [];
+    dailyUpdates = [];
+    approvalRequests = [];
+    auditLog = [];
+    reports = [];
+    users = [];
+  }
+
+  Future<void> _onAuthChanged(fb_auth.User? user) async {
+    await _userDocSub?.cancel();
+    _cancelDataSubs();
+    if (user == null) {
+      currentUser = null;
+      _ready = true;
+      notifyListeners();
+      return;
+    }
+    _userDocSub = _db.collection('users').doc(user.uid).snapshots().listen((doc) async {
+      final wasApproved = currentUser?.status == UserStatus.approved;
+      currentUser = doc.exists ? AppUser.fromDoc(doc) : null;
+      if (!wasApproved && currentUser?.status == UserStatus.approved) {
+        // تحديث Custom Claims المخزّنة في التوكن بعد اعتماد الحساب لأول مرة
+        await user.getIdToken(true);
+      }
+      if (currentUser?.status == UserStatus.approved) {
+        _subscribeAppData();
+      } else {
+        _cancelDataSubs();
+      }
+      _ready = true;
+      notifyListeners();
+    }, onError: (_) {
+      _ready = true;
+      notifyListeners();
+    });
+  }
+
+  void _subscribeAppData() {
+    final scopedDept = canViewAllDepartments ? null : currentUser?.departmentId;
+
+    _dataSubs.add(_db.collection('departments').orderBy('name').snapshots().listen((snap) {
+      departments = snap.docs.map(Department.fromDoc).toList();
+      notifyListeners();
+    }));
+
+    Query<Map<String, dynamic>> scoped(String collection) {
+      final col = _db.collection(collection);
+      return scopedDept == null ? col : col.where('departmentId', isEqualTo: scopedDept);
+    }
+
+    _dataSubs.add(scoped('projects').snapshots().listen((snap) {
+      projects = snap.docs.map(Project.fromDoc).toList();
+      notifyListeners();
+    }));
+    _dataSubs.add(scoped('tasks').snapshots().listen((snap) {
+      tasks = snap.docs.map(ProjectTask.fromDoc).toList();
+      notifyListeners();
+    }));
+    _dataSubs.add(scoped('risks').snapshots().listen((snap) {
+      risks = snap.docs.map(ProjectRisk.fromDoc).toList();
+      notifyListeners();
+    }));
+    _dataSubs.add(scoped('blockers').snapshots().listen((snap) {
+      blockers = snap.docs.map(ProjectBlocker.fromDoc).toList();
+      notifyListeners();
+    }));
+    _dataSubs.add(scoped('dailyUpdates').snapshots().listen((snap) {
+      dailyUpdates = snap.docs.map(DailyUpdate.fromDoc).toList();
+      notifyListeners();
+    }));
+    _dataSubs.add(_db.collection('approvalRequests').snapshots().listen((snap) {
+      approvalRequests = snap.docs
+          .map(ApprovalRequest.fromDoc)
+          .where((r) => canViewAll(r))
+          .toList();
+      notifyListeners();
+    }));
+    _dataSubs.add(_db.collection('reports').snapshots().listen((snap) {
+      reports = snap.docs.map(ReportSnapshot.fromDoc).toList()
+        ..sort((a, b) => b.generatedDate.compareTo(a.generatedDate));
+      notifyListeners();
+    }));
+
+    if (canViewAuditLog) {
+      _dataSubs.add(_db.collection('auditLog').orderBy('timestamp', descending: true).limit(300).snapshots().listen((snap) {
+        auditLog = snap.docs.map(AuditLogEntry.fromDoc).toList();
+        notifyListeners();
+      }));
+    }
+    if (canManageUsers) {
+      _dataSubs.add(_db.collection('users').orderBy('createdAt', descending: true).snapshots().listen((snap) {
+        users = snap.docs.map(AppUser.fromDoc).toList();
+        notifyListeners();
+      }));
+    }
+  }
+
+  bool canViewAll(ApprovalRequest r) {
+    if (isAdmin || isExecutive) return true;
+    if (r.requestedByUid == currentUser?.id) return true;
+    if (r.departmentId != null && r.departmentId == currentUser?.departmentId) return true;
+    return false;
   }
 
   // ------------------------- المصادقة -------------------------
 
-  bool login(String username, String password) {
-    final match = users.where(
-      (u) => u.username.toLowerCase() == username.trim().toLowerCase() && u.password == password && u.active,
-    );
-    if (match.isEmpty) return false;
-    currentUser = match.first;
-    _log('تسجيل دخول', 'قام ${currentUser!.name} بتسجيل الدخول');
-    notifyListeners();
-    return true;
+  Future<String?> login(String email, String password) async {
+    try {
+      await _auth.signInWithEmailAndPassword(email: email.trim(), password: password);
+      return null;
+    } on fb_auth.FirebaseAuthException catch (e) {
+      return _mapAuthError(e);
+    } catch (_) {
+      return 'تعذر تسجيل الدخول، تأكد من إعداد Firebase بشكل صحيح.';
+    }
   }
 
-  void logout() {
-    if (currentUser != null) {
-      _log('تسجيل خروج', 'قام ${currentUser!.name} بتسجيل الخروج');
+  Future<String?> signUp({
+    required String name,
+    required String email,
+    required String phone,
+    required String password,
+    required UserRole requestedRole,
+    String? requestedDepartmentId,
+  }) async {
+    try {
+      final cred = await _auth.createUserWithEmailAndPassword(email: email.trim(), password: password);
+      final uid = cred.user!.uid;
+      final now = DateTime.now();
+      final user = AppUser(
+        id: uid,
+        name: name,
+        email: email.trim(),
+        phone: phone,
+        role: UserRole.projectOfficer,
+        departmentId: requestedDepartmentId,
+        status: UserStatus.pending,
+        createdAt: now,
+      );
+      await _db.collection('users').doc(uid).set(user.toMap());
+      await _db.collection('approvalRequests').add(ApprovalRequest(
+            id: '',
+            type: ApprovalType.registration,
+            status: DecisionStatus.pending,
+            title: 'طلب تسجيل عضو جديد: $name',
+            description: 'الدور المطلوب: ${requestedRole.label}',
+            priority: PriorityLevel.medium,
+            delayImpactDays: 0,
+            departmentId: requestedDepartmentId,
+            requestedByUid: uid,
+            requestedByName: name,
+            requestedDate: now,
+            payload: {
+              'uid': uid,
+              'name': name,
+              'email': email.trim(),
+              'phone': phone,
+              'requestedRole': requestedRole.name,
+              'requestedDepartmentId': requestedDepartmentId,
+            },
+          ).toMap());
+      return null;
+    } on fb_auth.FirebaseAuthException catch (e) {
+      return _mapAuthError(e);
     }
-    currentUser = null;
-    notifyListeners();
+  }
+
+  Future<void> logout() async {
+    await _auth.signOut();
+  }
+
+  String _mapAuthError(fb_auth.FirebaseAuthException e) {
+    switch (e.code) {
+      case 'invalid-credential':
+      case 'wrong-password':
+      case 'user-not-found':
+        return 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+      case 'email-already-in-use':
+        return 'هذا البريد الإلكتروني مسجّل مسبقاً';
+      case 'weak-password':
+        return 'كلمة المرور ضعيفة جداً (6 أحرف على الأقل)';
+      case 'invalid-email':
+        return 'صيغة البريد الإلكتروني غير صحيحة';
+      case 'too-many-requests':
+        return 'محاولات كثيرة، الرجاء المحاولة لاحقاً';
+      default:
+        return e.message ?? 'حدث خطأ غير متوقع';
+    }
   }
 
   // ------------------------- الصلاحيات -------------------------
@@ -109,7 +272,13 @@ class AppStore extends ChangeNotifier {
   bool get canViewAllDepartments => isAdmin || isExecutive;
   bool get canManageUsers => isAdmin;
   bool get canViewAuditLog => isAdmin;
-  bool get canResolveDecisions => isAdmin || isExecutive;
+
+  /// اعتماد "قرار تنفيذي" عام يجوز للمسؤول أو المستخدم التنفيذي.
+  /// أما تسجيل عضو / إضافة مشروع / تعديل موعد نهائي فلا يعتمدها إلا مسؤول النظام حصرياً.
+  bool canApprove(ApprovalRequest r) {
+    if (r.type == ApprovalType.decision) return isAdmin || isExecutive;
+    return isAdmin;
+  }
 
   bool canEditProject(Project project) {
     if (currentUser == null) return false;
@@ -119,6 +288,12 @@ class AppStore extends ChangeNotifier {
   }
 
   bool canSubmitDailyUpdate(Project project) => canEditProject(project);
+
+  bool canRequestNewProject(String departmentId) {
+    if (currentUser == null) return false;
+    if (isAdmin) return true;
+    return isManager && currentUser!.departmentId == departmentId;
+  }
 
   bool canViewDepartment(String departmentId) {
     if (currentUser == null) return false;
@@ -160,13 +335,12 @@ class AppStore extends ChangeNotifier {
   List<ProjectBlocker> blockersForProject(String projectId) =>
       blockers.where((b) => b.projectId == projectId).toList();
 
-  List<DecisionRequest> decisionsForProject(String projectId) =>
-      decisions.where((d) => d.projectId == projectId).toList();
+  List<ApprovalRequest> requestsForProject(String projectId) =>
+      approvalRequests.where((r) => r.projectId == projectId).toList();
 
   List<DailyUpdate> updatesForProject(String projectId) =>
       dailyUpdates.where((u) => u.projectId == projectId).toList()..sort((a, b) => b.date.compareTo(a.date));
 
-  /// نسبة إنجاز الإدارة = متوسط نسب إنجاز مشاريعها
   double departmentProgress(String departmentId) {
     final list = projectsForDepartment(departmentId);
     if (list.isEmpty) return 0;
@@ -186,14 +360,12 @@ class AppStore extends ChangeNotifier {
       .where((b) => projectById(b.projectId)?.departmentId == departmentId && b.status == ItemStatus.open)
       .length;
 
-  /// ترتيب الإدارات حسب الأداء (الأعلى إنجازاً أولاً)
   List<MapEntry<Department, double>> get departmentRanking {
     final list = departments.map((d) => MapEntry(d, departmentProgress(d.id))).toList();
     list.sort((a, b) => b.value.compareTo(a.value));
     return list;
   }
 
-  // KPIs المركزية
   double get overallProgress {
     if (projects.isEmpty) return 0;
     return projects.map((p) => p.progressPercent).reduce((a, b) => a + b) / projects.length;
@@ -206,10 +378,10 @@ class AppStore extends ChangeNotifier {
 
   int get openRisksCount => risks.where((r) => r.status == ItemStatus.open).length;
   int get openBlockersCount => blockers.where((b) => b.status == ItemStatus.open).length;
-  int get pendingDecisionsCount => decisions.where((d) => d.status == DecisionStatus.pending).length;
+  int get pendingApprovalsCount => approvalRequests.where((r) => r.status == DecisionStatus.pending).length;
 
-  List<DecisionRequest> get pendingDecisionsSorted {
-    final list = decisions.where((d) => d.status == DecisionStatus.pending).toList();
+  List<ApprovalRequest> get pendingApprovalsSorted {
+    final list = approvalRequests.where((r) => r.status == DecisionStatus.pending).toList();
     list.sort((a, b) {
       final p = b.priority.index.compareTo(a.priority.index);
       if (p != 0) return p;
@@ -218,9 +390,9 @@ class AppStore extends ChangeNotifier {
     return list;
   }
 
-  // ------------------------- عمليات الكتابة -------------------------
+  // ------------------------- عمليات الكتابة (بيانات تشغيلية) -------------------------
 
-  void addDailyUpdate({
+  Future<void> addDailyUpdate({
     required Project project,
     required String achievements,
     required List<String> completedTasks,
@@ -228,138 +400,295 @@ class AppStore extends ChangeNotifier {
     required List<String> blockersText,
     required List<String> decisionsRequired,
     required double progressPercent,
-  }) {
-    final update = DailyUpdate(
-      id: _uuid.v4(),
-      projectId: project.id,
-      departmentId: project.departmentId,
-      authorName: currentUser?.name ?? 'غير معروف',
-      date: DateTime.now(),
-      achievements: achievements,
-      completedTasks: completedTasks,
-      newRisks: newRisks,
-      blockers: blockersText,
-      decisionsRequired: decisionsRequired,
-      progressPercent: progressPercent,
-    );
-    dailyUpdates.insert(0, update);
+  }) async {
+    final now = DateTime.now();
+    final batch = _db.batch();
 
-    final idx = projects.indexWhere((p) => p.id == project.id);
-    if (idx != -1) {
-      final old = projects[idx];
-      final delta = progressPercent - old.progressPercent;
-      ProjectStatus newStatus = old.status;
-      if (progressPercent >= 100) {
-        newStatus = ProjectStatus.completed;
-      } else if (old.delayDays > 5) {
-        newStatus = ProjectStatus.delayed;
-      } else if (newRisks.isNotEmpty || blockersText.isNotEmpty) {
-        newStatus = ProjectStatus.atRisk;
-      } else if (delta > 0) {
-        newStatus = ProjectStatus.onTrack;
-      }
-      projects[idx] = old.copyWith(progressPercent: progressPercent, status: newStatus);
-    }
-
-    for (final r in newRisks) {
-      risks.add(ProjectRisk(
-        id: _uuid.v4(),
-        projectId: project.id,
-        description: r,
-        level: RiskLevel.medium,
-        status: ItemStatus.open,
-        dateRaised: DateTime.now(),
-      ));
-    }
-    for (final b in blockersText) {
-      blockers.add(ProjectBlocker(
-        id: _uuid.v4(),
-        projectId: project.id,
-        description: b,
-        status: ItemStatus.open,
-        dateRaised: DateTime.now(),
-      ));
-    }
-    for (final d in decisionsRequired) {
-      decisions.add(DecisionRequest(
-        id: _uuid.v4(),
+    final updateRef = _db.collection('dailyUpdates').doc();
+    batch.set(
+      updateRef,
+      DailyUpdate(
+        id: updateRef.id,
         projectId: project.id,
         departmentId: project.departmentId,
-        title: d,
-        description: 'قرار مطلوب ضمن التحديث اليومي بتاريخ ${_fmtDate(DateTime.now())} بواسطة ${currentUser?.name ?? ''}',
-        priority: PriorityLevel.medium,
-        delayImpactDays: 5,
-        status: DecisionStatus.pending,
-        requestedBy: currentUser?.name ?? '',
-        requestedDate: DateTime.now(),
-      ));
+        authorUid: currentUser?.id ?? '',
+        authorName: currentUser?.name ?? 'غير معروف',
+        date: now,
+        achievements: achievements,
+        completedTasks: completedTasks,
+        newRisks: newRisks,
+        blockers: blockersText,
+        decisionsRequired: decisionsRequired,
+        progressPercent: progressPercent,
+      ).toMap(),
+    );
+
+    ProjectStatus newStatus = project.status;
+    if (progressPercent >= 100) {
+      newStatus = ProjectStatus.completed;
+    } else if (project.delayDays > 5) {
+      newStatus = ProjectStatus.delayed;
+    } else if (newRisks.isNotEmpty || blockersText.isNotEmpty) {
+      newStatus = ProjectStatus.atRisk;
+    } else if (progressPercent > project.progressPercent) {
+      newStatus = ProjectStatus.onTrack;
+    }
+    batch.update(_db.collection('projects').doc(project.id), {
+      'progressPercent': progressPercent,
+      'status': newStatus.name,
+    });
+
+    for (final r in newRisks) {
+      final ref = _db.collection('risks').doc();
+      batch.set(
+        ref,
+        ProjectRisk(
+          id: ref.id,
+          projectId: project.id,
+          departmentId: project.departmentId,
+          description: r,
+          level: RiskLevel.medium,
+          status: ItemStatus.open,
+          dateRaised: now,
+        ).toMap(),
+      );
+    }
+    for (final b in blockersText) {
+      final ref = _db.collection('blockers').doc();
+      batch.set(
+        ref,
+        ProjectBlocker(
+          id: ref.id,
+          projectId: project.id,
+          departmentId: project.departmentId,
+          description: b,
+          status: ItemStatus.open,
+          dateRaised: now,
+        ).toMap(),
+      );
+    }
+    for (final d in decisionsRequired) {
+      final ref = _db.collection('approvalRequests').doc();
+      batch.set(
+        ref,
+        ApprovalRequest(
+          id: ref.id,
+          type: ApprovalType.decision,
+          status: DecisionStatus.pending,
+          title: d,
+          description: 'قرار مطلوب ضمن التحديث اليومي بتاريخ ${Formatters.shortDate(now)} بواسطة ${currentUser?.name ?? ''}',
+          priority: PriorityLevel.medium,
+          delayImpactDays: 5,
+          departmentId: project.departmentId,
+          projectId: project.id,
+          requestedByUid: currentUser?.id ?? '',
+          requestedByName: currentUser?.name ?? '',
+          requestedDate: now,
+        ).toMap(),
+      );
     }
 
-    _log('تحديث يومي', 'أضاف ${currentUser?.name} تحديثاً يومياً لمشروع "${project.name}"');
-    _persist();
-    notifyListeners();
+    await batch.commit();
+    await _log('تحديث يومي', 'أضاف ${currentUser?.name} تحديثاً يومياً لمشروع "${project.name}"');
   }
 
-  void updateTaskStatus(ProjectTask task, TaskStatus status) {
-    final idx = tasks.indexWhere((t) => t.id == task.id);
-    if (idx == -1) return;
-    tasks[idx] = task.copyWith(
-      status: status,
-      lastUpdated: DateTime.now(),
-      progressPercent: status == TaskStatus.done ? 100 : task.progressPercent,
-    );
-    _log('تحديث مهمة', 'تم تغيير حالة المهمة "${task.title}" إلى ${status.label}');
-    _persist();
-    notifyListeners();
+  Future<void> updateTaskStatus(ProjectTask task, TaskStatus status) async {
+    await _db.collection('tasks').doc(task.id).update({
+      'status': status.name,
+      'lastUpdated': Timestamp.now(),
+      if (status == TaskStatus.done) 'progressPercent': 100.0,
+    });
+    await _log('تحديث مهمة', 'تم تغيير حالة المهمة "${task.title}" إلى ${status.label}');
   }
 
-  void updateTaskProgress(ProjectTask task, double progress) {
-    final idx = tasks.indexWhere((t) => t.id == task.id);
-    if (idx == -1) return;
-    tasks[idx] = task.copyWith(progressPercent: progress, lastUpdated: DateTime.now());
-    _log('تحديث تقدم مهمة', 'تم تحديث نسبة إنجاز المهمة "${task.title}" إلى ${progress.toStringAsFixed(0)}٪');
-    _persist();
-    notifyListeners();
+  Future<void> updateTaskProgress(ProjectTask task, double progress) async {
+    await _db.collection('tasks').doc(task.id).update({
+      'progressPercent': progress,
+      'lastUpdated': Timestamp.now(),
+    });
+    await _log('تحديث تقدم مهمة', 'تم تحديث نسبة إنجاز المهمة "${task.title}" إلى ${progress.toStringAsFixed(0)}٪');
   }
 
-  void addTask(ProjectTask task) {
-    tasks.add(task);
-    _log('إضافة مهمة', 'تمت إضافة مهمة جديدة "${task.title}"');
-    _persist();
-    notifyListeners();
+  Future<void> addTask(ProjectTask task) async {
+    await _db.collection('tasks').doc(task.id).set(task.toMap());
+    await _log('إضافة مهمة', 'تمت إضافة مهمة جديدة "${task.title}"');
   }
 
-  void resolveDecision(DecisionRequest decision, DecisionStatus status, {String? note}) {
-    final idx = decisions.indexWhere((d) => d.id == decision.id);
-    if (idx == -1) return;
-    decisions[idx] = decision.copyWith(status: status, resolutionNote: note);
-    _log('قرار تنفيذي', 'تم ${status == DecisionStatus.approved ? "الموافقة على" : "رفض"} طلب "${decision.title}"');
-    _persist();
-    notifyListeners();
+  // ------------------------- طلبات الموافقة -------------------------
+
+  Future<void> submitProjectRequest({
+    required String departmentId,
+    required String name,
+    required String description,
+    required DateTime startDate,
+    required DateTime dueDate,
+    required PriorityLevel priority,
+  }) async {
+    final now = DateTime.now();
+    await _db.collection('approvalRequests').add(ApprovalRequest(
+          id: '',
+          type: ApprovalType.projectCreate,
+          status: DecisionStatus.pending,
+          title: 'طلب إضافة مشروع جديد: $name',
+          description: description,
+          priority: priority,
+          delayImpactDays: 0,
+          departmentId: departmentId,
+          requestedByUid: currentUser?.id ?? '',
+          requestedByName: currentUser?.name ?? '',
+          requestedDate: now,
+          payload: {
+            'name': name,
+            'description': description,
+            'departmentId': departmentId,
+            'startDate': startDate.toIso8601String(),
+            'dueDate': dueDate.toIso8601String(),
+            'priority': priority.name,
+          },
+        ).toMap());
+    await _log('طلب مشروع جديد', 'قدّم ${currentUser?.name} طلب إضافة مشروع "$name"');
   }
 
-  void addUser(AppUser user) {
-    users.add(user);
-    _log('إدارة المستخدمين', 'تمت إضافة مستخدم جديد "${user.name}" بدور ${user.role.label}');
-    _persist();
-    notifyListeners();
+  Future<void> submitDeadlineChangeRequest({
+    required Project project,
+    required DateTime newDueDate,
+    required String reason,
+  }) async {
+    final now = DateTime.now();
+    await _db.collection('approvalRequests').add(ApprovalRequest(
+          id: '',
+          type: ApprovalType.deadlineChange,
+          status: DecisionStatus.pending,
+          title: 'طلب تعديل الموعد النهائي: ${project.name}',
+          description: reason,
+          priority: PriorityLevel.medium,
+          delayImpactDays: newDueDate.difference(project.dueDate).inDays.abs(),
+          departmentId: project.departmentId,
+          projectId: project.id,
+          requestedByUid: currentUser?.id ?? '',
+          requestedByName: currentUser?.name ?? '',
+          requestedDate: now,
+          payload: {
+            'projectId': project.id,
+            'oldDueDate': project.dueDate.toIso8601String(),
+            'newDueDate': newDueDate.toIso8601String(),
+            'reason': reason,
+          },
+        ).toMap());
+    await _log('طلب تعديل موعد', 'قدّم ${currentUser?.name} طلب تعديل الموعد النهائي لمشروع "${project.name}"');
   }
 
-  void updateUser(AppUser user) {
-    final idx = users.indexWhere((u) => u.id == user.id);
-    if (idx == -1) return;
-    users[idx] = user;
-    _log('إدارة المستخدمين', 'تم تعديل بيانات المستخدم "${user.name}"');
-    _persist();
-    notifyListeners();
+  Future<String?> approveRequest(ApprovalRequest request, {String? note}) async {
+    try {
+      await _functions.httpsCallable('approveRequest').call({'requestId': request.id, 'note': note});
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذر اعتماد الطلب';
+    }
   }
 
-  void toggleUserActive(AppUser user) {
-    updateUser(user.copyWith(active: !user.active));
+  Future<String?> rejectRequest(ApprovalRequest request, {String? note}) async {
+    try {
+      await _functions.httpsCallable('rejectRequest').call({'requestId': request.id, 'note': note});
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذر رفض الطلب';
+    }
   }
 
-  ReportSnapshot generateReport(ReportPeriod period) {
-    final ranking = departmentRanking.map((e) => MapEntry(e.key.name, double.parse(e.value.toStringAsFixed(1)))).toList();
+  Future<bool> checkBootstrapNeeded() async {
+    try {
+      final result = await _functions.httpsCallable('checkBootstrapNeeded').call();
+      return (result.data as Map)['needed'] as bool? ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String?> bootstrapFirstAdmin() async {
+    try {
+      await _functions.httpsCallable('bootstrapFirstAdmin').call();
+      await _auth.currentUser?.getIdToken(true);
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذر تنفيذ العملية';
+    }
+  }
+
+  // ------------------------- إدارة المستخدمين -------------------------
+
+  Future<String?> adminCreateUser({
+    required String name,
+    required String email,
+    required String phone,
+    required String password,
+    required UserRole role,
+    String? departmentId,
+  }) async {
+    try {
+      await _functions.httpsCallable('adminCreateUser').call({
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'password': password,
+        'role': role.name,
+        'departmentId': departmentId,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذر إنشاء المستخدم';
+    }
+  }
+
+  Future<String?> setUserStatus(AppUser user, UserStatus status) async {
+    try {
+      await _functions.httpsCallable('setUserStatus').call({'uid': user.id, 'status': status.name});
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذر تحديث حالة المستخدم';
+    }
+  }
+
+  Future<String?> sendUserNotification({
+    required AppUser user,
+    required NotifyChannel channel,
+    required String subject,
+    required String message,
+  }) async {
+    try {
+      await _functions.httpsCallable('sendUserNotification').call({
+        'uid': user.id,
+        'channel': channel.name,
+        'subject': subject,
+        'message': message,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذر إرسال الإشعار';
+    }
+  }
+
+  // ------------------------- الإدارات -------------------------
+
+  Future<void> addDepartment(Department dept) async {
+    await _db.collection('departments').doc(dept.id).set(dept.toMap());
+    await _log('إدارة الإدارات', 'تمت إضافة إدارة جديدة "${dept.name}"');
+  }
+
+  Future<void> seedDefaultDepartments() async {
+    final batch = _db.batch();
+    for (final d in DefaultDepartments.suggestions()) {
+      batch.set(_db.collection('departments').doc(d.id), d.toMap(), SetOptions(merge: true));
+    }
+    await batch.commit();
+    await _log('إدارة الإدارات', 'تم استيراد الإدارات الافتراضية');
+  }
+
+  // ------------------------- التقارير -------------------------
+
+  Future<ReportSnapshot> generateReport(ReportPeriod period) async {
+    final ranking =
+        departmentRanking.map((e) => MapEntry(e.key.name, double.parse(e.value.toStringAsFixed(1)))).toList();
     final topDept = ranking.isNotEmpty ? ranking.first : null;
     final weakDept = ranking.isNotEmpty ? ranking.last : null;
 
@@ -376,11 +705,12 @@ class AppStore extends ChangeNotifier {
     }
     summary.writeln(
       'تم رصد $openRisksCount مخاطر قائمة و $openBlockersCount عوائق نشطة، '
-      'مع وجود $pendingDecisionsCount طلب قرار بانتظار اعتماد القيادة التنفيذية.',
+      'مع وجود $pendingApprovalsCount طلب بانتظار اعتماد القيادة التنفيذية.',
     );
 
+    final ref = _db.collection('reports').doc();
     final report = ReportSnapshot(
-      id: _uuid.v4(),
+      id: ref.id,
       period: period,
       generatedDate: DateTime.now(),
       executiveSummary: summary.toString().trim(),
@@ -388,83 +718,29 @@ class AppStore extends ChangeNotifier {
       avgDelayDays: overallAvgDelay,
       totalRisks: openRisksCount,
       totalBlockers: openBlockersCount,
-      pendingDecisions: pendingDecisionsCount,
+      pendingDecisions: pendingApprovalsCount,
       departmentRanking: ranking,
     );
-    reports.insert(0, report);
-    _log('تقرير', 'تم توليد تقرير ${period.label} بتاريخ ${_fmtDate(report.generatedDate)}');
-    _persist();
-    notifyListeners();
+    await ref.set(report.toMap());
+    await _log('تقرير', 'تم توليد تقرير ${period.label} بتاريخ ${Formatters.shortDate(report.generatedDate)}');
     return report;
   }
 
-  void updateReportComment(ReportSnapshot report, String comment) {
+  Future<void> updateReportComment(ReportSnapshot report, String comment) async {
     report.manualComment = comment;
-    _log('تقرير', 'تم إضافة/تعديل تعليق يدوي على تقرير ${report.period.label}');
-    _persist();
-    notifyListeners();
+    await _db.collection('reports').doc(report.id).update({'manualComment': comment});
   }
 
-  void _log(String action, String details) {
-    auditLog.insert(
-      0,
-      AuditLogEntry(
-        id: _uuid.v4(),
-        userName: currentUser?.name ?? 'النظام',
-        action: action,
-        details: details,
-        timestamp: DateTime.now(),
-      ),
-    );
-  }
+  // ------------------------- سجل التدقيق -------------------------
 
-  String _fmtDate(DateTime d) => '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
-
-  // ------------------------- التخزين المحلي -------------------------
-
-  Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsKey, jsonEncode(_toJson()));
-  }
-
-  Map<String, dynamic> _toJson() => {
-        'users': users.map((e) => e.toJson()).toList(),
-        'departments': departments.map((e) => e.toJson()).toList(),
-        'projects': projects.map((e) => e.toJson()).toList(),
-        'tasks': tasks.map((e) => e.toJson()).toList(),
-        'risks': risks.map((e) => e.toJson()).toList(),
-        'blockers': blockers.map((e) => e.toJson()).toList(),
-        'decisions': decisions.map((e) => e.toJson()).toList(),
-        'dailyUpdates': dailyUpdates.map((e) => e.toJson()).toList(),
-        'auditLog': auditLog.map((e) => e.toJson()).toList(),
-        'reports': reports.map((e) => e.toJson()).toList(),
-      };
-
-  void _loadFromJson(Map<String, dynamic> json) {
-    users = (json['users'] as List).map((e) => AppUser.fromJson(e as Map<String, dynamic>)).toList();
-    departments =
-        (json['departments'] as List).map((e) => Department.fromJson(e as Map<String, dynamic>)).toList();
-    projects = (json['projects'] as List).map((e) => Project.fromJson(e as Map<String, dynamic>)).toList();
-    tasks = (json['tasks'] as List).map((e) => ProjectTask.fromJson(e as Map<String, dynamic>)).toList();
-    risks = (json['risks'] as List).map((e) => ProjectRisk.fromJson(e as Map<String, dynamic>)).toList();
-    blockers = (json['blockers'] as List).map((e) => ProjectBlocker.fromJson(e as Map<String, dynamic>)).toList();
-    decisions =
-        (json['decisions'] as List).map((e) => DecisionRequest.fromJson(e as Map<String, dynamic>)).toList();
-    dailyUpdates =
-        (json['dailyUpdates'] as List).map((e) => DailyUpdate.fromJson(e as Map<String, dynamic>)).toList();
-    auditLog = (json['auditLog'] as List).map((e) => AuditLogEntry.fromJson(e as Map<String, dynamic>)).toList();
-    reports = (json['reports'] as List).map((e) => ReportSnapshot.fromJson(e as Map<String, dynamic>)).toList();
-    if (users.isEmpty || departments.isEmpty) {
-      _seed();
-    }
-  }
-
-  /// إعادة ضبط المنصة إلى بياناتها الافتراضية (لأغراض العرض التجريبي)
-  Future<void> resetToSeed() async {
-    currentUser = null;
-    _seed();
-    reports = [];
-    await _persist();
-    notifyListeners();
+  Future<void> _log(String action, String details) async {
+    final ref = _db.collection('auditLog').doc();
+    await ref.set(AuditLogEntry(
+      id: ref.id,
+      userName: currentUser?.name ?? 'النظام',
+      action: action,
+      details: details,
+      timestamp: DateTime.now(),
+    ).toMap());
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/department.dart';
 import '../theme/app_theme.dart';
 import '../widgets/progress_bar.dart';
 import 'department_detail_screen.dart';
@@ -19,9 +20,46 @@ class DepartmentsListScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('الإدارات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-          const SizedBox(height: 4),
-          const Text('عرض جميع الإدارات ومؤشرات أداء مشاريعها', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('الإدارات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                    SizedBox(height: 4),
+                    Text('عرض جميع الإدارات ومؤشرات أداء مشاريعها', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+                  ],
+                ),
+              ),
+              if (store.canManageUsers)
+                ElevatedButton.icon(
+                  onPressed: () => showDialog(context: context, builder: (_) => const _AddDepartmentDialog()),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('إضافة إدارة'),
+                ),
+            ],
+          ),
+          if (store.canManageUsers && departments.isEmpty) ...[
+            const SizedBox(height: 14),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text('لا توجد إدارات بعد. يمكنك استيراد قائمة إدارات مقترحة كنقطة بداية سريعة.', style: TextStyle(fontSize: 12.5)),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => context.read<AppStore>().seedDefaultDepartments(),
+                      child: const Text('استيراد الإدارات الافتراضية'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           LayoutBuilder(builder: (context, constraints) {
             final cols = constraints.maxWidth > 1150 ? 3 : (constraints.maxWidth > 720 ? 2 : 1);
@@ -92,6 +130,68 @@ class DepartmentsListScreen extends StatelessWidget {
           }),
         ],
       ),
+    );
+  }
+}
+
+class _AddDepartmentDialog extends StatefulWidget {
+  const _AddDepartmentDialog();
+
+  @override
+  State<_AddDepartmentDialog> createState() => _AddDepartmentDialogState();
+}
+
+class _AddDepartmentDialogState extends State<_AddDepartmentDialog> {
+  final _nameCtrl = TextEditingController();
+  final _headCtrl = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _headCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_nameCtrl.text.trim().isEmpty) return;
+    setState(() => _busy = true);
+    final id = 'dept_${DateTime.now().microsecondsSinceEpoch}';
+    await context.read<AppStore>().addDepartment(Department(
+          id: id,
+          name: _nameCtrl.text.trim(),
+          headName: _headCtrl.text.trim(),
+          colorValue: 0xFF0B3D66,
+          icon: Icons.account_balance_rounded,
+        ));
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('إضافة إدارة جديدة'),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: 'اسم الإدارة')),
+            const SizedBox(height: 12),
+            TextField(controller: _headCtrl, decoration: const InputDecoration(labelText: 'اسم مسؤول الإدارة')),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+        ElevatedButton(
+          onPressed: _busy ? null : _submit,
+          child: _busy
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Text('إضافة'),
+        ),
+      ],
     );
   }
 }

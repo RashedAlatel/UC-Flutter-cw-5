@@ -10,6 +10,7 @@ import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
 import 'project_detail_screen.dart';
+import 'request_project_dialog.dart';
 
 class DepartmentDetailScreen extends StatelessWidget {
   final String departmentId;
@@ -34,6 +35,7 @@ class DepartmentDetailScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 padding: const EdgeInsets.all(14),
@@ -50,6 +52,15 @@ class DepartmentDetailScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              if (store.canRequestNewProject(departmentId))
+                ElevatedButton.icon(
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (_) => RequestProjectDialog(departmentId: departmentId),
+                  ),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('طلب إضافة مشروع'),
+                ),
             ],
           ),
           const SizedBox(height: 20),

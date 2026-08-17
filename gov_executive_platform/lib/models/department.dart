@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 class Department {
@@ -17,19 +18,22 @@ class Department {
 
   Color get color => Color(colorValue);
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
+  Map<String, dynamic> toMap() => {
         'name': name,
         'headName': headName,
         'colorValue': colorValue,
         'iconCode': icon.codePoint,
       };
 
-  factory Department.fromJson(Map<String, dynamic> json) => Department(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        headName: json['headName'] as String,
-        colorValue: json['colorValue'] as int,
-        icon: IconData(json['iconCode'] as int, fontFamily: 'MaterialIcons'),
-      );
+  factory Department.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final json = doc.data() ?? {};
+    return Department(
+      id: doc.id,
+      name: json['name'] as String? ?? '',
+      headName: json['headName'] as String? ?? '',
+      colorValue: json['colorValue'] as int? ?? 0xFF0B3D66,
+      icon: IconData(json['iconCode'] as int? ?? Icons.account_balance_rounded.codePoint,
+          fontFamily: 'MaterialIcons'),
+    );
+  }
 }

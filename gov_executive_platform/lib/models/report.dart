@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'enums.dart';
 
 class ReportSnapshot {
@@ -27,10 +29,9 @@ class ReportSnapshot {
     this.manualComment = '',
   });
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
+  Map<String, dynamic> toMap() => {
         'period': period.name,
-        'generatedDate': generatedDate.toIso8601String(),
+        'generatedDate': Timestamp.fromDate(generatedDate),
         'executiveSummary': executiveSummary,
         'avgProgress': avgProgress,
         'avgDelayDays': avgDelayDays,
@@ -43,19 +44,22 @@ class ReportSnapshot {
         'manualComment': manualComment,
       };
 
-  factory ReportSnapshot.fromJson(Map<String, dynamic> json) => ReportSnapshot(
-        id: json['id'] as String,
-        period: ReportPeriod.fromName(json['period'] as String),
-        generatedDate: DateTime.parse(json['generatedDate'] as String),
-        executiveSummary: json['executiveSummary'] as String,
-        avgProgress: (json['avgProgress'] as num).toDouble(),
-        avgDelayDays: (json['avgDelayDays'] as num).toDouble(),
-        totalRisks: json['totalRisks'] as int,
-        totalBlockers: json['totalBlockers'] as int,
-        pendingDecisions: json['pendingDecisions'] as int,
-        departmentRanking: (json['departmentRanking'] as List)
-            .map((e) => MapEntry(e['name'] as String, (e['value'] as num).toDouble()))
-            .toList(),
-        manualComment: json['manualComment'] as String? ?? '',
-      );
+  factory ReportSnapshot.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final json = doc.data() ?? {};
+    return ReportSnapshot(
+      id: doc.id,
+      period: ReportPeriod.fromName(json['period'] as String? ?? ReportPeriod.weekly.name),
+      generatedDate: (json['generatedDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      executiveSummary: json['executiveSummary'] as String? ?? '',
+      avgProgress: (json['avgProgress'] as num?)?.toDouble() ?? 0,
+      avgDelayDays: (json['avgDelayDays'] as num?)?.toDouble() ?? 0,
+      totalRisks: (json['totalRisks'] as num?)?.toInt() ?? 0,
+      totalBlockers: (json['totalBlockers'] as num?)?.toInt() ?? 0,
+      pendingDecisions: (json['pendingDecisions'] as num?)?.toInt() ?? 0,
+      departmentRanking: ((json['departmentRanking'] as List?) ?? const [])
+          .map((e) => MapEntry(e['name'] as String, (e['value'] as num).toDouble()))
+          .toList(),
+      manualComment: json['manualComment'] as String? ?? '',
+    );
+  }
 }

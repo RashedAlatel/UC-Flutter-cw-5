@@ -67,11 +67,16 @@ class _SignupScreenState extends State<SignupScreen> {
           requestedDepartmentId: needsDept ? _departmentId : null,
         );
     if (!mounted) return;
-    setState(() {
-      _busy = false;
-      _error = error;
-    });
-    // عند النجاح، سيلتقط AppStore حالة تسجيل الدخول تلقائياً وينتقل الجذر لشاشة "بانتظار الموافقة".
+    if (error != null) {
+      setState(() {
+        _busy = false;
+        _error = error;
+      });
+      return;
+    }
+    // نجح التسجيل: أغلق شاشة التسجيل (كانت مُدرجة فوق الجذر عبر Navigator.push)
+    // حتى تظهر شاشة "بانتظار الموافقة" التي يعرضها الجذر تلقائياً الآن.
+    Navigator.of(context).pop();
   }
 
   @override

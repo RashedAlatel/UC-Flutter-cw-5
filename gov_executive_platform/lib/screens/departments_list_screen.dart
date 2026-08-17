@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/department.dart';
 import '../theme/app_theme.dart';
+import '../theme/department_icons.dart';
 import '../widgets/progress_bar.dart';
 import 'department_detail_screen.dart';
 
@@ -162,7 +163,7 @@ class _AddDepartmentDialogState extends State<_AddDepartmentDialog> {
           name: _nameCtrl.text.trim(),
           headName: _headCtrl.text.trim(),
           colorValue: 0xFF0B3D66,
-          icon: Icons.account_balance_rounded,
+          iconKey: DepartmentIcons.defaultKey,
         ));
     if (!mounted) return;
     Navigator.pop(context);

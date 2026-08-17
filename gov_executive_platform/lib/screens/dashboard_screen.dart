@@ -46,6 +46,10 @@ class DashboardScreen extends StatelessWidget {
                 : 'مؤشرات فورية على أداء الخطة الاستراتيجية ومشاريع الوزارة',
             style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
           ),
+          if (!store.isAdmin) ...[
+            const SizedBox(height: 16),
+            const _BootstrapAdminBanner(),
+          ],
           const SizedBox(height: 22),
           _KpiGrid(store: store, projects: projects.map((p) => p).toList()),
           const SizedBox(height: 24),
@@ -309,6 +313,96 @@ class _DepartmentRankingList extends StatelessWidget {
                 ),
               );
             }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// شريط استرجاع يظهر لأي مستخدم مفعّل ليس مسؤول نظام، طالما لم يُعيَّن أي
+/// مسؤول نظام للمنصة بعد. يعالج الحالة التي قد يعلق فيها أول مستخدم بدور
+/// مختلف عن "مسؤول نظام" (مثلاً بسبب خطأ اتصال مؤقت أثناء أول محاولة)، لأن
+/// شاشة "بانتظار الموافقة" التي تحتوي زر التعيين لا تظهر بعد تفعيل الحساب.
+class _BootstrapAdminBanner extends StatefulWidget {
+  const _BootstrapAdminBanner();
+
+  @override
+  State<_BootstrapAdminBanner> createState() => _BootstrapAdminBannerState();
+}
+
+class _BootstrapAdminBannerState extends State<_BootstrapAdminBanner> {
+  bool _checking = true;
+  bool _needed = false;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    final needed = await context.read<AppStore>().checkBootstrapNeeded();
+    if (!mounted) return;
+    setState(() {
+      _needed = needed;
+      _checking = false;
+    });
+  }
+
+  Future<void> _becomeAdmin() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final error = await context.read<AppStore>().bootstrapFirstAdmin();
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = error;
+      if (error == null) _needed = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_checking || !_needed) return const SizedBox.shrink();
+    return Card(
+      color: AppColors.warning.withValues(alpha: 0.08),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.admin_panel_settings_rounded, color: AppColors.warning),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('لا يوجد مسؤول نظام مُفعّل بعد', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'يمكنك تعيين نفسك كأول مسؤول نظام لمرة واحدة، ثم إدارة باقي الحسابات والصلاحيات من مركز القرارات.',
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                  ],
+                  const SizedBox(height: 10),
+                  ElevatedButton.icon(
+                    onPressed: _busy ? null : _becomeAdmin,
+                    icon: _busy
+                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.admin_panel_settings_rounded, size: 16),
+                    label: const Text('تعيين نفسي كأول مسؤول نظام'),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

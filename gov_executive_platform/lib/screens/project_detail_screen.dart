@@ -141,7 +141,7 @@ class ProjectDetailScreen extends StatelessWidget {
               const Spacer(),
               if (canEdit)
                 OutlinedButton.icon(
-                  onPressed: () => _showAddTaskDialog(context, projectId, project.departmentId),
+                  onPressed: () => _showAddTaskDialog(context, projectId, project.departmentId, project.startDate, project.dueDate),
                   icon: const Icon(Icons.add_rounded, size: 18),
                   label: const Text('إضافة مهمة'),
                 ),
@@ -186,8 +186,22 @@ class ProjectDetailScreen extends StatelessWidget {
     );
   }
 
-  void _showAddTaskDialog(BuildContext context, String projectId, String departmentId) {
-    showDialog(context: context, builder: (_) => _AddTaskDialog(projectId: projectId, departmentId: departmentId));
+  void _showAddTaskDialog(
+    BuildContext context,
+    String projectId,
+    String departmentId,
+    DateTime projectStartDate,
+    DateTime projectDueDate,
+  ) {
+    showDialog(
+      context: context,
+      builder: (_) => _AddTaskDialog(
+        projectId: projectId,
+        departmentId: departmentId,
+        projectStartDate: projectStartDate,
+        projectDueDate: projectDueDate,
+      ),
+    );
   }
 }
 
@@ -496,7 +510,14 @@ class _TaskCard extends StatelessWidget {
 class _AddTaskDialog extends StatefulWidget {
   final String projectId;
   final String departmentId;
-  const _AddTaskDialog({required this.projectId, required this.departmentId});
+  final DateTime projectStartDate;
+  final DateTime projectDueDate;
+  const _AddTaskDialog({
+    required this.projectId,
+    required this.departmentId,
+    required this.projectStartDate,
+    required this.projectDueDate,
+  });
 
   @override
   State<_AddTaskDialog> createState() => _AddTaskDialogState();
@@ -506,12 +527,34 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
   final _titleCtrl = TextEditingController();
   final _assigneeCtrl = TextEditingController();
   PriorityLevel _priority = PriorityLevel.medium;
+  late DateTime _dueDate;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final suggested = DateTime.now().add(const Duration(days: 7));
+    _dueDate = suggested.isAfter(widget.projectDueDate) ? widget.projectDueDate : suggested;
+  }
 
   @override
   void dispose() {
     _titleCtrl.dispose();
     _assigneeCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickDueDate() async {
+    final now = DateTime.now();
+    // لا يمكن أن يسبق تاريخ استحقاق المهمة اليوم، ولا يتجاوز الموعد النهائي للمشروع.
+    final firstDate = now.isAfter(widget.projectDueDate) ? widget.projectDueDate : now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dueDate,
+      firstDate: firstDate,
+      lastDate: widget.projectDueDate,
+    );
+    if (picked != null) setState(() => _dueDate = picked);
   }
 
   @override
@@ -534,6 +577,21 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
               items: PriorityLevel.values.map((p) => DropdownMenuItem(value: p, child: Text(p.label))).toList(),
               onChanged: (v) => setState(() => _priority = v ?? _priority),
             ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _pickDueDate,
+              icon: const Icon(Icons.event_outlined, size: 16),
+              label: Text('تاريخ الاستحقاق: ${_dueDate.year}/${_dueDate.month}/${_dueDate.day}'),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'لا يمكن أن يتجاوز الموعد النهائي للمشروع (${widget.projectDueDate.year}/${widget.projectDueDate.month}/${widget.projectDueDate.day})',
+              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+            ],
           ],
         ),
       ),
@@ -541,7 +599,14 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
         ElevatedButton(
           onPressed: () {
-            if (_titleCtrl.text.trim().isEmpty || _assigneeCtrl.text.trim().isEmpty) return;
+            if (_titleCtrl.text.trim().isEmpty || _assigneeCtrl.text.trim().isEmpty) {
+              setState(() => _error = 'الرجاء تعبئة عنوان المهمة والمسؤول عن التنفيذ');
+              return;
+            }
+            if (_dueDate.isAfter(widget.projectDueDate)) {
+              setState(() => _error = 'لا يمكن أن يتجاوز تاريخ استحقاق المهمة الموعد النهائي للمشروع');
+              return;
+            }
             context.read<AppStore>().addTask(ProjectTask(
                   id: '${widget.projectId}_t${DateTime.now().microsecondsSinceEpoch}',
                   projectId: widget.projectId,
@@ -551,7 +616,7 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
                   status: TaskStatus.todo,
                   progressPercent: 0,
                   lastUpdated: DateTime.now(),
-                  dueDate: DateTime.now().add(const Duration(days: 14)),
+                  dueDate: _dueDate,
                   priority: _priority,
                 ));
             Navigator.pop(context);

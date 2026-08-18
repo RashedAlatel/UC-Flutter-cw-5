@@ -49,6 +49,23 @@ class AppColors {
     }
   }
 
+  static Color taskStatusColor(String status) {
+    switch (status) {
+      case 'todo':
+        return textSecondary;
+      case 'inProgress':
+        return info;
+      case 'review':
+        return accent;
+      case 'blocked':
+        return danger;
+      case 'done':
+        return success;
+      default:
+        return textSecondary;
+    }
+  }
+
   static Color priorityColor(String priority) {
     switch (priority) {
       case 'low':

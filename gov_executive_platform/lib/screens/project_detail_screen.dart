@@ -7,6 +7,7 @@ import '../models/project.dart';
 import '../models/project_task.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
+import '../widgets/charts.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
@@ -26,6 +27,7 @@ class ProjectDetailScreen extends StatelessWidget {
     final risks = store.risksForProject(projectId).where((r) => r.status == ItemStatus.open).toList();
     final blockers = store.blockersForProject(projectId).where((b) => b.status == ItemStatus.open).toList();
     final updates = store.updatesForProject(projectId);
+    final tasks = store.tasksForProject(projectId);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -131,6 +133,51 @@ class ProjectDetailScreen extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 16),
+          _ProjectPipelineCard(project: project, tasks: tasks),
+          const SizedBox(height: 16),
+          LayoutBuilder(builder: (context, constraints) {
+            final wide = constraints.maxWidth > 760;
+            final statusChart = _ChartCard(
+              title: 'توزيع حالة المهام',
+              height: 240,
+              child: StatusDonutChart(
+                data: {for (final s in _kanbanColumns) s.label: tasks.where((t) => t.status == s).length},
+                colors: {for (final s in _kanbanColumns) s.label: AppColors.taskStatusColor(s.name)},
+              ),
+            );
+            final overdueTable = _OverdueTasksCard(tasks: tasks);
+            final workloadChart = _WorkloadCard(tasks: tasks);
+            final upcomingTable = _UpcomingDeadlinesCard(tasks: tasks);
+            if (!wide) {
+              return Column(children: [
+                statusChart,
+                const SizedBox(height: 16),
+                overdueTable,
+                const SizedBox(height: 16),
+                workloadChart,
+                const SizedBox(height: 16),
+                upcomingTable,
+              ]);
+            }
+            return Column(children: [
+              IntrinsicHeight(
+                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Expanded(child: statusChart),
+                  const SizedBox(width: 16),
+                  Expanded(child: overdueTable),
+                ]),
+              ),
+              const SizedBox(height: 16),
+              IntrinsicHeight(
+                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Expanded(child: workloadChart),
+                  const SizedBox(width: 16),
+                  Expanded(child: upcomingTable),
+                ]),
+              ),
+            ]);
+          }),
           if (risks.isNotEmpty || blockers.isNotEmpty) ...[
             const SizedBox(height: 16),
             LayoutBuilder(builder: (context, constraints) {
@@ -324,6 +371,277 @@ class _AssignManagerDialogState extends State<_AssignManagerDialog> {
   }
 }
 
+/// شريط مراحل المشروع (بحسب حالات المهام) + مربع الموعد النهائي المتبقي،
+/// بنفس تقسيمات التصميم المرجعي المعتمد للوحة قيادة المشروع.
+class _ProjectPipelineCard extends StatelessWidget {
+  final Project project;
+  final List<ProjectTask> tasks;
+  const _ProjectPipelineCard({required this.project, required this.tasks});
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.now();
+    final due = DateTime(project.dueDate.year, project.dueDate.month, project.dueDate.day);
+    final now = DateTime(today.year, today.month, today.day);
+    final remaining = due.difference(now).inDays;
+    final overdue = remaining < 0 && project.status != ProjectStatus.completed;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: LayoutBuilder(builder: (context, constraints) {
+          final narrow = constraints.maxWidth < 640;
+          final stagesRow = Row(
+            children: _kanbanColumns
+                .map((s) => Expanded(child: _StageBit(status: s, count: tasks.where((t) => t.status == s).length)))
+                .toList(),
+          );
+          final dateBox = _DueDateBox(dueDate: project.dueDate, remaining: remaining, overdue: overdue);
+          if (narrow) {
+            return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [stagesRow, const SizedBox(height: 16), dateBox]);
+          }
+          return IntrinsicHeight(
+            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Expanded(flex: 3, child: stagesRow),
+              const SizedBox(width: 18),
+              SizedBox(width: 190, child: dateBox),
+            ]),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _StageBit extends StatelessWidget {
+  final TaskStatus status;
+  final int count;
+  const _StageBit({required this.status, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = AppColors.taskStatusColor(status.name);
+    final icon = switch (status) {
+      TaskStatus.done => Icons.check_circle_rounded,
+      TaskStatus.blocked => Icons.block_rounded,
+      TaskStatus.inProgress => Icons.autorenew_rounded,
+      TaskStatus.review => Icons.rate_review_outlined,
+      TaskStatus.todo => Icons.schedule_rounded,
+    };
+    return Column(
+      children: [
+        CircleAvatar(radius: 22, backgroundColor: color.withValues(alpha: 0.12), child: Icon(icon, color: color, size: 22)),
+        const SizedBox(height: 8),
+        Text('$count', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: AppColors.textPrimary)),
+        const SizedBox(height: 2),
+        Text(status.label, style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary), textAlign: TextAlign.center),
+      ],
+    );
+  }
+}
+
+class _DueDateBox extends StatelessWidget {
+  final DateTime dueDate;
+  final int remaining;
+  final bool overdue;
+  const _DueDateBox({required this.dueDate, required this.remaining, required this.overdue});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = overdue ? AppColors.danger : AppColors.primary;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('الموعد النهائي المتوقع', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+          const SizedBox(height: 8),
+          Row(children: [
+            Icon(overdue ? Icons.error_outline_rounded : Icons.flag_rounded, color: color, size: 18),
+            const SizedBox(width: 6),
+            Text(
+              overdue ? 'متأخر ${remaining.abs()} يوم' : '$remaining يوم متبقي',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: color),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          Text(Formatters.shortDate(dueDate), style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChartCard extends StatelessWidget {
+  final String title;
+  final Widget child;
+  final double height;
+  const _ChartCard({required this.title, required this.child, required this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: AppColors.textPrimary)),
+            const SizedBox(height: 14),
+            SizedBox(height: height - 50, child: child),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// جدول المهام المتأخرة عن موعدها النهائي ولم تُنجز بعد.
+class _OverdueTasksCard extends StatelessWidget {
+  final List<ProjectTask> tasks;
+  const _OverdueTasksCard({required this.tasks});
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.now();
+    final overdue = tasks.where((t) => t.status != TaskStatus.done && t.dueDate.isBefore(today)).toList()
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+    return _ChartCard(
+      title: 'المهام المتأخرة',
+      height: 240,
+      child: overdue.isEmpty
+          ? const Center(child: Text('لا توجد مهام متأخرة', style: TextStyle(color: AppColors.textSecondary)))
+          : ListView.separated(
+              itemCount: overdue.length,
+              separatorBuilder: (context, i) => const Divider(height: 14),
+              itemBuilder: (context, i) {
+                final t = overdue[i];
+                final days = today.difference(t.dueDate).inDays;
+                return Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(t.title, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 2),
+                          Text('${t.assigneeName} · ${Formatters.shortDate(t.dueDate)}', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: AppColors.danger.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+                      child: Text('$days يوم', style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: AppColors.danger)),
+                    ),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+}
+
+/// توزيع الأعباء بين المسؤولين عن التنفيذ (متوسط نسبة إنجاز مهام كل شخص).
+class _WorkloadCard extends StatelessWidget {
+  final List<ProjectTask> tasks;
+  const _WorkloadCard({required this.tasks});
+
+  @override
+  Widget build(BuildContext context) {
+    final byAssignee = <String, List<ProjectTask>>{};
+    for (final t in tasks) {
+      if (t.assigneeName.isEmpty) continue;
+      byAssignee.putIfAbsent(t.assigneeName, () => []).add(t);
+    }
+    final entries = byAssignee.entries.map((e) {
+      final avg = e.value.map((t) => t.progressPercent).reduce((a, b) => a + b) / e.value.length;
+      return MapEntry(e.key, avg);
+    }).toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return _ChartCard(
+      title: 'الأعباء حسب المسؤول عن التنفيذ',
+      height: 240,
+      child: entries.isEmpty
+          ? const Center(child: Text('لا توجد مهام مُسنَدة بعد', style: TextStyle(color: AppColors.textSecondary)))
+          : ListView.separated(
+              itemCount: entries.length,
+              separatorBuilder: (context, i) => const SizedBox(height: 14),
+              itemBuilder: (context, i) {
+                final e = entries[i];
+                final value = e.value.clamp(0, 100);
+                return Row(
+                  children: [
+                    SizedBox(
+                      width: 90,
+                      child: Text(e.key, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.end),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Stack(
+                        alignment: AlignmentDirectional.centerStart,
+                        children: [
+                          Container(height: 16, decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(4))),
+                          FractionallySizedBox(
+                            widthFactor: value / 100,
+                            child: Container(height: 16, decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(4))),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(width: 34, child: Text('${value.toStringAsFixed(0)}٪', style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700))),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+}
+
+/// أقرب المهام غير المنجزة استحقاقاً، للمتابعة العاجلة.
+class _UpcomingDeadlinesCard extends StatelessWidget {
+  final List<ProjectTask> tasks;
+  const _UpcomingDeadlinesCard({required this.tasks});
+
+  @override
+  Widget build(BuildContext context) {
+    final upcoming = tasks.where((t) => t.status != TaskStatus.done).toList()
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+    final items = upcoming.take(5).toList();
+    return _ChartCard(
+      title: 'أقرب المواعيد النهائية',
+      height: 240,
+      child: items.isEmpty
+          ? const Center(child: Text('لا توجد مهام قادمة', style: TextStyle(color: AppColors.textSecondary)))
+          : ListView.separated(
+              itemCount: items.length,
+              separatorBuilder: (context, i) => const Divider(height: 14),
+              itemBuilder: (context, i) {
+                final t = items[i];
+                return Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(t.title, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 2),
+                          Text(t.assigneeName, style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                        ],
+                      ),
+                    ),
+                    Text(Formatters.shortDate(t.dueDate), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textSecondary)),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+}
+
 class _IssuesCard extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -453,20 +771,7 @@ class _KanbanColumn extends StatelessWidget {
     );
   }
 
-  Color _columnColor(TaskStatus s) {
-    switch (s) {
-      case TaskStatus.todo:
-        return AppColors.textSecondary;
-      case TaskStatus.inProgress:
-        return AppColors.info;
-      case TaskStatus.review:
-        return AppColors.accent;
-      case TaskStatus.blocked:
-        return AppColors.danger;
-      case TaskStatus.done:
-        return AppColors.success;
-    }
-  }
+  Color _columnColor(TaskStatus s) => AppColors.taskStatusColor(s.name);
 }
 
 class _TaskCard extends StatelessWidget {

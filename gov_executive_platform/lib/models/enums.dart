@@ -215,7 +215,8 @@ enum DashboardWidgetType {
   departmentRankingList,
   recentUpdatesList,
   topProjectsList,
-  projectsTable;
+  projectsTable,
+  custom;
 
   String get label {
     switch (this) {
@@ -233,6 +234,8 @@ enum DashboardWidgetType {
         return 'قائمة: أعلى المشاريع تقدماً';
       case DashboardWidgetType.projectsTable:
         return 'جدول: تفاصيل المشاريع';
+      case DashboardWidgetType.custom:
+        return 'ودجت مخصص (أنشئه بنفسك)';
     }
   }
 
@@ -252,6 +255,8 @@ enum DashboardWidgetType {
         return Icons.military_tech_rounded;
       case DashboardWidgetType.projectsTable:
         return Icons.table_chart_rounded;
+      case DashboardWidgetType.custom:
+        return Icons.auto_awesome_mosaic_rounded;
     }
   }
 

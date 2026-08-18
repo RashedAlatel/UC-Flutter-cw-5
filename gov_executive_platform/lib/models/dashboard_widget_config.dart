@@ -1,18 +1,33 @@
+import 'custom_widget_spec.dart';
 import 'enums.dart';
 
-/// عنصر ودجت واحد ضمن تخطيط لوحة القيادة القابل للتخصيص.
+/// عنصر ودجت واحد ضمن تخطيط لوحة القيادة القابل للتخصيص. [custom] غير فارغ
+/// فقط عندما يكون [type] هو [DashboardWidgetType.custom] — ودجت بناه مسؤول
+/// النظام بنفسه عبر "منشئ الودجت" بدل الاختيار من الأنواع الجاهزة.
 class DashboardWidgetConfig {
   final String id;
   final DashboardWidgetType type;
+  final CustomWidgetSpec? custom;
 
-  const DashboardWidgetConfig({required this.id, required this.type});
+  const DashboardWidgetConfig({required this.id, required this.type, this.custom});
 
-  Map<String, dynamic> toMap() => {'id': id, 'type': type.name};
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'type': type.name,
+        if (custom != null) 'custom': custom!.toMap(),
+      };
 
-  factory DashboardWidgetConfig.fromMap(Map<String, dynamic> map) => DashboardWidgetConfig(
-        id: map['id'] as String? ?? '',
-        type: DashboardWidgetType.fromName(map['type'] as String? ?? DashboardWidgetType.deptBarChart.name),
-      );
+  factory DashboardWidgetConfig.fromMap(Map<String, dynamic> map) {
+    final type = DashboardWidgetType.fromName(map['type'] as String? ?? DashboardWidgetType.deptBarChart.name);
+    final customMap = map['custom'];
+    return DashboardWidgetConfig(
+      id: map['id'] as String? ?? '',
+      type: type,
+      custom: type == DashboardWidgetType.custom && customMap is Map
+          ? CustomWidgetSpec.fromMap(Map<String, dynamic>.from(customMap))
+          : null,
+    );
+  }
 
   /// التخطيط الافتراضي المعروض قبل أن يخصّص مسؤول النظام لوحة القيادة —
   /// مطابق لتقسيمات التصميم المرجعي المعتمد (دائري + أعلى المشاريع + جدول

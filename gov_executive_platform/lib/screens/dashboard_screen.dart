@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/dashboard_widget_config.dart';
 import '../models/department.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
+import '../widgets/custom_widget_view.dart';
 import '../widgets/kpi_card.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
@@ -108,7 +110,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 20),
           ...store.dashboardWidgets.map((w) => Padding(
                 padding: const EdgeInsets.only(bottom: 18),
-                child: _buildWidget(context, w.type, store, scoped, ranking, statusCounts, statusColors, filteredProjects),
+                child: _buildWidget(context, w, store, scoped, ranking, statusCounts, statusColors, filteredProjects),
               )),
         ],
       ),
@@ -117,7 +119,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildWidget(
     BuildContext context,
-    DashboardWidgetType type,
+    DashboardWidgetConfig config,
     AppStore store,
     bool scoped,
     List<MapEntry<Department, double>> ranking,
@@ -125,7 +127,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Map<String, Color> statusColors,
     List<Project> filteredProjects,
   ) {
-    switch (type) {
+    switch (config.type) {
       case DashboardWidgetType.deptBarChart:
         return _ChartCard(
           title: scoped ? 'أداء إدارتي' : 'ترتيب الإدارات حسب الأداء',
@@ -172,6 +174,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return _TopProjectsCard(store: store, projects: filteredProjects);
       case DashboardWidgetType.projectsTable:
         return _ProjectsTableCard(store: store, projects: filteredProjects);
+      case DashboardWidgetType.custom:
+        final spec = config.custom;
+        return spec == null ? const SizedBox.shrink() : CustomWidgetCard(store: store, spec: spec);
     }
   }
 }

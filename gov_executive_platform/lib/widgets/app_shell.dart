@@ -80,12 +80,17 @@ class _AppShellState extends State<AppShell> {
 
     entries.add(const _NavEntry(label: 'المشاريع', icon: Icons.folder_copy_rounded, page: ProjectsListScreen()));
 
-    if (store.currentUser?.role != UserRole.projectOfficer) {
+    // مركز القرارات مخصص لمن يملك فعلياً صلاحية اعتماد قرار فيه (مسؤول النظام،
+    // المستخدم التنفيذي، أو دور مخصص بصلاحية اعتماد القرارات العامة) — مدير
+    // الإدارة ومدير المشروع يقدّمان الطلبات فقط ولا يعتمدان شيئاً هناك.
+    if (store.isAdmin || store.isExecutive || (store.myCustomRole?.approveGeneralDecisions ?? false)) {
       entries.add(const _NavEntry(
         label: 'مركز القرارات',
         icon: Icons.gavel_rounded,
         page: DecisionCenterScreen(),
       ));
+    }
+    if (store.currentUser?.role != UserRole.projectOfficer) {
       entries.add(const _NavEntry(
         label: 'التقارير',
         icon: Icons.assessment_rounded,

@@ -48,6 +48,11 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
   }
 
   void _showAddWidgetSheet() {
+    // نستبعد الأنواع المضافة أصلاً حتى لا يظن المستخدم أنه أضاف عنصراً
+    // جديداً بينما هو في الواقع نسخة مطابقة لعنصر موجود مسبقاً بنفس الاسم
+    // والمحتوى — وهو ما كان يبدو وكأن "الحفظ لا يعمل".
+    final addedTypes = _widgets.map((w) => w.type).toSet();
+    final available = DashboardWidgetType.values.where((t) => !addedTypes.contains(t)).toList();
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
@@ -59,11 +64,20 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
               padding: EdgeInsets.all(16),
               child: Text('اختر نوع الودجت', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
             ),
-            ...DashboardWidgetType.values.map((t) => ListTile(
-                  leading: Icon(t.icon, color: AppColors.primary),
-                  title: Text(t.label, style: const TextStyle(fontSize: 13)),
-                  onTap: () => _addWidget(t),
-                )),
+            if (available.isEmpty)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 20),
+                child: Text(
+                  'كل الودجات المتاحة مضافة بالفعل إلى اللوحة.',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+                ),
+              )
+            else
+              ...available.map((t) => ListTile(
+                    leading: Icon(t.icon, color: AppColors.primary),
+                    title: Text(t.label, style: const TextStyle(fontSize: 13)),
+                    onTap: () => _addWidget(t),
+                  )),
           ],
         ),
       ),

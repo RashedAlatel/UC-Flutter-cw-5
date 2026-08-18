@@ -6,7 +6,8 @@ import '../theme/app_theme.dart';
 
 class DepartmentBarChart extends StatefulWidget {
   final List<MapEntry<Department, double>> ranking;
-  const DepartmentBarChart({super.key, required this.ranking});
+  final ValueChanged<Department>? onDepartmentTap;
+  const DepartmentBarChart({super.key, required this.ranking, this.onDepartmentTap});
 
   @override
   State<DepartmentBarChart> createState() => _DepartmentBarChartState();
@@ -31,9 +32,11 @@ class _DepartmentBarChartState extends State<DepartmentBarChart> {
             ),
           ),
           touchCallback: (event, response) {
-            setState(() {
-              _touched = response?.spot?.touchedBarGroupIndex;
-            });
+            final groupIndex = response?.spot?.touchedBarGroupIndex;
+            setState(() => _touched = groupIndex);
+            if (event is FlTapUpEvent && groupIndex != null && groupIndex >= 0 && groupIndex < data.length) {
+              widget.onDepartmentTap?.call(data[groupIndex].key);
+            }
           },
         ),
         titlesData: FlTitlesData(
@@ -96,7 +99,8 @@ class _DepartmentBarChartState extends State<DepartmentBarChart> {
 class StatusPieChart extends StatefulWidget {
   final Map<String, int> data; // label -> count
   final Map<String, Color> colors;
-  const StatusPieChart({super.key, required this.data, required this.colors});
+  final ValueChanged<String>? onSectionTap; // يُستدعى بلَبَل الحالة المضغوطة
+  const StatusPieChart({super.key, required this.data, required this.colors, this.onSectionTap});
 
   @override
   State<StatusPieChart> createState() => _StatusPieChartState();
@@ -122,9 +126,11 @@ class _StatusPieChartState extends State<StatusPieChart> {
               centerSpaceRadius: 42,
               pieTouchData: PieTouchData(
                 touchCallback: (event, response) {
-                  setState(() {
-                    _touched = response?.touchedSection?.touchedSectionIndex ?? -1;
-                  });
+                  final sectionIndex = response?.touchedSection?.touchedSectionIndex ?? -1;
+                  setState(() => _touched = sectionIndex);
+                  if (event is FlTapUpEvent && sectionIndex >= 0 && sectionIndex < entries.length) {
+                    widget.onSectionTap?.call(entries[sectionIndex].key);
+                  }
                 },
               ),
               sections: List.generate(entries.length, (i) {

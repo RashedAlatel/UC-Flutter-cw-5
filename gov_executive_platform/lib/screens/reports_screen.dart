@@ -6,6 +6,7 @@ import '../models/enums.dart';
 import '../models/report.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
+import '../utils/report_export.dart';
 import '../widgets/kpi_card.dart';
 
 class ReportsScreen extends StatefulWidget {
@@ -128,6 +129,8 @@ class _ReportCardState extends State<_ReportCard> {
   late TextEditingController _commentCtrl;
   bool _dirty = false;
   bool _saving = false;
+  bool _exportingExcel = false;
+  bool _exportingPdf = false;
 
   @override
   void initState() {
@@ -151,6 +154,34 @@ class _ReportCardState extends State<_ReportCard> {
     });
   }
 
+  Future<void> _exportExcel() async {
+    setState(() => _exportingExcel = true);
+    final store = context.read<AppStore>();
+    try {
+      await ReportExporter.exportExcel(
+        report: widget.report,
+        projects: store.visibleProjects,
+        departmentById: store.departmentById,
+      );
+    } finally {
+      if (mounted) setState(() => _exportingExcel = false);
+    }
+  }
+
+  Future<void> _exportPdf() async {
+    setState(() => _exportingPdf = true);
+    final store = context.read<AppStore>();
+    try {
+      await ReportExporter.exportPdf(
+        report: widget.report,
+        projects: store.visibleProjects,
+        departmentById: store.departmentById,
+      );
+    } finally {
+      if (mounted) setState(() => _exportingPdf = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final r = widget.report;
@@ -169,8 +200,24 @@ class _ReportCardState extends State<_ReportCard> {
                   child: Icon(Icons.description_outlined, color: AppColors.primary, size: 18),
                 ),
                 const SizedBox(width: 10),
-                Text('تقرير ${r.period.label} · ${Formatters.date(r.generatedDate)}',
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                Expanded(
+                  child: Text('تقرير ${r.period.label} · ${Formatters.date(r.generatedDate)}',
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                ),
+                IconButton(
+                  tooltip: 'تصدير Excel',
+                  onPressed: _exportingExcel ? null : _exportExcel,
+                  icon: _exportingExcel
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.grid_on_rounded, size: 19, color: AppColors.success),
+                ),
+                IconButton(
+                  tooltip: 'تصدير PDF',
+                  onPressed: _exportingPdf ? null : _exportPdf,
+                  icon: _exportingPdf
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.picture_as_pdf_rounded, size: 19, color: AppColors.danger),
+                ),
               ],
             ),
             const SizedBox(height: 14),

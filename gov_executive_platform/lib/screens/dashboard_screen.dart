@@ -4,10 +4,12 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/department.dart';
 import '../models/enums.dart';
+import '../models/project.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
 import '../widgets/kpi_card.dart';
+import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
 import 'customize_dashboard_dialog.dart';
 import 'decision_center_screen.dart';
@@ -103,16 +105,38 @@ class DashboardScreen extends StatelessWidget {
       case DashboardWidgetType.deptBarChart:
         return _ChartCard(
           title: scoped ? 'أداء إدارتي' : 'ترتيب الإدارات حسب الأداء',
+          subtitle: 'اضغط على أي إدارة لعرض مشاريعها المتأخرة',
           height: 300,
           child: ranking.isEmpty
               ? const Center(child: Text('لا توجد بيانات', style: TextStyle(color: AppColors.textSecondary)))
-              : DepartmentBarChart(ranking: ranking),
+              : DepartmentBarChart(
+                  ranking: ranking,
+                  onDepartmentTap: (dept) => _showProjectsPeek(
+                    context,
+                    title: 'مشاريع "${dept.name}" المتأخرة',
+                    projects: store.visibleProjects
+                        .where((p) => p.departmentId == dept.id && p.status == ProjectStatus.delayed)
+                        .toList(),
+                  ),
+                ),
         );
       case DashboardWidgetType.statusPieChart:
         return _ChartCard(
           title: 'توزيع حالة المشاريع',
+          subtitle: 'اضغط على أي شريحة لعرض مشاريعها',
           height: 300,
-          child: StatusPieChart(data: statusCounts, colors: statusColors),
+          child: StatusPieChart(
+            data: statusCounts,
+            colors: statusColors,
+            onSectionTap: (label) {
+              final status = ProjectStatus.values.firstWhere((s) => s.label == label, orElse: () => ProjectStatus.onTrack);
+              _showProjectsPeek(
+                context,
+                title: 'مشاريع بحالة "$label"',
+                projects: store.visibleProjects.where((p) => p.status == status).toList(),
+              );
+            },
+          ),
         );
       case DashboardWidgetType.pendingApprovalsList:
         return _PendingDecisionsCard(store: store);
@@ -122,6 +146,93 @@ class DashboardScreen extends StatelessWidget {
         return _RecentUpdatesCard(store: store);
     }
   }
+}
+
+/// نافذة سفلية تعرض قائمة مشاريع مُصفّاة (بالضغط على قطاع/عمود برسم بياني)،
+/// مع إمكانية فتح أي مشروع منها مباشرة.
+void _showProjectsPeek(BuildContext context, {required String title, required List<Project> projects}) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.3,
+      maxChildSize: 0.9,
+      expand: false,
+      builder: (ctx, scrollController) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(3))),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+              child: Row(
+                children: [
+                  Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5))),
+                  Text('${projects.length}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5, color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: projects.isEmpty
+                  ? const Center(child: Text('لا توجد مشاريع مطابقة', style: TextStyle(color: AppColors.textSecondary)))
+                  : ListView.separated(
+                      controller: scrollController,
+                      padding: const EdgeInsets.all(16),
+                      itemCount: projects.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, i) {
+                        final p = projects[i];
+                        return Card(
+                          margin: EdgeInsets.zero,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              Navigator.of(context).push(MaterialPageRoute(
+                                builder: (_) => Scaffold(
+                                  appBar: AppBar(title: Text(p.name)),
+                                  body: ProjectDetailScreen(projectId: p.id),
+                                ),
+                              ));
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(child: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5))),
+                                      StatusChip(status: p.status),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  LabeledProgressBar(value: p.progressPercent, label: 'نسبة الإنجاز'),
+                                  if (p.executorName.isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    Text('المنفذ: ${p.executorName}', style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _KpiGrid extends StatelessWidget {
@@ -186,9 +297,10 @@ class _KpiGrid extends StatelessWidget {
 
 class _ChartCard extends StatelessWidget {
   final String title;
+  final String? subtitle;
   final Widget child;
   final double height;
-  const _ChartCard({required this.title, required this.child, required this.height});
+  const _ChartCard({required this.title, this.subtitle, required this.child, required this.height});
 
   @override
   Widget build(BuildContext context) {
@@ -199,8 +311,12 @@ class _ChartCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textPrimary)),
+            if (subtitle != null) ...[
+              const SizedBox(height: 3),
+              Text(subtitle!, style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+            ],
             const SizedBox(height: 14),
-            SizedBox(height: height - 50, child: child),
+            SizedBox(height: subtitle != null ? height - 68 : height - 50, child: child),
           ],
         ),
       ),

@@ -70,8 +70,7 @@ class DashboardScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          Container(height: 2, color: AppColors.accent),
-          Container(height: 1, color: AppColors.border, margin: const EdgeInsets.only(top: 2)),
+          const _LastUpdatedBar(),
           if (!store.isAdmin) ...[
             const SizedBox(height: 16),
             const _BootstrapAdminBanner(),
@@ -125,7 +124,7 @@ class DashboardScreen extends StatelessWidget {
           title: 'توزيع حالة المشاريع',
           subtitle: 'اضغط على أي شريحة لعرض مشاريعها',
           height: 300,
-          child: StatusPieChart(
+          child: StatusStackedBar(
             data: statusCounts,
             colors: statusColors,
             onSectionTap: (label) {
@@ -568,6 +567,51 @@ class _RecentUpdatesCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// شريط "آخر تحديث" أعلى اللوحة: البيانات محدّثة لحظياً أصلاً عبر Firestore،
+/// وزر التحديث هنا يعيد ختم الوقت المعروض ليؤكد للمستخدم حداثة الصفحة.
+class _LastUpdatedBar extends StatefulWidget {
+  const _LastUpdatedBar();
+
+  @override
+  State<_LastUpdatedBar> createState() => _LastUpdatedBarState();
+}
+
+class _LastUpdatedBarState extends State<_LastUpdatedBar> {
+  DateTime _time = DateTime.now();
+
+  String _label() {
+    final h = _time.hour % 12 == 0 ? 12 : _time.hour % 12;
+    final m = _time.minute.toString().padLeft(2, '0');
+    final period = _time.hour >= 12 ? 'م' : 'ص';
+    return '${Formatters.date(_time)} — $h:$m $period';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.sync_rounded, size: 13, color: AppColors.textSecondary),
+        const SizedBox(width: 6),
+        Text('آخر تحديث: ${_label()}', style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+        const Spacer(),
+        InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () {
+            setState(() => _time = DateTime.now());
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('البيانات محدّثة لحظياً بشكل تلقائي'), duration: Duration(seconds: 2)),
+            );
+          },
+          child: const Padding(
+            padding: EdgeInsets.all(4),
+            child: Icon(Icons.refresh_rounded, size: 16, color: AppColors.textSecondary),
+          ),
+        ),
+      ],
     );
   }
 }

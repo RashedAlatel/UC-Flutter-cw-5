@@ -32,6 +32,12 @@ class UserManagementScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              OutlinedButton.icon(
+                onPressed: () => showDialog(context: context, builder: (_) => const _NotifyDialog(initialUsers: [])),
+                icon: const Icon(Icons.forward_to_inbox_rounded, size: 18),
+                label: const Text('إشعار جماعي'),
+              ),
+              const SizedBox(width: 10),
               ElevatedButton.icon(
                 onPressed: () => showDialog(context: context, builder: (_) => const _UserFormDialog()),
                 icon: const Icon(Icons.person_add_alt_rounded, size: 18),
@@ -115,7 +121,7 @@ class _UserRowState extends State<_UserRow> {
           IconButton(
             icon: const Icon(Icons.mail_outline_rounded, size: 19),
             tooltip: 'إرسال إشعار',
-            onPressed: () => showDialog(context: context, builder: (_) => _NotifyDialog(user: u)),
+            onPressed: () => showDialog(context: context, builder: (_) => _NotifyDialog(initialUsers: [u])),
           ),
           if (u.status == UserStatus.approved || u.status == UserStatus.suspended)
             IconButton(
@@ -131,9 +137,11 @@ class _UserRowState extends State<_UserRow> {
   }
 }
 
+/// إرسال إشعار (بريد و/أو واتساب) لمستخدم واحد (عبر زر الصف) أو لعدة
+/// مستخدمين دفعة واحدة (عبر زر "إشعار جماعي" أعلى الشاشة).
 class _NotifyDialog extends StatefulWidget {
-  final AppUser user;
-  const _NotifyDialog({required this.user});
+  final List<AppUser> initialUsers;
+  const _NotifyDialog({required this.initialUsers});
 
   @override
   State<_NotifyDialog> createState() => _NotifyDialogState();
@@ -143,6 +151,7 @@ class _NotifyDialogState extends State<_NotifyDialog> {
   final _subjectCtrl = TextEditingController();
   final _messageCtrl = TextEditingController();
   NotifyChannel _channel = NotifyChannel.email;
+  late final Set<String> _selectedUids = widget.initialUsers.map((u) => u.id).toSet();
   bool _busy = false;
   String? _error;
 
@@ -154,6 +163,10 @@ class _NotifyDialogState extends State<_NotifyDialog> {
   }
 
   Future<void> _send() async {
+    if (_selectedUids.isEmpty) {
+      setState(() => _error = 'الرجاء اختيار مستلم واحد على الأقل');
+      return;
+    }
     if (_messageCtrl.text.trim().isEmpty) {
       setState(() => _error = 'الرجاء كتابة نص الرسالة');
       return;
@@ -162,8 +175,10 @@ class _NotifyDialogState extends State<_NotifyDialog> {
       _busy = true;
       _error = null;
     });
-    final error = await context.read<AppStore>().sendUserNotification(
-          user: widget.user,
+    final store = context.read<AppStore>();
+    final recipients = store.users.where((u) => _selectedUids.contains(u.id)).toList();
+    final error = await store.sendUserNotification(
+          users: recipients,
           channel: _channel,
           subject: _subjectCtrl.text.trim().isEmpty ? 'إشعار من المنصة التنفيذية' : _subjectCtrl.text.trim(),
           message: _messageCtrl.text.trim(),
@@ -177,35 +192,68 @@ class _NotifyDialogState extends State<_NotifyDialog> {
       return;
     }
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إرسال الإشعار بنجاح')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم إرسال الإشعار إلى ${recipients.length} مستخدم(ين) بنجاح')));
   }
 
   @override
   Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final single = widget.initialUsers.length == 1;
     return AlertDialog(
-      title: Text('إرسال إشعار إلى ${widget.user.name}'),
+      title: Text(single ? 'إرسال إشعار إلى ${widget.initialUsers.first.name}' : 'إرسال إشعار جماعي'),
       content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            DropdownButtonFormField<NotifyChannel>(
-              initialValue: _channel,
-              decoration: const InputDecoration(labelText: 'قناة الإرسال'),
-              items: NotifyChannel.values.map((c) => DropdownMenuItem(value: c, child: Text(c.label))).toList(),
-              onChanged: (v) => setState(() => _channel = v ?? _channel),
-            ),
-            const SizedBox(height: 12),
-            if (_channel != NotifyChannel.whatsapp)
-              TextField(controller: _subjectCtrl, decoration: const InputDecoration(labelText: 'عنوان البريد (اختياري)')),
-            const SizedBox(height: 12),
-            TextField(controller: _messageCtrl, maxLines: 4, decoration: const InputDecoration(labelText: 'نص الرسالة')),
-            if (_error != null) ...[
-              const SizedBox(height: 10),
-              Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!single) ...[
+                const Text('المستلمون', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
+                const SizedBox(height: 6),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(10)),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: store.users
+                          .map((u) => CheckboxListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                value: _selectedUids.contains(u.id),
+                                title: Text(u.name, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                subtitle: Text(u.email, style: const TextStyle(fontSize: 10.5)),
+                                onChanged: (v) => setState(() {
+                                  if (v ?? false) {
+                                    _selectedUids.add(u.id);
+                                  } else {
+                                    _selectedUids.remove(u.id);
+                                  }
+                                }),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              DropdownButtonFormField<NotifyChannel>(
+                initialValue: _channel,
+                decoration: const InputDecoration(labelText: 'قناة الإرسال'),
+                items: NotifyChannel.values.map((c) => DropdownMenuItem(value: c, child: Text(c.label))).toList(),
+                onChanged: (v) => setState(() => _channel = v ?? _channel),
+              ),
+              const SizedBox(height: 12),
+              if (_channel != NotifyChannel.whatsapp)
+                TextField(controller: _subjectCtrl, decoration: const InputDecoration(labelText: 'عنوان البريد (اختياري)')),
+              const SizedBox(height: 12),
+              TextField(controller: _messageCtrl, maxLines: 4, decoration: const InputDecoration(labelText: 'نص الرسالة')),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+              ],
             ],
-          ],
+          ),
         ),
       ),
       actions: [

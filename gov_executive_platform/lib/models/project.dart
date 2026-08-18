@@ -15,6 +15,7 @@ class Project {
   final int delayDays; // أيام التأخير عن الخطة (0 = لا يوجد تأخير)
   final String executorName; // الشخص المنفذ/المسؤول عن المشروع
   final String createdByUid;
+  final String? managerUid; // حساب "مدير المشروع" المُسنَد إليه (يرى هذا المشروع فقط)
 
   const Project({
     required this.id,
@@ -29,6 +30,7 @@ class Project {
     required this.delayDays,
     this.executorName = '',
     this.createdByUid = '',
+    this.managerUid,
   });
 
   Project copyWith({
@@ -41,6 +43,7 @@ class Project {
     double? progressPercent,
     int? delayDays,
     String? executorName,
+    String? managerUid,
   }) {
     return Project(
       id: id,
@@ -55,6 +58,7 @@ class Project {
       delayDays: delayDays ?? this.delayDays,
       executorName: executorName ?? this.executorName,
       createdByUid: createdByUid,
+      managerUid: managerUid ?? this.managerUid,
     );
   }
 
@@ -70,6 +74,7 @@ class Project {
         'delayDays': delayDays,
         'executorName': executorName,
         'createdByUid': createdByUid,
+        'managerUid': managerUid,
       };
 
   factory Project.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -87,6 +92,7 @@ class Project {
       delayDays: (json['delayDays'] as num?)?.toInt() ?? 0,
       executorName: json['executorName'] as String? ?? '',
       createdByUid: json['createdByUid'] as String? ?? '',
+      managerUid: json['managerUid'] as String?,
     );
   }
 }

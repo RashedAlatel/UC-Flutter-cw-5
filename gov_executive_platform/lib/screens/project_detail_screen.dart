@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/enums.dart';
+import '../models/project.dart';
 import '../models/project_task.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
@@ -65,6 +66,29 @@ class ProjectDetailScreen extends StatelessWidget {
                       _MetaBit(icon: Icons.flag_outlined, label: 'الأولوية', child: PriorityChip(priority: project.priority)),
                       if (project.executorName.isNotEmpty)
                         _MetaBit(icon: Icons.badge_outlined, label: 'الشخص المنفذ', value: project.executorName),
+                      _MetaBit(
+                        icon: Icons.manage_accounts_outlined,
+                        label: 'مدير المشروع',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _managerName(store, project.managerUid),
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                            ),
+                            if (store.isAdmin) ...[
+                              const SizedBox(width: 4),
+                              InkWell(
+                                onTap: () => showDialog(
+                                  context: context,
+                                  builder: (_) => _AssignManagerDialog(project: project),
+                                ),
+                                child: const Icon(Icons.edit_outlined, size: 14, color: AppColors.primary),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                       _MetaBit(icon: Icons.event_outlined, label: 'تاريخ البدء', value: Formatters.shortDate(project.startDate)),
                       _MetaBit(
                         icon: Icons.event_available_outlined,
@@ -188,6 +212,14 @@ class ProjectDetailScreen extends StatelessWidget {
     );
   }
 
+  String _managerName(AppStore store, String? managerUid) {
+    if (managerUid == null || managerUid.isEmpty) return 'لم يُعيَّن بعد';
+    final match = store.users.where((u) => u.id == managerUid);
+    if (match.isNotEmpty) return match.first.name;
+    if (store.currentUser?.id == managerUid) return store.currentUser!.name;
+    return 'مُعيَّن';
+  }
+
   void _showAddTaskDialog(
     BuildContext context,
     String projectId,
@@ -229,6 +261,64 @@ class _MetaBit extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         child ?? Text(value ?? '', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: valueColor ?? AppColors.textPrimary)),
+      ],
+    );
+  }
+}
+
+/// تعيين/تغيير "مدير المشروع" (مسؤول النظام فقط) من قائمة الحسابات الحقيقية
+/// بدور "مدير مشروع" — الحساب المُختار هو الوحيد الذي سيرى هذا المشروع.
+class _AssignManagerDialog extends StatefulWidget {
+  final Project project;
+  const _AssignManagerDialog({required this.project});
+
+  @override
+  State<_AssignManagerDialog> createState() => _AssignManagerDialogState();
+}
+
+class _AssignManagerDialogState extends State<_AssignManagerDialog> {
+  String? _managerUid;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _managerUid = widget.project.managerUid;
+  }
+
+  Future<void> _save() async {
+    setState(() => _busy = true);
+    await context.read<AppStore>().setProjectManager(widget.project, _managerUid);
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final officers = store.users.where((u) => u.role == UserRole.projectOfficer).toList();
+    return AlertDialog(
+      title: const Text('تعيين مدير المشروع'),
+      content: SizedBox(
+        width: 380,
+        child: DropdownButtonFormField<String?>(
+          initialValue: _managerUid,
+          decoration: const InputDecoration(labelText: 'مدير المشروع'),
+          items: [
+            const DropdownMenuItem(value: null, child: Text('بدون تعيين')),
+            ...officers.map((u) => DropdownMenuItem(value: u.id, child: Text(u.name))),
+          ],
+          onChanged: (v) => setState(() => _managerUid = v),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+        ElevatedButton(
+          onPressed: _busy ? null : _save,
+          child: _busy
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Text('حفظ'),
+        ),
       ],
     );
   }

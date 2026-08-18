@@ -118,15 +118,19 @@ class AppStore extends ChangeNotifier {
   }
 
   void _subscribeAppData() {
-    final scopedDept = canViewAllDepartments ? null : currentUser?.departmentId;
+    final officer = isOfficer;
+    final scopedDept = (canViewAllDepartments || officer) ? null : currentUser?.departmentId;
 
     _dataSubs.add(_db.collection('departments').orderBy('name').snapshots().listen((snap) {
       departments = snap.docs.map(Department.fromDoc).toList();
       notifyListeners();
     }));
 
+    // مدير المشروع (officer) يُقيَّد بمشروعه المُسنَد إليه تحديداً (عبر managerUid)،
+    // وليس بإدارته كاملة كما هو الحال لباقي الأدوار.
     Query<Map<String, dynamic>> scoped(String collection) {
       final col = _db.collection(collection);
+      if (officer) return col.where('managerUid', isEqualTo: currentUser?.id);
       return scopedDept == null ? col : col.where('departmentId', isEqualTo: scopedDept);
     }
 
@@ -314,6 +318,7 @@ class AppStore extends ChangeNotifier {
     if (currentUser == null) return false;
     if (isAdmin) return true;
     if (isExecutive) return false;
+    if (isOfficer) return project.managerUid == currentUser!.id;
     return currentUser!.departmentId == project.departmentId;
   }
 
@@ -328,16 +333,21 @@ class AppStore extends ChangeNotifier {
   bool canViewDepartment(String departmentId) {
     if (currentUser == null) return false;
     if (canViewAllDepartments) return true;
+    if (isOfficer) return false;
     return currentUser!.departmentId == departmentId;
   }
 
   List<Department> get visibleDepartments {
     if (canViewAllDepartments) return departments;
+    if (isOfficer) return const [];
     return departments.where((d) => d.id == currentUser?.departmentId).toList();
   }
 
+  /// مشاريع "مدير المشروع" مقيَّدة بالمشروع (أو المشاريع) المُسنَدة إليه تحديداً
+  /// عبر managerUid، بمعزل تام عن بقية مشاريع إدارته.
   List<Project> get visibleProjects {
     if (canViewAllDepartments) return projects;
+    if (isOfficer) return projects.where((p) => p.managerUid == currentUser?.id).toList();
     return projects.where((p) => p.departmentId == currentUser?.departmentId).toList();
   }
 
@@ -437,20 +447,23 @@ class AppStore extends ChangeNotifier {
     final updateRef = _db.collection('dailyUpdates').doc();
     batch.set(
       updateRef,
-      DailyUpdate(
-        id: updateRef.id,
-        projectId: project.id,
-        departmentId: project.departmentId,
-        authorUid: currentUser?.id ?? '',
-        authorName: currentUser?.name ?? 'غير معروف',
-        date: now,
-        achievements: achievements,
-        completedTasks: completedTasks,
-        newRisks: newRisks,
-        blockers: blockersText,
-        decisionsRequired: decisionsRequired,
-        progressPercent: progressPercent,
-      ).toMap(),
+      {
+        ...DailyUpdate(
+          id: updateRef.id,
+          projectId: project.id,
+          departmentId: project.departmentId,
+          authorUid: currentUser?.id ?? '',
+          authorName: currentUser?.name ?? 'غير معروف',
+          date: now,
+          achievements: achievements,
+          completedTasks: completedTasks,
+          newRisks: newRisks,
+          blockers: blockersText,
+          decisionsRequired: decisionsRequired,
+          progressPercent: progressPercent,
+        ).toMap(),
+        'managerUid': project.managerUid,
+      },
     );
 
     ProjectStatus newStatus = project.status;
@@ -472,29 +485,35 @@ class AppStore extends ChangeNotifier {
       final ref = _db.collection('risks').doc();
       batch.set(
         ref,
-        ProjectRisk(
-          id: ref.id,
-          projectId: project.id,
-          departmentId: project.departmentId,
-          description: r,
-          level: RiskLevel.medium,
-          status: ItemStatus.open,
-          dateRaised: now,
-        ).toMap(),
+        {
+          ...ProjectRisk(
+            id: ref.id,
+            projectId: project.id,
+            departmentId: project.departmentId,
+            description: r,
+            level: RiskLevel.medium,
+            status: ItemStatus.open,
+            dateRaised: now,
+          ).toMap(),
+          'managerUid': project.managerUid,
+        },
       );
     }
     for (final b in blockersText) {
       final ref = _db.collection('blockers').doc();
       batch.set(
         ref,
-        ProjectBlocker(
-          id: ref.id,
-          projectId: project.id,
-          departmentId: project.departmentId,
-          description: b,
-          status: ItemStatus.open,
-          dateRaised: now,
-        ).toMap(),
+        {
+          ...ProjectBlocker(
+            id: ref.id,
+            projectId: project.id,
+            departmentId: project.departmentId,
+            description: b,
+            status: ItemStatus.open,
+            dateRaised: now,
+          ).toMap(),
+          'managerUid': project.managerUid,
+        },
       );
     }
     for (final d in decisionsRequired) {
@@ -540,7 +559,8 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> addTask(ProjectTask task) async {
-    await _db.collection('tasks').doc(task.id).set(task.toMap());
+    final managerUid = projectById(task.projectId)?.managerUid;
+    await _db.collection('tasks').doc(task.id).set({...task.toMap(), 'managerUid': managerUid});
     await _log('إضافة مهمة', 'تمت إضافة مهمة جديدة "${task.title}"');
   }
 
@@ -591,6 +611,7 @@ class AppStore extends ChangeNotifier {
     required DateTime dueDate,
     required PriorityLevel priority,
     String executorName = '',
+    String? managerUid,
   }) async {
     final ref = _db.collection('projects').doc();
     await ref.set(Project(
@@ -606,8 +627,16 @@ class AppStore extends ChangeNotifier {
       delayDays: 0,
       executorName: executorName,
       createdByUid: currentUser?.id ?? '',
+      managerUid: managerUid,
     ).toMap());
     await _log('إضافة مشروع', 'أضاف ${currentUser?.name} مشروعاً جديداً "$name" مباشرة');
+  }
+
+  /// تعيين/تغيير "مدير المشروع" (مسؤول النظام فقط) — الحساب المعيَّن هنا هو
+  /// الوحيد الذي سيرى هذا المشروع إن كان دوره "مدير مشروع".
+  Future<void> setProjectManager(Project project, String? managerUid) async {
+    await _db.collection('projects').doc(project.id).update({'managerUid': managerUid});
+    await _log('تعيين مدير مشروع', 'تم تعيين مدير المشروع لمشروع "${project.name}"');
   }
 
   Future<void> submitDeadlineChangeRequest({
@@ -739,15 +768,16 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  /// إرسال إشعار (بريد و/أو واتساب) لمستخدم واحد أو أكثر دفعة واحدة.
   Future<String?> sendUserNotification({
-    required AppUser user,
+    required List<AppUser> users,
     required NotifyChannel channel,
     required String subject,
     required String message,
   }) async {
     try {
       await _functions.httpsCallable('sendUserNotification').call({
-        'uid': user.id,
+        'uids': users.map((u) => u.id).toList(),
         'channel': channel.name,
         'subject': subject,
         'message': message,

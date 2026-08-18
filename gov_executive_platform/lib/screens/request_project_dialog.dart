@@ -23,6 +23,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
   PriorityLevel _priority = PriorityLevel.medium;
   DateTime _startDate = DateTime.now();
   DateTime _dueDate = DateTime.now().add(const Duration(days: 60));
+  String? _managerUid;
   bool _busy = false;
   String? _error;
 
@@ -66,6 +67,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
         dueDate: _dueDate,
         priority: _priority,
         executorName: _executorCtrl.text.trim(),
+        managerUid: _managerUid,
       );
     } else {
       await store.submitProjectRequest(
@@ -87,7 +89,9 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final isAdmin = context.watch<AppStore>().isAdmin;
+    final store = context.watch<AppStore>();
+    final isAdmin = store.isAdmin;
+    final officers = store.users.where((u) => u.role == UserRole.projectOfficer).toList();
     return AlertDialog(
       title: Text(isAdmin ? 'إضافة مشروع جديد' : 'طلب إضافة مشروع جديد'),
       content: SizedBox(
@@ -103,6 +107,18 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
               const SizedBox(height: 12),
               TextField(controller: _executorCtrl, decoration: const InputDecoration(labelText: 'الشخص المنفذ / المسؤول عن المشروع')),
               const SizedBox(height: 12),
+              if (isAdmin) ...[
+                DropdownButtonFormField<String?>(
+                  initialValue: _managerUid,
+                  decoration: const InputDecoration(labelText: 'مدير المشروع (اختياري، يمكن تعيينه لاحقاً)'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('بدون تعيين الآن')),
+                    ...officers.map((u) => DropdownMenuItem(value: u.id, child: Text(u.name))),
+                  ],
+                  onChanged: (v) => setState(() => _managerUid = v),
+                ),
+                const SizedBox(height: 12),
+              ],
               DropdownButtonFormField<PriorityLevel>(
                 initialValue: _priority,
                 decoration: const InputDecoration(labelText: 'الأولوية'),

@@ -147,6 +147,7 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         delayDays: 0,
         executorName: payload.executorName ?? "",
         createdByUid: data.requestedByUid,
+        managerUid: null,
       });
       break;
     }
@@ -323,20 +324,46 @@ export const setUserStatus = onCall(async (request) => {
 
 export const sendUserNotification = onCall({secrets: notificationSecrets}, async (request) => {
   const auth = requireAdmin(request);
-  const {uid, channel, subject, message} = (request.data ?? {}) as {
+  const {uids, uid, channel, subject, message} = (request.data ?? {}) as {
+    uids?: string[];
     uid?: string;
     channel?: string;
     subject?: string;
     message?: string;
   };
-  if (!uid || !message) throw new HttpsError("invalid-argument", "بيانات ناقصة");
+  const targets = uids && uids.length ? uids : uid ? [uid] : [];
+  if (!targets.length || !message) throw new HttpsError("invalid-argument", "بيانات ناقصة");
 
-  await notifyUser(uid, subject || "إشعار من المنصة التنفيذية الحكومية", message, {
+  const channels = {
     email: channel === "email" || channel === "both",
     whatsapp: channel === "whatsapp" || channel === "both",
-  });
+  };
 
-  await logAudit(auth.token.name ?? "مسؤول النظام", "إرسال إشعار", `أرسل مسؤول النظام إشعاراً (${channel}) إلى مستخدم`);
+  const results = await Promise.all(
+    targets.map(async (t) => ({
+      uid: t,
+      result: await notifyUser(t, subject || "إشعار من المنصة التنفيذية الحكومية", message, channels),
+    })),
+  );
 
-  return {ok: true};
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "إرسال إشعار",
+    `أرسل مسؤول النظام إشعاراً (${channel}) إلى ${targets.length} مستخدم(ين)`,
+  );
+
+  // لا نُخفي فشل الإرسال الفعلي (بيانات بريد خاطئة، رقم واتساب غير صالح...):
+  // نُبلّغ به صراحة بدل رسالة "تم الإرسال" الخادعة التي كانت تظهر سابقاً حتى
+  // عندما لا تصل الرسالة فعلياً.
+  const failures = results.filter(
+    ({result}) => (channels.email && !result.emailSent) || (channels.whatsapp && !result.whatsappSent),
+  );
+  if (failures.length) {
+    const detail = failures
+      .map(({uid: t, result}) => `${t}: ${[result.emailError, result.whatsappError].filter(Boolean).join(" / ")}`)
+      .join("، ");
+    throw new HttpsError("internal", `فشل الإرسال لبعض المستخدمين: ${detail}`);
+  }
+
+  return {ok: true, sent: targets.length};
 });

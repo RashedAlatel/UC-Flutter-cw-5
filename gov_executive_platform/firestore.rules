@@ -23,7 +23,29 @@ service cloud.firestore {
     function canViewAll() { return isAdmin() || isExecutive() || customPerm('vad'); }
     function myDept() { return request.auth.token.departmentId; }
     function isMyDept(deptId) { return isApproved() && deptId != null && myDept() == deptId; }
-    function canEditDept(deptId) { return isAdmin() || isMyDept(deptId); }
+    function isDeptManager() { return isApproved() && role() == 'departmentManager'; }
+    // "مدير مشروع" (projectOfficer) مقيَّد بمشروعه المُسنَد إليه فقط عبر
+    // managerUid المخزَّن على المشروع (ومنسوخ إلى المستندات التابعة له)، وليس
+    // بإدارته كاملة كما هو الحال لمدير الإدارة.
+    function isOfficer() { return isApproved() && role() == 'projectOfficer'; }
+    function isMyProject(managerUid) { return isOfficer() && managerUid != null && managerUid == request.auth.uid; }
+    // صلاحية القراءة/الكتابة على مستند مرتبط بمشروع (تقدّم عبر departmentId و managerUid المنسوخين عليه).
+    function canEditDept(deptId) { return isAdmin() || (isDeptManager() && isMyDept(deptId)); }
+    function canAccessProjectDoc(deptId, managerUid) { return canEditDept(deptId) || isMyProject(managerUid); }
+    // عند إنشاء مستند تابع لمشروع (مهمة/تحديث يومي/خطر/عائق)، نتحقق أن الحقول
+    // المنسوخة (departmentId، managerUid) تطابق فعلاً مستند المشروع الحقيقي،
+    // حتى لا يستطيع عميل خبيث انتحال managerUid لا يملكه للوصول لمشروع غيره.
+    function realProject(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)).data;
+    }
+    function matchesRealProject(projectId, deptId, managerUid) {
+      let p = realProject(projectId);
+      return deptOf(p) == deptId && managerOf(p) == managerUid;
+    }
+    // وصول آمن للحقلين على مستندات قد تكون قديمة (سابقة لإضافة managerUid)
+    // وتفتقد الحقل أصلاً؛ الوصول المباشر بالنقطة يفشل في هذه الحالة.
+    function deptOf(data) { return data.get('departmentId', null); }
+    function managerOf(data) { return data.get('managerUid', null); }
 
     // ------------------------- المستخدمون -------------------------
     match /users/{uid} {
@@ -50,47 +72,59 @@ service cloud.firestore {
 
     // ------------------------- المشاريع -------------------------
     match /projects/{id} {
-      allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
+      allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
       // مسؤول النظام يملك صلاحية إضافة مشروع مباشرة (موافقته الذاتية كافية).
       // أي دور آخر لا يُنشئ مشروعاً مباشرة؛ الإنشاء عندها يتم فقط عبر Cloud
       // Function بعد اعتماد طلب "إضافة مشروع" من مسؤول النظام.
       allow create: if isAdmin();
-      // يمكن لمدير/ضابط الإدارة تحديث حقول التقدم والحالة فقط، دون المساس بالموعد النهائي
-      // أو نقل المشروع لإدارة أخرى - أي تغيير في الموعد النهائي يمر عبر طلب موافقة منفصل.
+      // يمكن لمدير الإدارة أو مدير المشروع المُسنَد إليه تحديث حقول التقدم والحالة
+      // فقط، دون المساس بالموعد النهائي أو نقل المشروع لإدارة أخرى أو تغيير
+      // مديره - أي تغيير في الموعد النهائي يمر عبر طلب موافقة منفصل، وتغيير
+      // مدير المشروع لا يقوم به إلا مسؤول النظام.
       allow update: if isAdmin()
-                    || (canEditDept(resource.data.departmentId)
+                    || (canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                         && !request.resource.data.diff(resource.data).affectedKeys()
-                              .hasAny(['dueDate', 'departmentId', 'createdByUid']));
+                              .hasAny(['dueDate', 'departmentId', 'createdByUid', 'managerUid']));
       allow delete: if isAdmin();
     }
 
     // ------------------------- مهام المشاريع -------------------------
     match /tasks/{id} {
-      allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
-      allow create: if canEditDept(request.resource.data.departmentId);
-      allow update: if canEditDept(resource.data.departmentId);
+      allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
+      allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                    && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
+      allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['projectId', 'departmentId', 'managerUid']);
       allow delete: if isAdmin();
     }
 
     // ------------------------- التحديثات اليومية (سجل غير قابل للتعديل) -------------------------
     match /dailyUpdates/{id} {
-      allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
-      allow create: if canEditDept(request.resource.data.departmentId);
+      allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
+      allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                    && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update, delete: if false;
     }
 
     // ------------------------- المخاطر والعوائق -------------------------
     match /risks/{id} {
-      allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
-      allow create: if canEditDept(request.resource.data.departmentId);
-      allow update: if canEditDept(resource.data.departmentId);
+      allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
+      allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                    && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
+      allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['projectId', 'departmentId', 'managerUid']);
       allow delete: if isAdmin();
     }
 
     match /blockers/{id} {
-      allow read: if isApproved() && (canViewAll() || isMyDept(resource.data.departmentId));
-      allow create: if canEditDept(request.resource.data.departmentId);
-      allow update: if canEditDept(resource.data.departmentId);
+      allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
+      allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                    && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
+      allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['projectId', 'departmentId', 'managerUid']);
       allow delete: if isAdmin();
     }
 

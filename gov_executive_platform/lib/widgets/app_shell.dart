@@ -8,6 +8,7 @@ import '../screens/dashboard_screen.dart';
 import '../screens/decision_center_screen.dart';
 import '../screens/department_detail_screen.dart';
 import '../screens/departments_list_screen.dart';
+import '../screens/project_detail_screen.dart';
 import '../screens/projects_list_screen.dart';
 import '../screens/reports_screen.dart';
 import '../screens/roles_management_screen.dart';
@@ -32,6 +33,24 @@ class _AppShellState extends State<AppShell> {
   int _selected = 0;
 
   List<_NavEntry> _buildEntries(AppStore store) {
+    // "مدير المشروع" مقيَّد بمشروعه المُسنَد إليه فقط: لا لوحة قيادة، ولا
+    // إدارات، ولا بقية المشاريع — فقط مشروعه (أو مشاريعه إن أُسنِد أكثر من واحد).
+    if (store.isOfficer) {
+      final myProjects = store.visibleProjects;
+      if (myProjects.isEmpty) {
+        return const [
+          _NavEntry(label: 'مشروعي', icon: Icons.folder_off_outlined, page: _NoProjectAssignedView()),
+        ];
+      }
+      return myProjects
+          .map((p) => _NavEntry(
+                label: p.name,
+                icon: Icons.folder_copy_rounded,
+                page: ProjectDetailScreen(projectId: p.id),
+              ))
+          .toList();
+    }
+
     final entries = <_NavEntry>[
       const _NavEntry(label: 'لوحة القيادة', icon: Icons.dashboard_rounded, page: DashboardScreen()),
     ];
@@ -289,5 +308,28 @@ class _TopBar extends StatelessWidget {
     ];
     final now = DateTime.now();
     return '${now.day} ${months[now.month - 1]} ${now.year}';
+  }
+}
+
+class _NoProjectAssignedView extends StatelessWidget {
+  const _NoProjectAssignedView();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.folder_off_outlined, size: 40, color: AppColors.textSecondary),
+            SizedBox(height: 12),
+            Text('لم يتم تعيينك مديراً لأي مشروع بعد', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+            SizedBox(height: 6),
+            Text('تواصل مع مسؤول النظام ليعيّنك على مشروع.', style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+          ],
+        ),
+      ),
+    );
   }
 }

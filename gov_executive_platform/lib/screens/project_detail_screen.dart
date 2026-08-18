@@ -372,6 +372,7 @@ class _AssignManagerDialogState extends State<_AssignManagerDialog> {
         width: 380,
         child: DropdownButtonFormField<String?>(
           initialValue: _managerUid,
+          isExpanded: true,
           decoration: const InputDecoration(labelText: 'مدير المشروع'),
           items: [
             const DropdownMenuItem(value: null, child: Text('بدون تعيين')),
@@ -1033,6 +1034,7 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
             const SizedBox(height: 12),
             DropdownButtonFormField<PriorityLevel>(
               initialValue: _priority,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'الأولوية'),
               items: PriorityLevel.values.map((p) => DropdownMenuItem(value: p, child: Text(p.label))).toList(),
               onChanged: (v) => setState(() => _priority = v ?? _priority),

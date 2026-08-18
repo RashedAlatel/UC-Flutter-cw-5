@@ -342,6 +342,7 @@ class _CustomWidgetBuilderDialogState extends State<_CustomWidgetBuilderDialog> 
               const SizedBox(height: 14),
               DropdownButtonFormField<CustomWidgetSource>(
                 initialValue: _source,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'مصدر البيانات'),
                 items: CustomWidgetSource.values.map((s) => DropdownMenuItem(value: s, child: Text(s.label))).toList(),
                 onChanged: _onSourceChanged,
@@ -349,6 +350,7 @@ class _CustomWidgetBuilderDialogState extends State<_CustomWidgetBuilderDialog> 
               const SizedBox(height: 14),
               DropdownButtonFormField<CustomWidgetDisplay>(
                 initialValue: _display,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'نوع العرض'),
                 items: CustomWidgetDisplay.values.map((d) => DropdownMenuItem(value: d, child: Text(d.label))).toList(),
                 onChanged: (d) => setState(() => _display = d ?? _display),
@@ -357,6 +359,7 @@ class _CustomWidgetBuilderDialogState extends State<_CustomWidgetBuilderDialog> 
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
                   initialValue: _groupBy,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: 'التجميع حسب'),
                   items: fields.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
                   onChanged: (v) => setState(() => _groupBy = v),
@@ -367,6 +370,7 @@ class _CustomWidgetBuilderDialogState extends State<_CustomWidgetBuilderDialog> 
               const SizedBox(height: 8),
               DropdownButtonFormField<String?>(
                 initialValue: _filterField,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'تصفية حسب حقل'),
                 items: [
                   const DropdownMenuItem(value: null, child: Text('بدون تصفية')),
@@ -385,6 +389,7 @@ class _CustomWidgetBuilderDialogState extends State<_CustomWidgetBuilderDialog> 
                 else
                   DropdownButtonFormField<String>(
                     initialValue: _filterValue,
+                    isExpanded: true,
                     decoration: InputDecoration(labelText: 'قيمة "${fields[_filterField]}"'),
                     items: _enumOptions(_filterField!).map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
                     onChanged: (v) => setState(() => _filterValue = v),

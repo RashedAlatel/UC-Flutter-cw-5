@@ -74,6 +74,7 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                 width: 220,
                 child: DropdownButtonFormField<String?>(
                   initialValue: _departmentFilter,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: 'تصفية حسب الإدارة', isDense: true),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('كل الإدارات')),
@@ -86,6 +87,7 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                 width: 220,
                 child: DropdownButtonFormField<String?>(
                   initialValue: _executorFilter,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: 'تصفية حسب المنفذ', isDense: true),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('كل المنفذين')),

@@ -245,6 +245,7 @@ class _NotifyDialogState extends State<_NotifyDialog> {
               ],
               DropdownButtonFormField<NotifyChannel>(
                 initialValue: _channel,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'قناة الإرسال'),
                 items: NotifyChannel.values.map((c) => DropdownMenuItem(value: c, child: Text(c.label))).toList(),
                 onChanged: (v) => setState(() => _channel = v ?? _channel),
@@ -311,6 +312,7 @@ class _RoleFields extends StatelessWidget {
       children: [
         DropdownButtonFormField<UserRole>(
           initialValue: role,
+          isExpanded: true,
           decoration: const InputDecoration(labelText: 'الدور'),
           items: selectableRoles.map((r) => DropdownMenuItem(value: r, child: Text(r.label))).toList(),
           onChanged: (v) => onRoleChanged(v ?? role),
@@ -319,6 +321,7 @@ class _RoleFields extends StatelessWidget {
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: customRoleId,
+            isExpanded: true,
             decoration: const InputDecoration(labelText: 'الدور المخصص'),
             items: store.customRoles.map((r) => DropdownMenuItem(value: r.id, child: Text(r.name))).toList(),
             onChanged: onCustomRoleChanged,
@@ -328,6 +331,7 @@ class _RoleFields extends StatelessWidget {
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: departmentId,
+            isExpanded: true,
             decoration: InputDecoration(labelText: isCustom ? 'الإدارة (اختياري)' : 'الإدارة'),
             items: store.departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
             onChanged: onDepartmentChanged,

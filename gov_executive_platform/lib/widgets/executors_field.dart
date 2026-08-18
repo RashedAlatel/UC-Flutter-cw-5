@@ -51,6 +51,7 @@ class _ExecutorsFieldState extends State<ExecutorsField> {
           width: double.infinity,
           child: DropdownButtonFormField<String>(
             initialValue: null,
+            isExpanded: true,
             decoration: const InputDecoration(labelText: 'إضافة منفذ من المستخدمين المسجّلين'),
             items: available.isEmpty
                 ? const [DropdownMenuItem(value: null, child: Text('لا يوجد مستخدمون آخرون لإضافتهم'))]

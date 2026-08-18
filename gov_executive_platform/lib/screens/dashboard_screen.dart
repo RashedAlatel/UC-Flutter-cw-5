@@ -35,18 +35,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final scoped = !store.canViewAllDepartments;
-    final ranking = store.departmentRanking
-        .where((e) => store.canViewDepartment(e.key.id))
-        .toList();
     final projects = store.visibleProjects;
 
+    // شريط الفلاتر يؤثر على كامل نطاق اللوحة (المؤشرات والرسوم البيانية
+    // وقوائم المشاريع معاً) بدل الاقتصار على ودجات بعينها، حتى يكون سلوكه
+    // متوقعاً: كل ما تراه أسفل الشريط يعكس الفلتر المُختار فعلياً.
     final filteredProjects = projects
         .where((p) => _statusFilter == null || p.status == _statusFilter)
         .where((p) => _deptFilter == null || p.departmentId == _deptFilter)
         .toList();
 
+    final ranking = store.departments
+        .where((d) => store.canViewDepartment(d.id))
+        .map((d) {
+          final deptProjects = filteredProjects.where((p) => p.departmentId == d.id).toList();
+          final avg = deptProjects.isEmpty
+              ? 0.0
+              : deptProjects.map((p) => p.progressPercent).reduce((a, b) => a + b) / deptProjects.length;
+          return MapEntry(d, avg);
+        })
+        .toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
     final statusCounts = <String, int>{
-      for (final s in ProjectStatus.values) s.label: projects.where((p) => p.status == s).length,
+      for (final s in ProjectStatus.values) s.label: filteredProjects.where((p) => p.status == s).length,
     };
     final statusColors = {
       for (final s in ProjectStatus.values) s.label: AppColors.statusColor(s.name),
@@ -106,7 +118,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             onDeptChanged: (d) => setState(() => _deptFilter = d),
           ),
           const SizedBox(height: 18),
-          _KpiGrid(store: store, projects: projects),
+          _KpiGrid(store: store, projects: filteredProjects),
           const SizedBox(height: 20),
           ...store.dashboardWidgets.map((w) => Padding(
                 padding: const EdgeInsets.only(bottom: 18),
@@ -270,11 +282,17 @@ void _showProjectsPeek(BuildContext context, {required String title, required Li
 
 class _KpiGrid extends StatelessWidget {
   final AppStore store;
-  final List projects;
+  final List<Project> projects;
   const _KpiGrid({required this.store, required this.projects});
 
   @override
   Widget build(BuildContext context) {
+    final ids = projects.map((p) => p.id).toSet();
+    final avgProgress = projects.isEmpty ? 0.0 : projects.map((p) => p.progressPercent).reduce((a, b) => a + b) / projects.length;
+    final avgDelay = projects.isEmpty ? 0.0 : projects.map((p) => p.delayDays).reduce((a, b) => a + b) / projects.length;
+    final risksCount = store.risks.where((r) => ids.contains(r.projectId) && r.status == ItemStatus.open).length;
+    final blockersCount = store.blockers.where((b) => ids.contains(b.projectId) && b.status == ItemStatus.open).length;
+
     return LayoutBuilder(builder: (context, constraints) {
       final cols = constraints.maxWidth > 1150
           ? 5
@@ -286,25 +304,25 @@ class _KpiGrid extends StatelessWidget {
       final items = [
         KpiCard(
           title: 'نسبة الإنجاز العام',
-          value: Formatters.percent(store.overallProgress),
+          value: Formatters.percent(avgProgress),
           icon: Icons.trending_up_rounded,
           color: AppColors.success,
         ),
         KpiCard(
           title: 'متوسط التأخير عن الخطة',
-          value: '${store.overallAvgDelay.toStringAsFixed(1)} يوم',
+          value: '${avgDelay.toStringAsFixed(1)} يوم',
           icon: Icons.schedule_rounded,
           color: AppColors.warning,
         ),
         KpiCard(
           title: 'المخاطر القائمة',
-          value: '${store.openRisksCount}',
+          value: '$risksCount',
           icon: Icons.warning_amber_rounded,
           color: AppColors.danger,
         ),
         KpiCard(
           title: 'العوائق النشطة',
-          value: '${store.openBlockersCount}',
+          value: '$blockersCount',
           icon: Icons.block_rounded,
           color: const Color(0xFFE0692B),
         ),
@@ -371,6 +389,7 @@ class _FilterBar extends StatelessWidget {
                 width: 190,
                 child: DropdownButtonFormField<String?>(
                   initialValue: deptFilter,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: 'الإدارة', isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('كل الإدارات')),

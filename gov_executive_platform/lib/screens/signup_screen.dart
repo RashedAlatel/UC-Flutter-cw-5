@@ -124,6 +124,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<UserRole>(
                       initialValue: _requestedRole,
+                      isExpanded: true,
                       decoration: const InputDecoration(labelText: 'الدور المطلوب'),
                       items: _selectableRoles.map((r) => DropdownMenuItem(value: r, child: Text(r.label))).toList(),
                       onChanged: (v) => setState(() {
@@ -139,6 +140,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           final depts = snapshot.data ?? const [];
                           return DropdownButtonFormField<String>(
                             initialValue: _departmentId,
+                            isExpanded: true,
                             decoration: const InputDecoration(labelText: 'الإدارة'),
                             items: depts.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
                             onChanged: (v) => setState(() => _departmentId = v),

@@ -114,6 +114,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
               if (widget.departmentId == null) ...[
                 DropdownButtonFormField<String?>(
                   initialValue: _selectedDepartmentId,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: 'الإدارة (اختياري)'),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('بدون إدارة')),
@@ -126,6 +127,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
               if (isAdmin) ...[
                 DropdownButtonFormField<String?>(
                   initialValue: _managerUid,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: 'مدير المشروع (اختياري، يمكن تعيينه لاحقاً)'),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('بدون تعيين الآن')),
@@ -137,6 +139,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
               ],
               DropdownButtonFormField<PriorityLevel>(
                 initialValue: _priority,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'الأولوية'),
                 items: PriorityLevel.values.map((p) => DropdownMenuItem(value: p, child: Text(p.label))).toList(),
                 onChanged: (v) => setState(() => _priority = v ?? _priority),

@@ -32,6 +32,7 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
   }
 
   Future<void> _openCustomBuilder({DashboardWidgetConfig? editing}) async {
+    final store = context.read<AppStore>();
     final spec = await showDialog<CustomWidgetSpec>(
       context: context,
       builder: (_) => _CustomWidgetBuilderDialog(initial: editing?.custom),
@@ -45,6 +46,22 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
         _widgets.add(DashboardWidgetConfig(id: const Uuid().v4(), type: DashboardWidgetType.custom, custom: spec));
       }
     });
+    // نحفظ الودجت المخصص فور إنشائه مباشرةً (بدل الاكتفاء بإضافته للقائمة
+    // المحلية بانتظار "حفظ التخطيط" لاحقاً) لأن نموذج البناء نفسه يحمل زر
+    // "حفظ الودجت" الذي يبدو للمستخدم إجراءً نهائياً — تركه معلّقاً بلا حفظ
+    // فعلي كان يبدو وكأن الودجت "لا يظهر" رغم إنشائه بنجاح.
+    try {
+      await store.saveDashboardWidgets(_widgets);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تمت إضافة الودجت المخصص وحفظه في اللوحة')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر حفظ الودجت: $e'), backgroundColor: AppColors.danger),
+      );
+    }
   }
 
   Future<void> _save() async {

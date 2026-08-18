@@ -112,7 +112,19 @@ class AppTheme {
     );
 
     return base.copyWith(
-      textTheme: base.textTheme.apply(fontFamily: fontFamily),
+      // titleMedium هو الطراز الذي تعتمده حقول DropdownButtonFormField/
+      // TextField داخلياً لعرض القيمة المُدخَلة حين لا يُحدَّد "style" صراحةً
+      // — تصغيره هنا يمنع تراكب نص القيمة (بحجمه الافتراضي الكبير ~16) مع
+      // تسمية الحقل العائمة الأصغر (labelStyle بحجم 13.5) في كل قوائم
+      // التصفية المنسدلة عبر التطبيق دفعة واحدة.
+      textTheme: base.textTheme.apply(fontFamily: fontFamily).copyWith(
+            titleMedium: const TextStyle(
+              fontFamily: fontFamily,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
       appBarTheme: AppBarTheme(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,

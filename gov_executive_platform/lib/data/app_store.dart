@@ -22,6 +22,7 @@ import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import 'default_departments.dart';
 import 'demo_data.dart';
+import 'ministry_import_data.dart';
 
 /// طبقة إدارة الحالة المركزية للمنصة، مبنية بالكامل على Firebase:
 /// - المصادقة: Firebase Authentication (بريد إلكتروني/كلمة مرور)
@@ -847,6 +848,21 @@ class AppStore extends ChangeNotifier {
     }
     await batch.commit();
     await _log('إدارة الإدارات', 'تم استيراد الإدارات الافتراضية');
+  }
+
+  /// استيراد بيانات وزارة العدل الحقيقية (من ملف Excel الذي زوّدنا به مسؤول
+  /// النظام): الإدارات الأربع الظاهرة بالملف + كل بند عمل كمشروع مستقل بمنفذه.
+  /// معرّفات ثابتة (merge) بحيث يكون تكرار الاستيراد آمناً دون تكرار السجلات.
+  Future<void> importMinistryData() async {
+    final batch = _db.batch();
+    for (final d in MinistryImportData.departments()) {
+      batch.set(_db.collection('departments').doc(d.id), d.toMap(), SetOptions(merge: true));
+    }
+    for (final p in MinistryImportData.projects()) {
+      batch.set(_db.collection('projects').doc(p.id), p.toMap(), SetOptions(merge: true));
+    }
+    await batch.commit();
+    await _log('استيراد بيانات', 'قام ${currentUser?.name} باستيراد بيانات وزارة العدل من ملف Excel');
   }
 
   /// توليد بيانات تجريبية كاملة (إدارات + مشاريع + مهام + مخاطر/عوائق +

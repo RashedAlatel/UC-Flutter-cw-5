@@ -61,6 +61,10 @@ class DepartmentsListScreen extends StatelessWidget {
               ),
             ),
           ],
+          if (store.canManageUsers) ...[
+            const SizedBox(height: 14),
+            const _MinistryImportCard(),
+          ],
           const SizedBox(height: 20),
           LayoutBuilder(builder: (context, constraints) {
             final cols = constraints.maxWidth > 1150 ? 3 : (constraints.maxWidth > 720 ? 2 : 1);
@@ -193,6 +197,92 @@ class _AddDepartmentDialogState extends State<_AddDepartmentDialog> {
               : const Text('إضافة'),
         ),
       ],
+    );
+  }
+}
+
+/// استيراد بيانات وزارة العدل الحقيقية (٤ إدارات + ٦٥ مشروعاً بمنفذيها) من
+/// ملف Excel الذي زوّده مسؤول النظام. آمن التكرار (معرّفات ثابتة).
+class _MinistryImportCard extends StatefulWidget {
+  const _MinistryImportCard();
+
+  @override
+  State<_MinistryImportCard> createState() => _MinistryImportCardState();
+}
+
+class _MinistryImportCardState extends State<_MinistryImportCard> {
+  bool _busy = false;
+  bool _done = false;
+  String? _error;
+
+  Future<void> _import() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await context.read<AppStore>().importMinistryData();
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _done = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'تعذر الاستيراد، حاول مرة أخرى.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.file_upload_outlined, color: AppColors.accent),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('استيراد بيانات وزارة العدل', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'يستورد ٤ إدارات (تطوير النظم، التشغيل، الدعم الفني، الإحصاء والبحوث) و٦٥ مشروعاً من ملف Excel، مع تعيين المنفذين لكل مشروع. '
+                    'الحالة ونسبة الإنجاز استُنتجتا آلياً من نص الملاحظات الأصلي وقد تحتاجان مراجعة يدوية لبعض المشاريع.',
+                    style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.6),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                  ],
+                  const SizedBox(height: 10),
+                  _done
+                      ? const Row(
+                          children: [
+                            Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
+                            SizedBox(width: 6),
+                            Text('تم الاستيراد بنجاح', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.w700, fontSize: 12.5)),
+                          ],
+                        )
+                      : ElevatedButton.icon(
+                          onPressed: _busy ? null : _import,
+                          icon: _busy
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.file_upload_outlined, size: 16),
+                          label: const Text('استيراد الآن'),
+                        ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

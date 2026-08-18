@@ -38,30 +38,33 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
       context: context,
       builder: (_) => CustomWidgetBuilderDialog(initial: editing?.custom),
     );
-    if (spec == null) return;
-    setState(() {
-      if (editing != null) {
-        final i = _widgets.indexWhere((w) => w.id == editing.id);
-        if (i != -1) _widgets[i] = DashboardWidgetConfig(id: editing.id, type: DashboardWidgetType.custom, custom: spec);
-      } else {
-        _widgets.add(DashboardWidgetConfig(id: const Uuid().v4(), type: DashboardWidgetType.custom, custom: spec));
-      }
-    });
+    if (spec == null || !mounted) return;
+
+    final updated = List<DashboardWidgetConfig>.of(_widgets);
+    if (editing != null) {
+      final i = updated.indexWhere((w) => w.id == editing.id);
+      if (i != -1) updated[i] = DashboardWidgetConfig(id: editing.id, type: DashboardWidgetType.custom, custom: spec);
+    } else {
+      updated.add(DashboardWidgetConfig(id: const Uuid().v4(), type: DashboardWidgetType.custom, custom: spec));
+    }
+
     // نحفظ الودجت المخصص فور إنشائه مباشرةً (بدل الاكتفاء بإضافته للقائمة
     // المحلية بانتظار "حفظ التخطيط" لاحقاً) لأن نموذج البناء نفسه يحمل زر
-    // "حفظ الودجت" الذي يبدو للمستخدم إجراءً نهائياً — تركه معلّقاً بلا حفظ
-    // فعلي كان يبدو وكأن الودجت "لا يظهر" رغم إنشائه بنجاح.
+    // "حفظ الودجت" الذي يبدو للمستخدم إجراءً نهائياً. كما نغلق نافذة "تخصيص
+    // اللوحة" بالكامل بعد نجاح الحفظ — رسالة التأكيد (أو الخطأ) كانت تظهر
+    // خلف النافذة المفتوحة ولا يراها المستخدم إطلاقاً، فيبدو الأمر وكأن شيئاً
+    // لم يحدث حتى لو نجح الحفظ فعلياً.
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
     try {
-      await store.saveDashboardWidgets(_widgets);
+      await store.saveDashboardWidgets(updated);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تمت إضافة الودجت المخصص وحفظه في اللوحة')),
-      );
+      navigator.pop();
+      messenger.showSnackBar(const SnackBar(content: Text('تمت إضافة الودجت المخصص وحفظه في اللوحة')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر حفظ الودجت: $e'), backgroundColor: AppColors.danger),
-      );
+      setState(() => _widgets = updated);
+      messenger.showSnackBar(SnackBar(content: Text('تعذر حفظ الودجت: $e'), backgroundColor: AppColors.danger));
     }
   }
 

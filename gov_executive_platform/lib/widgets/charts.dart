@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../models/department.dart';
@@ -60,14 +62,17 @@ class DepartmentBarChart extends StatelessWidget {
   }
 }
 
-/// شريط أفقي واحد بنسبة ١٠٠٪ (Stacked Bar) لتوزيع حالة المشاريع، مع صف
-/// وسائل إيضاح أعلاه يحمل النسبة المئوية لكل حالة. اضغط أي شريحة/تسمية
-/// لعرض مشاريع تلك الحالة.
-class StatusStackedBar extends StatelessWidget {
+/// رسم دائري (Donut) لتوزيع حالة المشاريع مع قائمة وسائل إيضاح جانبية.
+/// اضغط أي قطاع أو عنصر بالقائمة لعرض مشاريع تلك الحالة. مُنفَّذ بـ
+/// CustomPainter مباشرة (بلا اعتماد خارجي) مع كشف موضع الضغط عبر حساب الزاوية.
+class StatusDonutChart extends StatelessWidget {
   final Map<String, int> data; // label -> count
   final Map<String, Color> colors;
   final ValueChanged<String>? onSectionTap;
-  const StatusStackedBar({super.key, required this.data, required this.colors, this.onSectionTap});
+  const StatusDonutChart({super.key, required this.data, required this.colors, this.onSectionTap});
+
+  static const double _diameter = 148;
+  static const double _stroke = 24;
 
   @override
   Widget build(BuildContext context) {
@@ -76,51 +81,112 @@ class StatusStackedBar extends StatelessWidget {
     if (total == 0) {
       return const Center(child: Text('لا توجد بيانات', style: TextStyle(color: AppColors.textSecondary)));
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Row(
       children: [
-        Wrap(
-          spacing: 16,
-          runSpacing: 10,
-          children: entries.map((e) {
-            final pct = e.value / total * 100;
-            return InkWell(
-              borderRadius: BorderRadius.circular(6),
-              onTap: onSectionTap == null ? null : () => onSectionTap!(e.key),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(width: 9, height: 9, decoration: BoxDecoration(color: colors[e.key], shape: BoxShape.circle)),
-                  const SizedBox(width: 6),
-                  Text('${e.key} · ${pct.toStringAsFixed(0)}٪',
-                      style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
-                ],
+        Expanded(
+          flex: 5,
+          child: Center(
+            child: GestureDetector(
+              onTapUp: (details) => _handleTap(details.localPosition, entries, total),
+              child: SizedBox(
+                width: _diameter,
+                height: _diameter,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CustomPaint(size: const Size(_diameter, _diameter), painter: _DonutPainter(entries: entries, colors: colors, total: total, stroke: _stroke)),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('$total', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                        const Text('مشروع', style: TextStyle(fontSize: 9.5, color: AppColors.textSecondary)),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            );
-          }).toList(),
-        ),
-        const SizedBox(height: 20),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: SizedBox(
-            height: 28,
-            child: Row(
-              children: entries
-                  .map((e) => Expanded(
-                        flex: e.value,
-                        child: InkWell(
-                          onTap: onSectionTap == null ? null : () => onSectionTap!(e.key),
-                          child: Container(color: colors[e.key]),
-                        ),
-                      ))
-                  .toList(),
             ),
           ),
         ),
-        const SizedBox(height: 10),
-        Text('$total مشروعاً بالإجمالي', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+        Expanded(
+          flex: 4,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: entries.map((e) {
+              final pct = e.value / total * 100;
+              return InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: onSectionTap == null ? null : () => onSectionTap!(e.key),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Container(width: 9, height: 9, decoration: BoxDecoration(color: colors[e.key], shape: BoxShape.circle)),
+                      const SizedBox(width: 7),
+                      Expanded(child: Text(e.key, style: const TextStyle(fontSize: 11, color: AppColors.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      Text('${pct.toStringAsFixed(0)}٪', style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: AppColors.textSecondary)),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
       ],
     );
   }
+
+  void _handleTap(Offset local, List<MapEntry<String, int>> entries, int total) {
+    if (onSectionTap == null) return;
+    const center = Offset(_diameter / 2, _diameter / 2);
+    final dx = local.dx - center.dx;
+    final dy = local.dy - center.dy;
+    final radius = math.sqrt(dx * dx + dy * dy);
+    final outer = _diameter / 2;
+    final inner = outer - _stroke;
+    if (radius < inner - 8 || radius > outer + 8) return;
+    var angle = math.atan2(dy, dx) + math.pi / 2;
+    if (angle < 0) angle += 2 * math.pi;
+    final fraction = angle / (2 * math.pi);
+    double acc = 0;
+    for (final e in entries) {
+      final share = e.value / total;
+      if (fraction <= acc + share) {
+        onSectionTap!(e.key);
+        return;
+      }
+      acc += share;
+    }
+  }
+}
+
+class _DonutPainter extends CustomPainter {
+  final List<MapEntry<String, int>> entries;
+  final Map<String, Color> colors;
+  final int total;
+  final double stroke;
+  _DonutPainter({required this.entries, required this.colors, required this.total, required this.stroke});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final rect = Rect.fromCircle(center: center, radius: size.width / 2 - stroke / 2);
+    var startAngle = -math.pi / 2;
+    for (final e in entries) {
+      final sweep = (e.value / total) * 2 * math.pi;
+      final paint = Paint()
+        ..color = colors[e.key] ?? AppColors.textSecondary
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.butt;
+      final gap = entries.length > 1 ? 0.028 : 0.0;
+      canvas.drawArc(rect, startAngle + gap / 2, sweep - gap, false, paint);
+      startAngle += sweep;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DonutPainter oldDelegate) =>
+      oldDelegate.entries != entries || oldDelegate.colors != colors || oldDelegate.total != total;
 }

@@ -213,7 +213,9 @@ enum DashboardWidgetType {
   statusPieChart,
   pendingApprovalsList,
   departmentRankingList,
-  recentUpdatesList;
+  recentUpdatesList,
+  topProjectsList,
+  projectsTable;
 
   String get label {
     switch (this) {
@@ -227,6 +229,10 @@ enum DashboardWidgetType {
         return 'قائمة: تفاصيل ترتيب الإدارات';
       case DashboardWidgetType.recentUpdatesList:
         return 'قائمة: أحدث التحديثات اليومية';
+      case DashboardWidgetType.topProjectsList:
+        return 'قائمة: أعلى المشاريع تقدماً';
+      case DashboardWidgetType.projectsTable:
+        return 'جدول: تفاصيل المشاريع';
     }
   }
 
@@ -242,6 +248,10 @@ enum DashboardWidgetType {
         return Icons.leaderboard_rounded;
       case DashboardWidgetType.recentUpdatesList:
         return Icons.history_edu_rounded;
+      case DashboardWidgetType.topProjectsList:
+        return Icons.military_tech_rounded;
+      case DashboardWidgetType.projectsTable:
+        return Icons.table_chart_rounded;
     }
   }
 

@@ -122,82 +122,113 @@ class _AppShellState extends State<AppShell> {
       entries: entries,
       selected: selected,
       onSelect: (i) => setState(() => _selected = i),
+      floating: wide,
     );
 
     if (wide) {
       return Scaffold(
-        body: Row(
-          children: [
-            sidebar,
-            Expanded(
-              child: Column(
-                children: [
-                  const _TopBar(),
-                  Expanded(
+        body: Container(
+          decoration: BoxDecoration(gradient: AppColors.pageGradient),
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 0, 16),
+                child: sidebar,
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
                     child: IndexedStack(
                       index: selected,
-                      children: entries.map((e) => e.page).toList(),
+                      children: entries.map((e) => Container(color: AppColors.background, child: e.page)).toList(),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(entries[selected].label)),
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        title: Text(entries[selected].label),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
       drawer: Drawer(child: sidebar),
-      body: entries[selected].page,
+      body: Container(
+        decoration: BoxDecoration(gradient: AppColors.pageGradient),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: Container(color: AppColors.background, child: entries[selected].page),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
 
+/// بطاقة بيضاء عائمة (بدل شريط جانبي داكن ملتصق بالحافة)، بحسب التصميم
+/// المرجعي المعتمد: شعار المنصة أعلاها، عناصر التنقل بأيقونات، العنصر
+/// المُحدَّد بخلفية داكنة صلبة بلون الهوية، وزر تسجيل الخروج أسفلها.
 class _Sidebar extends StatelessWidget {
   final List<_NavEntry> entries;
   final int selected;
   final ValueChanged<int> onSelect;
+  final bool floating;
 
-  const _Sidebar({required this.entries, required this.selected, required this.onSelect});
+  const _Sidebar({required this.entries, required this.selected, required this.onSelect, required this.floating});
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final user = store.currentUser;
     return Container(
-      width: 260,
+      width: 240,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primaryDark, AppColors.primary],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
+        color: AppColors.surface,
+        borderRadius: floating ? BorderRadius.circular(22) : null,
+        boxShadow: floating
+            ? [BoxShadow(color: AppColors.primaryDark.withValues(alpha: 0.22), blurRadius: 24, offset: const Offset(0, 8))]
+            : null,
       ),
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 22, 20, 10),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 22, 18, 6),
               child: Row(
                 children: [
-                  Icon(Icons.account_balance_rounded, color: Colors.white, size: 26),
-                  SizedBox(width: 10),
-                  Expanded(
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(gradient: AppColors.pageGradient, shape: BoxShape.circle),
+                    child: const Icon(Icons.account_balance_rounded, color: Colors.white, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
                     child: Text(
-                      'المنصة التنفيذية الحكومية',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15, height: 1.3),
+                      'المنصة التنفيذية',
+                      style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 14, height: 1.3),
                     ),
                   ),
                 ],
               ),
             ),
-            const Divider(color: Colors.white24, height: 24),
+            const SizedBox(height: 14),
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
                 itemCount: entries.length,
                 itemBuilder: (context, i) {
                   final e = entries[i];
@@ -205,35 +236,30 @@ class _Sidebar extends StatelessWidget {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Material(
-                      color: isSelected ? Colors.white.withValues(alpha: 0.12) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(10),
+                      color: isSelected ? AppColors.primary : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
                       child: InkWell(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                         onTap: () {
                           onSelect(i);
                           if (Scaffold.of(context).isDrawerOpen) Navigator.of(context).pop();
                         },
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           child: Row(
                             children: [
-                              if (isSelected)
-                                Container(
-                                  width: 3,
-                                  height: 16,
-                                  margin: const EdgeInsets.only(left: 9),
-                                  decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(3)),
-                                )
-                              else
-                                const SizedBox(width: 12),
-                              Icon(e.icon, color: isSelected ? AppColors.accent : Colors.white70, size: 20),
+                              Icon(e.icon, color: isSelected ? Colors.white : AppColors.textSecondary, size: 19),
                               const SizedBox(width: 12),
-                              Text(
-                                e.label,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
-                                  fontSize: 13.5,
+                              Expanded(
+                                child: Text(
+                                  e.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isSelected ? Colors.white : AppColors.textPrimary,
+                                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ),
                             ],
@@ -245,35 +271,46 @@ class _Sidebar extends StatelessWidget {
                 },
               ),
             ),
-            const Divider(color: Colors.white24, height: 1),
             Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 14),
+              child: Column(
                 children: [
-                  CircleAvatar(
-                    backgroundColor: AppColors.accent,
-                    radius: 18,
-                    child: Text(
-                      user != null && user.name.isNotEmpty ? user.name.substring(0, 1) : '?',
-                      style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800),
-                    ),
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: AppColors.accent,
+                        radius: 16,
+                        child: Text(
+                          user != null && user.name.isNotEmpty ? user.name.substring(0, 1) : '?',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12.5),
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(user?.name ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 12.5)),
+                            Text(user?.role.label ?? '',
+                                style: const TextStyle(color: AppColors.textSecondary, fontSize: 10.5)),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(user?.name ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
-                        Text(user?.role.label ?? '',
-                            style: const TextStyle(color: Colors.white70, fontSize: 11.5)),
-                      ],
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => store.logout(),
+                      icon: const Icon(Icons.logout_rounded, size: 15),
+                      label: const Text('تسجيل الخروج'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        textStyle: const TextStyle(fontSize: 12),
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'تسجيل الخروج',
-                    icon: const Icon(Icons.logout_rounded, color: Colors.white70, size: 20),
-                    onPressed: () => store.logout(),
                   ),
                 ],
               ),
@@ -282,49 +319,6 @@ class _Sidebar extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _TopBar extends StatelessWidget {
-  const _TopBar();
-
-  @override
-  Widget build(BuildContext context) {
-    final store = context.watch<AppStore>();
-    return Container(
-      height: 60,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(bottom: BorderSide(color: AppColors.border)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.calendar_today_rounded, size: 16, color: AppColors.textSecondary),
-          const SizedBox(width: 8),
-          Text(_todayLabel(), style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(store.currentUser?.role.label ?? '',
-                style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 12)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _todayLabel() {
-    const months = [
-      'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
-      'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
-    ];
-    final now = DateTime.now();
-    return '${now.day} ${months[now.month - 1]} ${now.year}';
   }
 }
 

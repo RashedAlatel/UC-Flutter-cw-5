@@ -16,8 +16,18 @@ import 'decision_center_screen.dart';
 import 'department_detail_screen.dart';
 import 'project_detail_screen.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  // فلاتر سريعة تؤثر على "أعلى المشاريع" وجدول التفاصيل فقط، بينما تبقى
+  // المؤشرات الرئيسية والرسوم البيانية تعرض إجمالي النطاق المرئي كاملاً.
+  ProjectStatus? _statusFilter;
+  String? _deptFilter;
 
   @override
   Widget build(BuildContext context) {
@@ -28,12 +38,18 @@ class DashboardScreen extends StatelessWidget {
         .toList();
     final projects = store.visibleProjects;
 
+    final filteredProjects = projects
+        .where((p) => _statusFilter == null || p.status == _statusFilter)
+        .where((p) => _deptFilter == null || p.departmentId == _deptFilter)
+        .toList();
+
     final statusCounts = <String, int>{
       for (final s in ProjectStatus.values) s.label: projects.where((p) => p.status == s).length,
     };
     final statusColors = {
       for (final s in ProjectStatus.values) s.label: AppColors.statusColor(s.name),
     };
+    final filterDepartments = store.visibleDepartments;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -79,40 +95,21 @@ class DashboardScreen extends StatelessWidget {
             const SizedBox(height: 16),
             const _DemoDataBanner(),
           ],
-          const SizedBox(height: 22),
-          LayoutBuilder(builder: (context, constraints) {
-            final wideSplit = constraints.maxWidth > 980;
-            final kpiGrid = _KpiGrid(
-              store: store,
-              projects: projects.map((p) => p).toList(),
-              forceColumns: wideSplit ? 2 : null,
-            );
-            final widgetsColumn = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: store.dashboardWidgets
-                  .map((w) => Padding(
-                        padding: const EdgeInsets.only(bottom: 20),
-                        child: _buildWidget(context, w.type, store, scoped, ranking, statusCounts, statusColors),
-                      ))
-                  .toList(),
-            );
-            // تقسيم بعمودين على الشاشات الواسعة (عمود جانبي ضيق للمؤشرات +
-            // عمود رئيسي للرسوم والقوائم)، مطابقاً لتقسيمات لوحات BI المرجعية.
-            if (!wideSplit) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [kpiGrid, const SizedBox(height: 24), widgetsColumn],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(width: 300, child: kpiGrid),
-                const SizedBox(width: 20),
-                Expanded(child: widgetsColumn),
-              ],
-            );
-          }),
+          const SizedBox(height: 18),
+          _FilterBar(
+            statusFilter: _statusFilter,
+            deptFilter: _deptFilter,
+            departments: filterDepartments,
+            onStatusChanged: (s) => setState(() => _statusFilter = s),
+            onDeptChanged: (d) => setState(() => _deptFilter = d),
+          ),
+          const SizedBox(height: 18),
+          _KpiGrid(store: store, projects: projects),
+          const SizedBox(height: 20),
+          ...store.dashboardWidgets.map((w) => Padding(
+                padding: const EdgeInsets.only(bottom: 18),
+                child: _buildWidget(context, w.type, store, scoped, ranking, statusCounts, statusColors, filteredProjects),
+              )),
         ],
       ),
     );
@@ -126,6 +123,7 @@ class DashboardScreen extends StatelessWidget {
     List<MapEntry<Department, double>> ranking,
     Map<String, int> statusCounts,
     Map<String, Color> statusColors,
+    List<Project> filteredProjects,
   ) {
     switch (type) {
       case DashboardWidgetType.deptBarChart:
@@ -149,9 +147,9 @@ class DashboardScreen extends StatelessWidget {
       case DashboardWidgetType.statusPieChart:
         return _ChartCard(
           title: 'توزيع حالة المشاريع',
-          subtitle: 'اضغط على أي شريحة لعرض مشاريعها',
-          height: 300,
-          child: StatusStackedBar(
+          subtitle: 'اضغط على أي قطاع أو تسمية لعرض مشاريعها',
+          height: 260,
+          child: StatusDonutChart(
             data: statusCounts,
             colors: statusColors,
             onSectionTap: (label) {
@@ -170,6 +168,10 @@ class DashboardScreen extends StatelessWidget {
         return _DepartmentRankingList(store: store, ranking: ranking);
       case DashboardWidgetType.recentUpdatesList:
         return _RecentUpdatesCard(store: store);
+      case DashboardWidgetType.topProjectsList:
+        return _TopProjectsCard(store: store, projects: filteredProjects);
+      case DashboardWidgetType.projectsTable:
+        return _ProjectsTableCard(store: store, projects: filteredProjects);
     }
   }
 }
@@ -264,22 +266,18 @@ void _showProjectsPeek(BuildContext context, {required String title, required Li
 class _KpiGrid extends StatelessWidget {
   final AppStore store;
   final List projects;
-  /// إن حُدِّد، يُستخدم كعدد أعمدة ثابت (عمود جانبي ضيق ذو صفّين)، بدل
-  /// الحساب التلقائي حسب العرض (المستخدم للتخطيط أحادي العمود على الشاشات الضيقة).
-  final int? forceColumns;
-  const _KpiGrid({required this.store, required this.projects, this.forceColumns});
+  const _KpiGrid({required this.store, required this.projects});
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      final cols = forceColumns ??
-          (constraints.maxWidth > 1150
-              ? 5
-              : constraints.maxWidth > 820
-                  ? 3
-                  : constraints.maxWidth > 520
-                      ? 2
-                      : 1);
+      final cols = constraints.maxWidth > 1150
+          ? 5
+          : constraints.maxWidth > 820
+              ? 3
+              : constraints.maxWidth > 520
+                  ? 2
+                  : 1;
       final items = [
         KpiCard(
           title: 'نسبة الإنجاز العام',
@@ -322,6 +320,219 @@ class _KpiGrid extends StatelessWidget {
         children: items,
       );
     });
+  }
+}
+
+/// شريط فلاتر سريعة (حالة المشروع كأزرار كبسولية + الإدارة كقائمة منسدلة)
+/// بحسب التصميم المرجعي المعتمد. يؤثر فقط على "أعلى المشاريع" وجدول
+/// التفاصيل، بينما تبقى المؤشرات والرسوم البيانية تعرض النطاق الكامل.
+class _FilterBar extends StatelessWidget {
+  final ProjectStatus? statusFilter;
+  final String? deptFilter;
+  final List<Department> departments;
+  final ValueChanged<ProjectStatus?> onStatusChanged;
+  final ValueChanged<String?> onDeptChanged;
+
+  const _FilterBar({
+    required this.statusFilter,
+    required this.deptFilter,
+    required this.departments,
+    required this.onStatusChanged,
+    required this.onDeptChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Wrap(
+          spacing: 20,
+          runSpacing: 14,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _StatusPill(label: 'الكل', selected: statusFilter == null, onTap: () => onStatusChanged(null)),
+                ...ProjectStatus.values.map(
+                  (s) => _StatusPill(label: s.label, selected: statusFilter == s, onTap: () => onStatusChanged(s)),
+                ),
+              ],
+            ),
+            if (departments.length > 1)
+              SizedBox(
+                width: 190,
+                child: DropdownButtonFormField<String?>(
+                  initialValue: deptFilter,
+                  decoration: const InputDecoration(labelText: 'الإدارة', isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('كل الإدارات')),
+                    ...departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))),
+                  ],
+                  onChanged: onDeptChanged,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _StatusPill({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AppColors.primary : AppColors.background,
+      borderRadius: BorderRadius.circular(9),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: selected ? Colors.white : AppColors.textSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// قائمة "أعلى المشاريع تقدماً" بأعمدة أفقية (بنفس أسلوب DepartmentBarChart)،
+/// تُبنى من نفس نطاق المشاريع بعد تطبيق الفلاتر السريعة.
+class _TopProjectsCard extends StatelessWidget {
+  final AppStore store;
+  final List<Project> projects;
+  const _TopProjectsCard({required this.store, required this.projects});
+
+  @override
+  Widget build(BuildContext context) {
+    final top = projects.toList()..sort((a, b) => b.progressPercent.compareTo(a.progressPercent));
+    final items = top.take(3).toList();
+    return _ChartCard(
+      title: 'أعلى المشاريع تقدماً',
+      height: 210,
+      child: items.isEmpty
+          ? const Center(child: Text('لا توجد مشاريع مطابقة', style: TextStyle(color: AppColors.textSecondary)))
+          : ListView.separated(
+              itemCount: items.length,
+              separatorBuilder: (context, i) => const SizedBox(height: 16),
+              itemBuilder: (context, i) {
+                final p = items[i];
+                final value = p.progressPercent.clamp(0, 100);
+                return InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => Scaffold(appBar: AppBar(title: Text(p.name)), body: ProjectDetailScreen(projectId: p.id)),
+                  )),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 110,
+                        child: Text(p.name, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.end),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Stack(
+                          alignment: AlignmentDirectional.centerStart,
+                          children: [
+                            Container(height: 18, decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(4))),
+                            FractionallySizedBox(
+                              widthFactor: value / 100,
+                              child: Container(
+                                height: 18,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(colors: [AppColors.accent, AppColors.primary]),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(width: 36, child: Text('${value.toStringAsFixed(0)}٪', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700))),
+                    ],
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+/// جدول تفصيلي بالمشاريع (بحسب النطاق المفلتَر)، بنفس أسلوب جداول أدوات BI.
+class _ProjectsTableCard extends StatelessWidget {
+  final AppStore store;
+  final List<Project> projects;
+  const _ProjectsTableCard({required this.store, required this.projects});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('تفاصيل المشاريع (${projects.length})', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textPrimary)),
+            const SizedBox(height: 14),
+            if (projects.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(child: Text('لا توجد مشاريع مطابقة', style: TextStyle(color: AppColors.textSecondary))),
+              )
+            else
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  headingRowHeight: 38,
+                  dataRowMinHeight: 40,
+                  dataRowMaxHeight: 44,
+                  columnSpacing: 22,
+                  columns: const [
+                    DataColumn(label: Text('اسم المشروع', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5))),
+                    DataColumn(label: Text('الإدارة', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5))),
+                    DataColumn(label: Text('الحالة', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5))),
+                    DataColumn(label: Text('التقدم', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5))),
+                    DataColumn(label: Text('الاستحقاق', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5))),
+                    DataColumn(label: Text('المنفذ', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5))),
+                  ],
+                  rows: projects.map((p) {
+                    final dept = store.departmentById(p.departmentId);
+                    return DataRow(
+                      onSelectChanged: (_) => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => Scaffold(appBar: AppBar(title: Text(p.name)), body: ProjectDetailScreen(projectId: p.id)),
+                      )),
+                      cells: [
+                        DataCell(SizedBox(width: 190, child: Text(p.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis))),
+                        DataCell(Text(dept?.name ?? '', style: const TextStyle(fontSize: 11.5))),
+                        DataCell(StatusChip(status: p.status)),
+                        DataCell(Text(Formatters.percent(p.progressPercent), style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700))),
+                        DataCell(Text(Formatters.shortDate(p.dueDate), style: const TextStyle(fontSize: 11.5))),
+                        DataCell(SizedBox(width: 120, child: Text(p.executorName, style: const TextStyle(fontSize: 11.5), maxLines: 1, overflow: TextOverflow.ellipsis))),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

@@ -26,6 +26,14 @@ class AppColors {
   static const Color textSecondary = Color(0xFF64707E);
   static const Color border = Color(0xFFE6EAF0);
 
+  /// خلفية اللوحة المتدرّجة (الشريط الجانبي العائم + خلفية الشاشة الرئيسية)،
+  /// مُشتقّة من لوني الهوية الحاليين حتى تواكب أي تخصيص من مسؤول النظام.
+  static LinearGradient get pageGradient => LinearGradient(
+        begin: Alignment.topRight,
+        end: Alignment.bottomLeft,
+        colors: [primaryDark, primary, Color.lerp(primary, accent, 0.55)!],
+      );
+
   static Color statusColor(String status) {
     switch (status) {
       case 'onTrack':
@@ -100,14 +108,14 @@ class AppTheme {
           color: Colors.white,
         ),
       ),
+      // بطاقات "عائمة" بظل ناعم بدل الحدود المسطّحة، لتقرأ كبطاقات بيضاء
+      // طافية فوق خلفية اللوحة المتدرّجة (بحسب التصميم المرجعي المعتمد).
       cardTheme: CardThemeData(
         color: AppColors.surface,
-        elevation: 0,
-        shadowColor: AppColors.primary.withValues(alpha: 0.08),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: AppColors.border),
-        ),
+        elevation: 6,
+        shadowColor: AppColors.primaryDark.withValues(alpha: 0.18),
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         margin: EdgeInsets.zero,
       ),
       inputDecorationTheme: InputDecorationTheme(

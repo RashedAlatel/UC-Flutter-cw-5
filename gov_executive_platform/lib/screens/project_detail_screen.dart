@@ -8,6 +8,7 @@ import '../models/project_task.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
+import '../widgets/custom_widgets_section.dart';
 import '../widgets/executors_field.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
@@ -29,6 +30,7 @@ class ProjectDetailScreen extends StatelessWidget {
     final blockers = store.blockersForProject(projectId).where((b) => b.status == ItemStatus.open).toList();
     final updates = store.updatesForProject(projectId);
     final tasks = store.tasksForProject(projectId);
+    store.ensureProjectWidgetsSubscribed(projectId);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -276,6 +278,15 @@ class ProjectDetailScreen extends StatelessWidget {
                     ),
                   ),
                 )),
+          const SizedBox(height: 28),
+          CustomWidgetsSection(
+            store: store,
+            widgets: store.projectWidgetsFor(projectId),
+            onSave: (widgets) => store.saveProjectWidgets(projectId, widgets),
+            canManage: store.canManageDashboard,
+            scopeProjectId: projectId,
+            title: 'ودجات مخصصة لهذا المشروع',
+          ),
         ],
       ),
     );

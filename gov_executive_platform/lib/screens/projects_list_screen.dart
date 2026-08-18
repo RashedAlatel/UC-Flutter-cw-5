@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
+import '../widgets/custom_widgets_section.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
 import 'project_detail_screen.dart';
@@ -117,6 +118,13 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
             )
           else
             ...projects.map((p) => _ProjectRow(project: p)),
+          const SizedBox(height: 28),
+          CustomWidgetsSection(
+            store: store,
+            widgets: store.projectsPageWidgets,
+            onSave: store.saveProjectsPageWidgets,
+            canManage: store.canManageDashboard,
+          ),
         ],
       ),
     );

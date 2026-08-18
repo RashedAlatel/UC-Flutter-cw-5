@@ -12,16 +12,19 @@ import 'charts.dart';
 /// محرك بيانات الودجت المخصص: يجلب مصدر البيانات، يطبّق التصفية الاختيارية،
 /// ثم يجمّع النتائج حسب الحقل المختار (أو يحسب إجمالياً واحداً لعرض "stat").
 class CustomWidgetEngine {
-  static List<dynamic> _baseList(AppStore store, CustomWidgetSource source) {
+  /// [scopeProjectId] يقصر البيانات على مشروع واحد فقط (ودجات صفحة المشروع)
+  /// بدل النطاق الكامل للمنصة (ودجات لوحة القيادة وصفحة المشاريع).
+  static List<dynamic> _baseList(AppStore store, CustomWidgetSource source, String? scopeProjectId) {
     switch (source) {
       case CustomWidgetSource.projects:
-        return store.visibleProjects;
+        final all = store.visibleProjects;
+        return scopeProjectId == null ? all : all.where((p) => p.id == scopeProjectId).toList();
       case CustomWidgetSource.tasks:
-        return store.tasks;
+        return scopeProjectId == null ? store.tasks : store.tasks.where((t) => t.projectId == scopeProjectId).toList();
       case CustomWidgetSource.risks:
-        return store.risks;
+        return scopeProjectId == null ? store.risks : store.risks.where((r) => r.projectId == scopeProjectId).toList();
       case CustomWidgetSource.blockers:
-        return store.blockers;
+        return scopeProjectId == null ? store.blockers : store.blockers.where((b) => b.projectId == scopeProjectId).toList();
     }
   }
 
@@ -106,8 +109,8 @@ class CustomWidgetEngine {
     return '—';
   }
 
-  static List<dynamic> filtered(AppStore store, CustomWidgetSpec spec) {
-    final base = _baseList(store, spec.source);
+  static List<dynamic> filtered(AppStore store, CustomWidgetSpec spec, {String? scopeProjectId}) {
+    final base = _baseList(store, spec.source, scopeProjectId);
     final field = spec.filterField;
     final value = spec.filterValue;
     if (field == null || value == null || value.isEmpty) return base;
@@ -116,8 +119,8 @@ class CustomWidgetEngine {
 
   /// تعداد العناصر مجمّعة حسب [CustomWidgetSpec.groupBy]، أو إجمالي واحد
   /// ("الإجمالي") إن لم يُحدَّد تجميع (يُستخدم لعرض "stat").
-  static Map<String, int> compute(AppStore store, CustomWidgetSpec spec) {
-    final base = filtered(store, spec);
+  static Map<String, int> compute(AppStore store, CustomWidgetSpec spec, {String? scopeProjectId}) {
+    final base = filtered(store, spec, scopeProjectId: scopeProjectId);
     if (spec.groupBy == null) return {'الإجمالي': base.length};
     final counts = <String, int>{};
     for (final item in base) {
@@ -141,11 +144,13 @@ List<Color> get _palette => [
 class CustomWidgetCard extends StatelessWidget {
   final AppStore store;
   final CustomWidgetSpec spec;
-  const CustomWidgetCard({super.key, required this.store, required this.spec});
+  final String? scopeProjectId;
+  final VoidCallback? onDelete;
+  const CustomWidgetCard({super.key, required this.store, required this.spec, this.scopeProjectId, this.onDelete});
 
   @override
   Widget build(BuildContext context) {
-    final counts = CustomWidgetEngine.compute(store, spec);
+    final counts = CustomWidgetEngine.compute(store, spec, scopeProjectId: scopeProjectId);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -156,6 +161,11 @@ class CustomWidgetCard extends StatelessWidget {
               Icon(Icons.auto_awesome_mosaic_rounded, size: 16, color: AppColors.primary),
               const SizedBox(width: 8),
               Expanded(child: Text(spec.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textPrimary))),
+              if (onDelete != null)
+                InkWell(
+                  onTap: onDelete,
+                  child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
+                ),
             ]),
             const SizedBox(height: 14),
             SizedBox(height: spec.display == CustomWidgetDisplay.stat ? 70 : 220, child: _body(counts)),

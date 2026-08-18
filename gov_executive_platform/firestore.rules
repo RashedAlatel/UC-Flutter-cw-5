@@ -170,6 +170,13 @@ service cloud.firestore {
       allow write: if isAdmin() || customPerm('md');
     }
 
+    // ودجات مخصصة لكل مشروع على حدة (صفحة المشروع) — نفس صلاحية تخصيص
+    // لوحة القيادة، بمعرّف المستند هو معرّف المشروع نفسه.
+    match /projectWidgets/{id} {
+      allow read: if isApproved();
+      allow write: if isAdmin() || customPerm('md');
+    }
+
     // ------------------------- الأدوار المخصصة -------------------------
     // تعريف الأدوار (الاسم ومجموعة الصلاحيات) يديره مسؤول النظام فقط؛ أما
     // تعيين دور لمستخدم معيّن فيتم حصراً عبر Cloud Function (setUserRole)

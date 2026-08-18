@@ -54,12 +54,46 @@ class AppStore extends ChangeNotifier {
   List<ReportSnapshot> reports = [];
   List<AppUser> users = []; // يُملأ فقط لمسؤول النظام (إدارة المستخدمين)
   List<DashboardWidgetConfig> dashboardWidgets = DashboardWidgetConfig.defaults();
+  List<DashboardWidgetConfig> projectsPageWidgets = [];
   List<CustomRole> customRoles = [];
 
   StreamSubscription<fb_auth.User?>? _authSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _themeSub;
   final List<StreamSubscription> _dataSubs = [];
+
+  // ودجات مخصصة لكل مشروع على حدة (صفحة المشروع) — تُشترَك عند الطلب فقط
+  // (وليس مسبقاً لكل المشاريع دفعة واحدة) توفيراً للاستدعاءات.
+  final Map<String, List<DashboardWidgetConfig>> _projectWidgets = {};
+  final Set<String> _projectWidgetsSubscribed = {};
+
+  List<DashboardWidgetConfig> projectWidgetsFor(String projectId) => _projectWidgets[projectId] ?? const [];
+
+  void ensureProjectWidgetsSubscribed(String projectId) {
+    if (_projectWidgetsSubscribed.contains(projectId)) return;
+    _projectWidgetsSubscribed.add(projectId);
+    _dataSubs.add(_db.collection('projectWidgets').doc(projectId).snapshots().listen((doc) {
+      final widgets = doc.data()?['widgets'] as List?;
+      _projectWidgets[projectId] = widgets == null
+          ? []
+          : widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList();
+      notifyListeners();
+    }));
+  }
+
+  Future<void> saveProjectWidgets(String projectId, List<DashboardWidgetConfig> widgets) async {
+    await _db.collection('projectWidgets').doc(projectId).set({
+      'widgets': widgets.map((w) => w.toMap()).toList(),
+    });
+    await _log('تخصيص ودجات المشروع', 'قام ${currentUser?.name} بتحديث الودجات المخصصة لأحد المشاريع');
+  }
+
+  Future<void> saveProjectsPageWidgets(List<DashboardWidgetConfig> widgets) async {
+    await _db.collection('dashboardConfig').doc('projectsPage').set({
+      'widgets': widgets.map((w) => w.toMap()).toList(),
+    });
+    await _log('تخصيص صفحة المشاريع', 'قام ${currentUser?.name} بتحديث الودجات المخصصة في صفحة المشاريع');
+  }
 
   Future<void> init() async {
     _authSub = _auth.authStateChanges().listen(_onAuthChanged);
@@ -104,7 +138,10 @@ class AppStore extends ChangeNotifier {
     reports = [];
     users = [];
     dashboardWidgets = DashboardWidgetConfig.defaults();
+    projectsPageWidgets = [];
     customRoles = [];
+    _projectWidgets.clear();
+    _projectWidgetsSubscribed.clear();
   }
 
   Future<void> _onAuthChanged(fb_auth.User? user) async {
@@ -207,6 +244,13 @@ class AppStore extends ChangeNotifier {
       final widgets = doc.data()?['widgets'] as List?;
       dashboardWidgets = widgets == null || widgets.isEmpty
           ? DashboardWidgetConfig.defaults()
+          : widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList();
+      notifyListeners();
+    }));
+    _dataSubs.add(_db.collection('dashboardConfig').doc('projectsPage').snapshots().listen((doc) {
+      final widgets = doc.data()?['widgets'] as List?;
+      projectsPageWidgets = widgets == null
+          ? []
           : widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList();
       notifyListeners();
     }));

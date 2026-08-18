@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "REPLACE_WITH_YOUR_FIREBASE_PROJECT_ID"
-  }
+    "dafault": "project-management-syste-8e599"
+  },
+  "targets": {},
+  "etags": {}
 }

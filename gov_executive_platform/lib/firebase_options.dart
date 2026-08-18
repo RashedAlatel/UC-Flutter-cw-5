@@ -27,20 +27,21 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'REPLACE_ME',
-    appId: 'REPLACE_ME',
-    messagingSenderId: 'REPLACE_ME',
-    projectId: 'REPLACE_ME',
-    authDomain: 'REPLACE_ME.firebaseapp.com',
-    storageBucket: 'REPLACE_ME.appspot.com',
+    apiKey: 'AIzaSyAFVT3vFDTiTJguZDrdGlsXb5Xw3LafJ0I',
+    appId: '1:1052263879223:web:2ef76e55bf8f9a5848a5b2',
+    messagingSenderId: '1052263879223',
+    projectId: 'project-management-syste-8e599',
+    authDomain: 'project-management-syste-8e599.firebaseapp.com',
+    storageBucket: 'project-management-syste-8e599.firebasestorage.app',
+    measurementId: 'G-TPZYM1MEXL',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'REPLACE_ME',
-    appId: 'REPLACE_ME',
-    messagingSenderId: 'REPLACE_ME',
-    projectId: 'REPLACE_ME',
-    storageBucket: 'REPLACE_ME.appspot.com',
+    apiKey: 'AIzaSyABp125N-u5jTY_a4AkV2Hw5h2VW-ojvgw',
+    appId: '1:1052263879223:android:93f8fa243bb6bbce48a5b2',
+    messagingSenderId: '1052263879223',
+    projectId: 'project-management-syste-8e599',
+    storageBucket: 'project-management-syste-8e599.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(

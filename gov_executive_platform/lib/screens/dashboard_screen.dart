@@ -45,10 +45,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         .where((p) => _deptFilter == null || p.departmentId == _deptFilter)
         .toList();
 
+    // ترتيب الإدارات يقارن الإدارات ببعضها، فلا معنى لتضييقه بفلتر الإدارة
+    // نفسه (سيُظهر عندها عموداً واحداً فقط ويُفرغ البقية) — يتأثر بفلتر
+    // الحالة فقط، بينما تبقى المقارنة شاملة كل الإدارات المرئية.
+    final rankingProjects = projects.where((p) => _statusFilter == null || p.status == _statusFilter).toList();
     final ranking = store.departments
         .where((d) => store.canViewDepartment(d.id))
         .map((d) {
-          final deptProjects = filteredProjects.where((p) => p.departmentId == d.id).toList();
+          final deptProjects = rankingProjects.where((p) => p.departmentId == d.id).toList();
           final avg = deptProjects.isEmpty
               ? 0.0
               : deptProjects.map((p) => p.progressPercent).reduce((a, b) => a + b) / deptProjects.length;

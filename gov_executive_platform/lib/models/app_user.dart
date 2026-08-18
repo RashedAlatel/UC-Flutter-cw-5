@@ -10,6 +10,9 @@ class AppUser {
   final UserRole role;
   final String? customRoleId; // مرجع لمستند بمجموعة roles عند role == custom
   final String? departmentId; // null لمسؤول النظام والمستخدم التنفيذي
+  // للاستخدام مع مدير الإدارة تحديداً: إدارة واحدة أو أكثر يديرها هذا الحساب.
+  // بقية الأدوار (ضابط/مدير مشروع، دور مخصص) تستمر باستخدام departmentId المفرد أعلاه.
+  final List<String> departmentIds;
   final UserStatus status;
   final DateTime createdAt;
 
@@ -21,6 +24,7 @@ class AppUser {
     required this.role,
     this.customRoleId,
     this.departmentId,
+    this.departmentIds = const [],
     required this.status,
     required this.createdAt,
   });
@@ -34,6 +38,7 @@ class AppUser {
     UserRole? role,
     String? customRoleId,
     String? departmentId,
+    List<String>? departmentIds,
     UserStatus? status,
   }) {
     return AppUser(
@@ -44,6 +49,7 @@ class AppUser {
       role: role ?? this.role,
       customRoleId: customRoleId ?? this.customRoleId,
       departmentId: departmentId ?? this.departmentId,
+      departmentIds: departmentIds ?? this.departmentIds,
       status: status ?? this.status,
       createdAt: createdAt,
     );
@@ -56,6 +62,7 @@ class AppUser {
         'role': role.name,
         'customRoleId': customRoleId,
         'departmentId': departmentId,
+        'departmentIds': departmentIds,
         'status': status.name,
         'createdAt': Timestamp.fromDate(createdAt),
       };
@@ -70,6 +77,7 @@ class AppUser {
       role: UserRole.fromName(json['role'] as String? ?? UserRole.projectOfficer.name),
       customRoleId: json['customRoleId'] as String?,
       departmentId: json['departmentId'] as String?,
+      departmentIds: List<String>.from(json['departmentIds'] as List? ?? const []),
       status: UserStatus.fromName(json['status'] as String? ?? UserStatus.pending.name),
       createdAt: (json['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );

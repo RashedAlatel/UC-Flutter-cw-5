@@ -67,7 +67,6 @@ class _RoleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final perms = <String>[
       if (role.viewAllDepartments) 'عرض كل الإدارات',
-      if (role.viewAuditLog) 'الاطلاع على سجل التدقيق',
       if (role.manageReports) 'توليد وتحرير التقارير',
       if (role.manageDashboard) 'تخصيص لوحة القيادة',
       if (role.approveGeneralDecisions) 'اعتماد القرارات التنفيذية العامة',
@@ -154,7 +153,6 @@ class _RoleFormDialog extends StatefulWidget {
 class _RoleFormDialogState extends State<_RoleFormDialog> {
   late final _nameCtrl = TextEditingController(text: widget.existing?.name ?? '');
   late bool _viewAllDepartments = widget.existing?.viewAllDepartments ?? false;
-  late bool _viewAuditLog = widget.existing?.viewAuditLog ?? false;
   late bool _manageReports = widget.existing?.manageReports ?? false;
   late bool _manageDashboard = widget.existing?.manageDashboard ?? false;
   late bool _approveGeneralDecisions = widget.existing?.approveGeneralDecisions ?? false;
@@ -177,7 +175,6 @@ class _RoleFormDialogState extends State<_RoleFormDialog> {
           id: widget.existing?.id ?? const Uuid().v4(),
           name: _nameCtrl.text.trim(),
           viewAllDepartments: _viewAllDepartments,
-          viewAuditLog: _viewAuditLog,
           manageReports: _manageReports,
           manageDashboard: _manageDashboard,
           approveGeneralDecisions: _approveGeneralDecisions,
@@ -206,13 +203,6 @@ class _RoleFormDialogState extends State<_RoleFormDialog> {
                 title: const Text('عرض كل الإدارات (مثل المستخدم التنفيذي)', style: TextStyle(fontSize: 12.5)),
                 value: _viewAllDepartments,
                 onChanged: (v) => setState(() => _viewAllDepartments = v ?? false),
-              ),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                title: const Text('الاطلاع على سجل التدقيق', style: TextStyle(fontSize: 12.5)),
-                value: _viewAuditLog,
-                onChanged: (v) => setState(() => _viewAuditLog = v ?? false),
               ),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,

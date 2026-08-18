@@ -61,6 +61,14 @@ class _AppShellState extends State<AppShell> {
         icon: Icons.account_balance_rounded,
         page: DepartmentsListScreen(),
       ));
+    } else if (store.isManager) {
+      // مدير الإدارة قد يدير أكثر من إدارة واحدة، فنعرض له نفس شاشة "الإدارات"
+      // (تُصفَّى تلقائياً عبر store.visibleDepartments) بدل صفحة إدارة واحدة ثابتة.
+      entries.add(_NavEntry(
+        label: store.myDepartmentIds.length > 1 ? 'إداراتي' : 'إدارتي',
+        icon: Icons.account_balance_rounded,
+        page: const DepartmentsListScreen(),
+      ));
     } else if (store.currentUser?.departmentId != null) {
       entries.add(_NavEntry(
         label: 'إدارتي',

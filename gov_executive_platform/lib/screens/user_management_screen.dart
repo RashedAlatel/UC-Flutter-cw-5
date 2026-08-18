@@ -94,6 +94,9 @@ class _UserRowState extends State<_UserRow> {
             ? 'دور مخصص'
             : store.customRoles.firstWhere((r) => r.id == u.customRoleId).name)
         : u.role.label;
+    final deptLabel = u.role == UserRole.departmentManager
+        ? u.departmentIds.map((id) => store.departmentById(id)?.name).whereType<String>().join('، ')
+        : dept?.name;
 
     return ListTile(
       leading: CircleAvatar(
@@ -101,7 +104,10 @@ class _UserRowState extends State<_UserRow> {
         child: Text(u.name.isNotEmpty ? u.name.substring(0, 1) : '?', style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800)),
       ),
       title: Text(u.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-      subtitle: Text('$roleLabel${dept != null ? ' · ${dept.name}' : ''} · ${u.email}', style: const TextStyle(fontSize: 11.5)),
+      subtitle: Text(
+        '$roleLabel${(deptLabel != null && deptLabel.isNotEmpty) ? ' · $deptLabel' : ''} · ${u.email}',
+        style: const TextStyle(fontSize: 11.5),
+      ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -275,23 +281,28 @@ class _RoleFields extends StatelessWidget {
   final UserRole role;
   final String? customRoleId;
   final String? departmentId;
+  final List<String> departmentIds;
   final ValueChanged<UserRole> onRoleChanged;
   final ValueChanged<String?> onCustomRoleChanged;
   final ValueChanged<String?> onDepartmentChanged;
+  final ValueChanged<List<String>> onDepartmentIdsChanged;
 
   const _RoleFields({
     required this.role,
     required this.customRoleId,
     required this.departmentId,
+    required this.departmentIds,
     required this.onRoleChanged,
     required this.onCustomRoleChanged,
     required this.onDepartmentChanged,
+    required this.onDepartmentIdsChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final needsDept = role == UserRole.departmentManager || role == UserRole.projectOfficer;
+    final isManagerRole = role == UserRole.departmentManager;
+    final needsSingleDept = role == UserRole.projectOfficer;
     final isCustom = role == UserRole.custom;
     final selectableRoles = UserRole.values.where((r) => r != UserRole.custom || store.customRoles.isNotEmpty).toList();
 
@@ -313,13 +324,45 @@ class _RoleFields extends StatelessWidget {
             onChanged: onCustomRoleChanged,
           ),
         ],
-        if (needsDept || isCustom) ...[
+        if (needsSingleDept || isCustom) ...[
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: departmentId,
             decoration: InputDecoration(labelText: isCustom ? 'الإدارة (اختياري)' : 'الإدارة'),
             items: store.departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
             onChanged: onDepartmentChanged,
+          ),
+        ],
+        // مدير الإدارة قد يدير أكثر من إدارة واحدة، لذا يُختار له بمربعات
+        // اختيار متعددة بدل قائمة منسدلة بخيار واحد.
+        if (isManagerRole) ...[
+          const SizedBox(height: 12),
+          const Text('الإدارات (يمكن اختيار أكثر من إدارة)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
+          const SizedBox(height: 6),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 180),
+            decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(10)),
+            child: SingleChildScrollView(
+              child: Column(
+                children: store.departments
+                    .map((d) => CheckboxListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                          value: departmentIds.contains(d.id),
+                          title: Text(d.name, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                          onChanged: (v) {
+                            final next = List<String>.from(departmentIds);
+                            if (v ?? false) {
+                              next.add(d.id);
+                            } else {
+                              next.remove(d.id);
+                            }
+                            onDepartmentIdsChanged(next);
+                          },
+                        ))
+                    .toList(),
+              ),
+            ),
           ),
         ],
       ],
@@ -339,13 +382,19 @@ class _EditRoleDialogState extends State<_EditRoleDialog> {
   late UserRole _role = widget.user.role;
   late String? _customRoleId = widget.user.customRoleId;
   late String? _departmentId = widget.user.departmentId;
+  late List<String> _departmentIds = List<String>.from(widget.user.departmentIds);
   bool _busy = false;
   String? _error;
 
   Future<void> _submit() async {
-    final needsDept = _role == UserRole.departmentManager || _role == UserRole.projectOfficer;
-    if (needsDept && _departmentId == null) {
+    final isManagerRole = _role == UserRole.departmentManager;
+    final needsSingleDept = _role == UserRole.projectOfficer;
+    if (needsSingleDept && _departmentId == null) {
       setState(() => _error = 'الرجاء اختيار الإدارة');
+      return;
+    }
+    if (isManagerRole && _departmentIds.isEmpty) {
+      setState(() => _error = 'الرجاء اختيار إدارة واحدة على الأقل');
       return;
     }
     if (_role == UserRole.custom && _customRoleId == null) {
@@ -360,7 +409,8 @@ class _EditRoleDialogState extends State<_EditRoleDialog> {
           widget.user,
           role: _role,
           customRoleId: _role == UserRole.custom ? _customRoleId : null,
-          departmentId: (needsDept || _role == UserRole.custom) ? _departmentId : null,
+          departmentId: (needsSingleDept || _role == UserRole.custom) ? _departmentId : null,
+          departmentIds: isManagerRole ? _departmentIds : null,
         );
     if (!mounted) return;
     if (error != null) {
@@ -389,9 +439,11 @@ class _EditRoleDialogState extends State<_EditRoleDialog> {
                 role: _role,
                 customRoleId: _customRoleId,
                 departmentId: _departmentId,
+                departmentIds: _departmentIds,
                 onRoleChanged: (v) => setState(() => _role = v),
                 onCustomRoleChanged: (v) => setState(() => _customRoleId = v),
                 onDepartmentChanged: (v) => setState(() => _departmentId = v),
+                onDepartmentIdsChanged: (v) => setState(() => _departmentIds = v),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 10),
@@ -429,6 +481,7 @@ class _UserFormDialogState extends State<_UserFormDialog> {
   UserRole _role = UserRole.projectOfficer;
   String? _customRoleId;
   String? _departmentId;
+  List<String> _departmentIds = [];
   bool _busy = false;
   String? _error;
 
@@ -442,7 +495,8 @@ class _UserFormDialogState extends State<_UserFormDialog> {
   }
 
   Future<void> _submit() async {
-    final needsDept = _role == UserRole.departmentManager || _role == UserRole.projectOfficer;
+    final isManagerRole = _role == UserRole.departmentManager;
+    final needsSingleDept = _role == UserRole.projectOfficer;
     if (_nameCtrl.text.trim().isEmpty ||
         _emailCtrl.text.trim().isEmpty ||
         _phoneCtrl.text.trim().isEmpty ||
@@ -450,8 +504,12 @@ class _UserFormDialogState extends State<_UserFormDialog> {
       setState(() => _error = 'الرجاء تعبئة جميع الحقول');
       return;
     }
-    if (needsDept && _departmentId == null) {
+    if (needsSingleDept && _departmentId == null) {
       setState(() => _error = 'الرجاء اختيار الإدارة');
+      return;
+    }
+    if (isManagerRole && _departmentIds.isEmpty) {
+      setState(() => _error = 'الرجاء اختيار إدارة واحدة على الأقل');
       return;
     }
     if (_role == UserRole.custom && _customRoleId == null) {
@@ -469,7 +527,8 @@ class _UserFormDialogState extends State<_UserFormDialog> {
           password: _passwordCtrl.text.trim(),
           role: _role,
           customRoleId: _role == UserRole.custom ? _customRoleId : null,
-          departmentId: (needsDept || _role == UserRole.custom) ? _departmentId : null,
+          departmentId: (needsSingleDept || _role == UserRole.custom) ? _departmentId : null,
+          departmentIds: isManagerRole ? _departmentIds : null,
         );
     if (!mounted) return;
     if (error != null) {
@@ -505,9 +564,11 @@ class _UserFormDialogState extends State<_UserFormDialog> {
                 role: _role,
                 customRoleId: _customRoleId,
                 departmentId: _departmentId,
+                departmentIds: _departmentIds,
                 onRoleChanged: (v) => setState(() => _role = v),
                 onCustomRoleChanged: (v) => setState(() => _customRoleId = v),
                 onDepartmentChanged: (v) => setState(() => _departmentId = v),
+                onDepartmentIdsChanged: (v) => setState(() => _departmentIds = v),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 10),

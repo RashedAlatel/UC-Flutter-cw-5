@@ -8,16 +8,16 @@ class CustomRole {
   final String id;
   final String name;
   final bool viewAllDepartments; // عرض كل الإدارات (مثل المستخدم التنفيذي)
-  final bool viewAuditLog; // الاطلاع على سجل التدقيق
   final bool manageReports; // توليد التقارير وتحرير التعليقات عليها
   final bool manageDashboard; // تخصيص ودجات لوحة القيادة
   final bool approveGeneralDecisions; // اعتماد/رفض القرارات التنفيذية العامة
 
+  // ملاحظة: سجل التدقيق ("viewAuditLog") أُزيل عمداً من الصلاحيات القابلة
+  // للتفويض — يبقى الاطلاع عليه حصراً لمسؤول النظام في كل الأحوال.
   const CustomRole({
     required this.id,
     required this.name,
     this.viewAllDepartments = false,
-    this.viewAuditLog = false,
     this.manageReports = false,
     this.manageDashboard = false,
     this.approveGeneralDecisions = false,
@@ -26,7 +26,6 @@ class CustomRole {
   /// مفاتيح مختصرة للتوافق مع حد حجم Custom Claims في Firebase Auth.
   Map<String, dynamic> toClaimsMap() => {
         'vad': viewAllDepartments,
-        'val': viewAuditLog,
         'mr': manageReports,
         'md': manageDashboard,
         'agd': approveGeneralDecisions,
@@ -35,7 +34,6 @@ class CustomRole {
   Map<String, dynamic> toMap() => {
         'name': name,
         'viewAllDepartments': viewAllDepartments,
-        'viewAuditLog': viewAuditLog,
         'manageReports': manageReports,
         'manageDashboard': manageDashboard,
         'approveGeneralDecisions': approveGeneralDecisions,
@@ -47,7 +45,6 @@ class CustomRole {
       id: doc.id,
       name: json['name'] as String? ?? '',
       viewAllDepartments: json['viewAllDepartments'] as bool? ?? false,
-      viewAuditLog: json['viewAuditLog'] as bool? ?? false,
       manageReports: json['manageReports'] as bool? ?? false,
       manageDashboard: json['manageDashboard'] as bool? ?? false,
       approveGeneralDecisions: json['approveGeneralDecisions'] as bool? ?? false,

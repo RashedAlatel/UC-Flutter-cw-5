@@ -71,6 +71,10 @@ class DashboardScreen extends StatelessWidget {
             const SizedBox(height: 16),
             const _BootstrapAdminBanner(),
           ],
+          if (store.isAdmin && store.projects.isEmpty) ...[
+            const SizedBox(height: 16),
+            const _DemoDataBanner(),
+          ],
           const SizedBox(height: 22),
           _KpiGrid(store: store, projects: projects.map((p) => p).toList()),
           const SizedBox(height: 24),
@@ -499,6 +503,87 @@ class _BootstrapAdminBannerState extends State<_BootstrapAdminBanner> {
                         ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                         : const Icon(Icons.admin_panel_settings_rounded, size: 16),
                     label: const Text('تعيين نفسي كأول مسؤول نظام'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// شريط يظهر لمسؤول النظام فقط طالما لا توجد أي مشاريع بعد، لتوليد بيانات
+/// تجريبية كاملة (إدارات + مشاريع + مهام + مخاطر/عوائق + تحديثات + قرار
+/// تنفيذي واحد) بضغطة واحدة، حتى يمكن معاينة لوحة القيادة وبقية الشاشات
+/// فوراً دون انتظار إدخال بيانات حقيقية.
+class _DemoDataBanner extends StatefulWidget {
+  const _DemoDataBanner();
+
+  @override
+  State<_DemoDataBanner> createState() => _DemoDataBannerState();
+}
+
+class _DemoDataBannerState extends State<_DemoDataBanner> {
+  bool _busy = false;
+  bool _done = false;
+  String? _error;
+
+  Future<void> _generate() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await context.read<AppStore>().seedDemoData();
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _done = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'تعذر توليد البيانات التجريبية، حاول مرة أخرى.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_done) return const SizedBox.shrink();
+    return Card(
+      color: AppColors.info.withValues(alpha: 0.08),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.dataset_outlined, color: AppColors.info),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('لا توجد مشاريع بعد', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'يمكنك توليد بيانات تجريبية (إدارات ومشاريع ومهام وتحديثات) بضغطة واحدة، لمعاينة لوحة القيادة وبقية الشاشات فوراً.',
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                  ],
+                  const SizedBox(height: 10),
+                  ElevatedButton.icon(
+                    onPressed: _busy ? null : _generate,
+                    icon: _busy
+                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.dataset_outlined, size: 16),
+                    label: const Text('توليد بيانات تجريبية للاختبار'),
                   ),
                 ],
               ),

@@ -24,13 +24,19 @@ service cloud.firestore {
     function myDept() { return request.auth.token.departmentId; }
     function isMyDept(deptId) { return isApproved() && deptId != null && myDept() == deptId; }
     function isDeptManager() { return isApproved() && role() == 'departmentManager'; }
+    // مدير الإدارة قد يدير أكثر من إدارة واحدة (departmentIds بالـ Custom Claims).
+    function myDepts() { return request.auth.token.departmentIds; }
+    function isMyDeptOfManager(deptId) {
+      return isApproved() && deptId != null && myDepts() != null && deptId in myDepts();
+    }
+    function isMyDeptAny(deptId) { return isMyDept(deptId) || isMyDeptOfManager(deptId); }
     // "مدير مشروع" (projectOfficer) مقيَّد بمشروعه المُسنَد إليه فقط عبر
     // managerUid المخزَّن على المشروع (ومنسوخ إلى المستندات التابعة له)، وليس
     // بإدارته كاملة كما هو الحال لمدير الإدارة.
     function isOfficer() { return isApproved() && role() == 'projectOfficer'; }
     function isMyProject(managerUid) { return isOfficer() && managerUid != null && managerUid == request.auth.uid; }
     // صلاحية القراءة/الكتابة على مستند مرتبط بمشروع (تقدّم عبر departmentId و managerUid المنسوخين عليه).
-    function canEditDept(deptId) { return isAdmin() || (isDeptManager() && isMyDept(deptId)); }
+    function canEditDept(deptId) { return isAdmin() || (isDeptManager() && isMyDeptOfManager(deptId)); }
     function canAccessProjectDoc(deptId, managerUid) { return canEditDept(deptId) || isMyProject(managerUid); }
     // عند إنشاء مستند تابع لمشروع (مهمة/تحديث يومي/خطر/عائق)، نتحقق أن الحقول
     // المنسوخة (departmentId، managerUid) تطابق فعلاً مستند المشروع الحقيقي،
@@ -134,7 +140,7 @@ service cloud.firestore {
       allow read: if isApproved()
                   && (isAdmin() || isExecutive()
                       || resource.data.requestedByUid == request.auth.uid
-                      || isMyDept(resource.data.departmentId));
+                      || isMyDeptAny(resource.data.departmentId));
       // يُسمح بالإنشاء حتى لمستخدم غير معتمد بعد (حالة التسجيل الذاتي).
       allow create: if isSignedIn();
       // لا يُعدَّل حقل الحالة (اعتماد/رفض) مباشرة من العميل بأي حال؛
@@ -144,8 +150,9 @@ service cloud.firestore {
     }
 
     // ------------------------- سجل التدقيق -------------------------
+    // القراءة حصراً لمسؤول النظام؛ لا يملك أي دور مخصص أو دور آخر الاطلاع عليه.
     match /auditLog/{id} {
-      allow read: if isAdmin() || customPerm('val');
+      allow read: if isAdmin();
       allow create: if isApproved();
       allow update, delete: if false;
     }

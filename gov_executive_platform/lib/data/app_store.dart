@@ -20,6 +20,7 @@ import '../models/report.dart';
 import '../models/risk.dart';
 import '../utils/formatters.dart';
 import 'default_departments.dart';
+import 'demo_data.dart';
 
 /// طبقة إدارة الحالة المركزية للمنصة، مبنية بالكامل على Firebase:
 /// - المصادقة: Firebase Authentication (بريد إلكتروني/كلمة مرور)
@@ -119,18 +120,26 @@ class AppStore extends ChangeNotifier {
 
   void _subscribeAppData() {
     final officer = isOfficer;
-    final scopedDept = (canViewAllDepartments || officer) ? null : currentUser?.departmentId;
+    final manager = isManager;
+    final scopedDept = (canViewAllDepartments || officer || manager) ? null : currentUser?.departmentId;
 
     _dataSubs.add(_db.collection('departments').orderBy('name').snapshots().listen((snap) {
       departments = snap.docs.map(Department.fromDoc).toList();
       notifyListeners();
     }));
 
-    // مدير المشروع (officer) يُقيَّد بمشروعه المُسنَد إليه تحديداً (عبر managerUid)،
-    // وليس بإدارته كاملة كما هو الحال لباقي الأدوار.
+    // مدير المشروع (officer) يُقيَّد بمشروعه المُسنَد إليه تحديداً (عبر managerUid).
+    // مدير الإدارة (manager) قد يدير أكثر من إدارة، فيُقيَّد بقائمة departmentIds
+    // كاملة (whereIn) بدل مطابقة إدارة واحدة فقط.
     Query<Map<String, dynamic>> scoped(String collection) {
       final col = _db.collection(collection);
       if (officer) return col.where('managerUid', isEqualTo: currentUser?.id);
+      if (manager) {
+        final ids = myDepartmentIds;
+        return ids.isEmpty
+            ? col.where('departmentId', isEqualTo: '__none__')
+            : col.where('departmentId', whereIn: ids.length > 30 ? ids.sublist(0, 30) : ids);
+      }
       return scopedDept == null ? col : col.where('departmentId', isEqualTo: scopedDept);
     }
 
@@ -301,7 +310,9 @@ class AppStore extends ChangeNotifier {
 
   bool get canViewAllDepartments => isAdmin || isExecutive || (myCustomRole?.viewAllDepartments ?? false);
   bool get canManageUsers => isAdmin;
-  bool get canViewAuditLog => isAdmin || (myCustomRole?.viewAuditLog ?? false);
+  // سجل التدقيق، الموافقة على تسجيل الأعضاء/المشاريع/المواعيد النهائية، وإضافة
+  // المستخدمين تبقى دائماً حصراً لمسؤول النظام — لا يملك أي دور مخصص تجاوزها.
+  bool get canViewAuditLog => isAdmin;
   bool get canManageReports => isAdmin || isExecutive || (myCustomRole?.manageReports ?? false);
   bool get canManageDashboard => isAdmin || (myCustomRole?.manageDashboard ?? false);
 
@@ -314,11 +325,15 @@ class AppStore extends ChangeNotifier {
     return isAdmin;
   }
 
+  /// إدارة/إدارات مدير الإدارة الحالي (دور departmentManager فقط قد يملك أكثر من إدارة).
+  List<String> get myDepartmentIds => currentUser?.departmentIds ?? const [];
+
   bool canEditProject(Project project) {
     if (currentUser == null) return false;
     if (isAdmin) return true;
     if (isExecutive) return false;
     if (isOfficer) return project.managerUid == currentUser!.id;
+    if (isManager) return myDepartmentIds.contains(project.departmentId);
     return currentUser!.departmentId == project.departmentId;
   }
 
@@ -327,27 +342,31 @@ class AppStore extends ChangeNotifier {
   bool canRequestNewProject(String departmentId) {
     if (currentUser == null) return false;
     if (isAdmin) return true;
-    return isManager && currentUser!.departmentId == departmentId;
+    return isManager && myDepartmentIds.contains(departmentId);
   }
 
   bool canViewDepartment(String departmentId) {
     if (currentUser == null) return false;
     if (canViewAllDepartments) return true;
     if (isOfficer) return false;
+    if (isManager) return myDepartmentIds.contains(departmentId);
     return currentUser!.departmentId == departmentId;
   }
 
   List<Department> get visibleDepartments {
     if (canViewAllDepartments) return departments;
     if (isOfficer) return const [];
+    if (isManager) return departments.where((d) => myDepartmentIds.contains(d.id)).toList();
     return departments.where((d) => d.id == currentUser?.departmentId).toList();
   }
 
   /// مشاريع "مدير المشروع" مقيَّدة بالمشروع (أو المشاريع) المُسنَدة إليه تحديداً
-  /// عبر managerUid، بمعزل تام عن بقية مشاريع إدارته.
+  /// عبر managerUid، بمعزل تام عن بقية مشاريع إدارته. أما مدير الإدارة فيرى
+  /// مشاريع إدارته أو إداراته (قد تكون أكثر من إدارة واحدة) فقط.
   List<Project> get visibleProjects {
     if (canViewAllDepartments) return projects;
     if (isOfficer) return projects.where((p) => p.managerUid == currentUser?.id).toList();
+    if (isManager) return projects.where((p) => myDepartmentIds.contains(p.departmentId)).toList();
     return projects.where((p) => p.departmentId == currentUser?.departmentId).toList();
   }
 
@@ -715,6 +734,7 @@ class AppStore extends ChangeNotifier {
     required UserRole role,
     String? customRoleId,
     String? departmentId,
+    List<String>? departmentIds,
   }) async {
     try {
       await _functions.httpsCallable('adminCreateUser').call({
@@ -725,6 +745,7 @@ class AppStore extends ChangeNotifier {
         'role': role.name,
         'customRoleId': customRoleId,
         'departmentId': departmentId,
+        'departmentIds': departmentIds,
       });
       return null;
     } on FirebaseFunctionsException catch (e) {
@@ -732,13 +753,20 @@ class AppStore extends ChangeNotifier {
     }
   }
 
-  Future<String?> setUserRole(AppUser user, {required UserRole role, String? customRoleId, String? departmentId}) async {
+  Future<String?> setUserRole(
+    AppUser user, {
+    required UserRole role,
+    String? customRoleId,
+    String? departmentId,
+    List<String>? departmentIds,
+  }) async {
     try {
       await _functions.httpsCallable('setUserRole').call({
         'uid': user.id,
         'role': role.name,
         'customRoleId': customRoleId,
         'departmentId': departmentId,
+        'departmentIds': departmentIds,
       });
       return null;
     } on FirebaseFunctionsException catch (e) {
@@ -802,6 +830,40 @@ class AppStore extends ChangeNotifier {
     }
     await batch.commit();
     await _log('إدارة الإدارات', 'تم استيراد الإدارات الافتراضية');
+  }
+
+  /// توليد بيانات تجريبية كاملة (إدارات + مشاريع + مهام + مخاطر/عوائق +
+  /// تحديثات يومية + قرار تنفيذي واحد بانتظار الاعتماد) لمعاينة لوحة القيادة
+  /// وبقية الشاشات فوراً دون انتظار إدخال بيانات حقيقية. آمنة التكرار
+  /// (معرّفات ثابتة + merge)، ولا تُنشئ أي حساب مستخدم أو تمس بوابات الموافقة
+  /// الثلاث بأي شكل.
+  Future<void> seedDemoData() async {
+    final batch = _db.batch();
+    for (final d in DefaultDepartments.suggestions()) {
+      batch.set(_db.collection('departments').doc(d.id), d.toMap(), SetOptions(merge: true));
+    }
+    for (final p in DemoData.projects()) {
+      batch.set(_db.collection('projects').doc(p.id), p.toMap(), SetOptions(merge: true));
+    }
+    for (final t in DemoData.tasks()) {
+      batch.set(_db.collection('tasks').doc(t.id), {...t.toMap(), 'managerUid': null}, SetOptions(merge: true));
+    }
+    for (final r in DemoData.risks()) {
+      batch.set(_db.collection('risks').doc(r.id), {...r.toMap(), 'managerUid': null}, SetOptions(merge: true));
+    }
+    for (final b in DemoData.blockers()) {
+      batch.set(_db.collection('blockers').doc(b.id), {...b.toMap(), 'managerUid': null}, SetOptions(merge: true));
+    }
+    for (final u in DemoData.dailyUpdates()) {
+      batch.set(_db.collection('dailyUpdates').doc(u.id), {...u.toMap(), 'managerUid': null}, SetOptions(merge: true));
+    }
+    batch.set(
+      _db.collection('approvalRequests').doc('demo_decision_1'),
+      DemoData.decisionRequest(requestedByUid: currentUser?.id ?? '', requestedByName: currentUser?.name ?? 'مسؤول النظام'),
+      SetOptions(merge: true),
+    );
+    await batch.commit();
+    await _log('بيانات تجريبية', 'تم توليد بيانات تجريبية لاختبار المنصة');
   }
 
   // ------------------------- تخصيص لوحة القيادة -------------------------

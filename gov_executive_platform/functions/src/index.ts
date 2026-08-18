@@ -37,7 +37,9 @@ async function logAudit(userName: string, action: string, details: string): Prom
   await db().collection("auditLog").add({userName, action, details, timestamp: now()});
 }
 
-const CUSTOM_ROLE_PERM_KEYS = ["vad", "val", "mr", "md", "agd"] as const;
+// "val" (الاطلاع على سجل التدقيق) أُزيلت عمداً من الصلاحيات القابلة للتفويض:
+// سجل التدقيق يبقى حصراً لمسؤول النظام، لا يملك أي دور مخصص الوصول إليه.
+const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd"] as const;
 
 /**
  * يُحمّل مجموعة الصلاحيات المضغوطة (لتضمينها في Custom Claims) لدور مخصص.
@@ -54,7 +56,6 @@ async function loadCustomRolePerms(role: string, customRoleId?: string | null): 
     perms[key] = false;
   }
   perms.vad = data.viewAllDepartments === true;
-  perms.val = data.viewAuditLog === true;
   perms.mr = data.manageReports === true;
   perms.md = data.manageDashboard === true;
   perms.agd = data.approveGeneralDecisions === true;
@@ -130,8 +131,11 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       const uid = payload.uid as string;
       const role = payload.requestedRole as string;
       const departmentId = (payload.requestedDepartmentId as string | null) ?? null;
-      await admin.auth().setCustomUserClaims(uid, {role, departmentId, approved: true});
-      await db().collection("users").doc(uid).update({role, departmentId, status: "approved"});
+      // التسجيل الذاتي يسمح باختيار إدارة واحدة فقط؛ مسؤول النظام يمكنه لاحقاً
+      // توسيع إدارات مدير الإدارة عبر setUserRole إن احتاج أكثر من إدارة.
+      const departmentIds = role === "departmentManager" && departmentId ? [departmentId] : [];
+      await admin.auth().setCustomUserClaims(uid, {role, departmentId, departmentIds, approved: true});
+      await db().collection("users").doc(uid).update({role, departmentId, departmentIds, status: "approved"});
       break;
     }
     case "projectCreate": {
@@ -217,7 +221,7 @@ export const rejectRequest = onCall({secrets: notificationSecrets}, async (reque
 
 export const adminCreateUser = onCall(async (request) => {
   const auth = requireAdmin(request);
-  const {name, email, phone, password, role, customRoleId, departmentId} = (request.data ?? {}) as {
+  const {name, email, phone, password, role, customRoleId, departmentId, departmentIds} = (request.data ?? {}) as {
     name?: string;
     email?: string;
     phone?: string;
@@ -225,17 +229,21 @@ export const adminCreateUser = onCall(async (request) => {
     role?: string;
     customRoleId?: string | null;
     departmentId?: string | null;
+    departmentIds?: string[] | null;
   };
   if (!name || !email || !password || !role) {
     throw new HttpsError("invalid-argument", "الرجاء تعبئة جميع الحقول المطلوبة");
   }
 
   const perms = await loadCustomRolePerms(role, customRoleId);
+  // مدير الإدارة قد يدير أكثر من إدارة (departmentIds)؛ بقية الأدوار تستخدم departmentId مفرد.
+  const deptIds = role === "departmentManager" ? departmentIds ?? [] : [];
 
   const userRecord = await admin.auth().createUser({email, password, displayName: name});
   await admin.auth().setCustomUserClaims(userRecord.uid, {
     role,
     departmentId: departmentId ?? null,
+    departmentIds: deptIds,
     approved: true,
     ...(perms ? {perms} : {}),
   });
@@ -249,6 +257,7 @@ export const adminCreateUser = onCall(async (request) => {
       role,
       customRoleId: role === "custom" ? customRoleId : null,
       departmentId: departmentId ?? null,
+      departmentIds: deptIds,
       status: "approved",
       createdAt: now(),
     });
@@ -260,11 +269,12 @@ export const adminCreateUser = onCall(async (request) => {
 
 export const setUserRole = onCall(async (request) => {
   const auth = requireAdmin(request);
-  const {uid, role, customRoleId, departmentId} = (request.data ?? {}) as {
+  const {uid, role, customRoleId, departmentId, departmentIds} = (request.data ?? {}) as {
     uid?: string;
     role?: string;
     customRoleId?: string | null;
     departmentId?: string | null;
+    departmentIds?: string[] | null;
   };
   if (!uid || !role) throw new HttpsError("invalid-argument", "بيانات ناقصة");
 
@@ -274,15 +284,18 @@ export const setUserRole = onCall(async (request) => {
   const current = userDoc.data()!;
 
   const perms = await loadCustomRolePerms(role, customRoleId);
+  const deptIds = role === "departmentManager" ? departmentIds ?? [] : [];
 
   await userRef.update({
     role,
     customRoleId: role === "custom" ? customRoleId : null,
     departmentId: departmentId ?? null,
+    departmentIds: deptIds,
   });
   await admin.auth().setCustomUserClaims(uid, {
     role,
     departmentId: departmentId ?? null,
+    departmentIds: deptIds,
     approved: current.status === "approved",
     ...(perms ? {perms} : {}),
   });
@@ -309,6 +322,7 @@ export const setUserStatus = onCall(async (request) => {
   await admin.auth().setCustomUserClaims(uid, {
     role: current.role,
     departmentId: current.departmentId ?? null,
+    departmentIds: current.departmentIds ?? [],
     approved,
     ...(perms ? {perms} : {}),
   });

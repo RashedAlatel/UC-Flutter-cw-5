@@ -73,7 +73,7 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
           children: [
             Container(
               padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+              decoration: BoxDecoration(color: AppColors.primary, borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
               child: Row(
                 children: [
                   const Icon(Icons.tune_rounded, color: Colors.white),

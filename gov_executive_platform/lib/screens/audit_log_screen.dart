@@ -40,7 +40,7 @@ class AuditLogScreen extends StatelessWidget {
                         return ListTile(
                           leading: CircleAvatar(
                             backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                            child: const Icon(Icons.history_rounded, color: AppColors.primary, size: 18),
+                            child: Icon(Icons.history_rounded, color: AppColors.primary, size: 18),
                           ),
                           title: Text(e.action, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                           subtitle: Text(e.details, style: const TextStyle(fontSize: 12)),

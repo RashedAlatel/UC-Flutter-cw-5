@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
 
-/// نظام الألوان والتنسيق الموحد للمنصة
+/// نظام الألوان والتنسيق الموحد للمنصة.
+/// [primary] و [accent] قابلان للتخصيص من قِبل مسؤول النظام (شاشة "إعدادات
+/// المظهر")، لذا هما حقلان قابلان للتغيير وقت التشغيل وليسا ثابتين (const) —
+/// خلافاً لبقية الألوان الدلالية (نجاح/تحذير/خطر...) التي تبقى ثابتة عمداً
+/// لأنها تحمل معنى وظيفياً لا يجوز تخصيصه. راجع [AppColors.applyBrand].
 class AppColors {
-  static const Color primary = Color(0xFF0A3358); // أزرق حكومي عميق
-  static const Color primaryLight = Color(0xFF1D6FA8);
-  static const Color primaryDark = Color(0xFF06213B);
-  static const Color accent = Color(0xFFCB9B3C); // ذهبي دافئ
+  static Color primary = const Color(0xFF0A3358); // أزرق حكومي عميق (افتراضي)
+  static Color primaryLight = const Color(0xFF1D6FA8);
+  static Color primaryDark = const Color(0xFF06213B);
+  static Color accent = const Color(0xFFCB9B3C); // ذهبي دافئ (افتراضي)
+
+  static const Color defaultPrimary = Color(0xFF0A3358);
+  static const Color defaultAccent = Color(0xFFCB9B3C);
+
   static const Color background = Color(0xFFF3F5F9);
   static const Color surface = Colors.white;
 
@@ -47,6 +55,18 @@ class AppColors {
         return textSecondary;
     }
   }
+
+  /// يطبّق لوني الهوية (الأساسي والتمييز) على مستوى المنصة كاملة، ويشتق منهما
+  /// درجتين فاتحة وداكنة تلقائياً (تُستخدمان في التدرجات والقائمة الجانبية).
+  static void applyBrand({required Color primary, required Color accent}) {
+    AppColors.primary = primary;
+    AppColors.accent = accent;
+    final hsl = HSLColor.fromColor(primary);
+    AppColors.primaryLight = hsl.withLightness((hsl.lightness + 0.22).clamp(0.0, 1.0)).toColor();
+    AppColors.primaryDark = hsl.withLightness((hsl.lightness - 0.14).clamp(0.0, 1.0)).toColor();
+  }
+
+  static void resetBrand() => applyBrand(primary: defaultPrimary, accent: defaultAccent);
 }
 
 class AppTheme {
@@ -68,12 +88,12 @@ class AppTheme {
 
     return base.copyWith(
       textTheme: base.textTheme.apply(fontFamily: fontFamily),
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(
+        titleTextStyle: const TextStyle(
           fontFamily: fontFamily,
           fontSize: 18,
           fontWeight: FontWeight.w700,
@@ -103,7 +123,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primary, width: 1.6),
+          borderSide: BorderSide(color: AppColors.primary, width: 1.6),
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         labelStyle: const TextStyle(fontFamily: fontFamily, color: AppColors.textSecondary, fontSize: 13.5),

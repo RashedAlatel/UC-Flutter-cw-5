@@ -101,7 +101,7 @@ class _UserRowState extends State<_UserRow> {
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-        child: Text(u.name.isNotEmpty ? u.name.substring(0, 1) : '?', style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800)),
+        child: Text(u.name.isNotEmpty ? u.name.substring(0, 1) : '?', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800)),
       ),
       title: Text(u.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
       subtitle: Text(

@@ -178,5 +178,13 @@ service cloud.firestore {
       allow read: if isApproved();
       allow write: if isAdmin();
     }
+
+    // ------------------------- إعدادات المظهر (ألوان الهوية) -------------------------
+    // قراءة عامة (حتى قبل تسجيل الدخول) لأن الألوان تُطبَّق على شاشتي الدخول
+    // والتسجيل أيضاً؛ لا تحتوي على أي بيانات حساسة. التعديل حصراً لمسؤول النظام.
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

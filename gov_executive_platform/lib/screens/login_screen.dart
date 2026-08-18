@@ -85,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildBrandPanel() {
     return Container(
       padding: const EdgeInsets.all(36),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [AppColors.primary, AppColors.primaryLight],
           begin: Alignment.topRight,

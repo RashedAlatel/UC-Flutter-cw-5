@@ -81,7 +81,7 @@ class _RoleCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-              child: const Icon(Icons.badge_outlined, color: AppColors.primary),
+              child: Icon(Icons.badge_outlined, color: AppColors.primary),
             ),
             const SizedBox(width: 12),
             Expanded(

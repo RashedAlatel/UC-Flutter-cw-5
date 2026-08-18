@@ -18,6 +18,7 @@ import '../models/project.dart';
 import '../models/project_task.dart';
 import '../models/report.dart';
 import '../models/risk.dart';
+import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import 'default_departments.dart';
 import 'demo_data.dart';
@@ -56,16 +57,32 @@ class AppStore extends ChangeNotifier {
 
   StreamSubscription<fb_auth.User?>? _authSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _themeSub;
   final List<StreamSubscription> _dataSubs = [];
 
   Future<void> init() async {
     _authSub = _auth.authStateChanges().listen(_onAuthChanged);
+    // ألوان الهوية تُطبَّق فوراً عند بدء التشغيل بمعزل عن حالة تسجيل الدخول
+    // (تظهر حتى في شاشتي الدخول والتسجيل)، وتحدَّث لحظياً إن غيّرها مسؤول النظام.
+    _themeSub = _db.collection('settings').doc('theme').snapshots().listen((doc) {
+      final data = doc.data();
+      if (data == null) {
+        AppColors.resetBrand();
+      } else {
+        AppColors.applyBrand(
+          primary: Color(data['primary'] as int? ?? AppColors.defaultPrimary.toARGB32()),
+          accent: Color(data['accent'] as int? ?? AppColors.defaultAccent.toARGB32()),
+        );
+      }
+      notifyListeners();
+    });
   }
 
   @override
   void dispose() {
     _authSub?.cancel();
     _userDocSub?.cancel();
+    _themeSub?.cancel();
     _cancelDataSubs();
     super.dispose();
   }
@@ -878,6 +895,26 @@ class AppStore extends ChangeNotifier {
       'widgets': widgets.map((w) => w.toMap()).toList(),
     });
     await _log('تخصيص لوحة القيادة', 'قام ${currentUser?.name} بتحديث تخطيط لوحة القيادة الرئيسية');
+  }
+
+  // ------------------------- إعدادات المظهر (مسؤول النظام فقط) -------------------------
+
+  Color get brandPrimary => AppColors.primary;
+  Color get brandAccent => AppColors.accent;
+
+  /// حفظ لوني الهوية المخصّصين. يُطبَّقان فوراً على كل المستخدمين عبر
+  /// الاستماع اللحظي لمستند settings/theme، دون الحاجة لإعادة نشر الموقع.
+  Future<void> saveBrandColors({required Color primary, required Color accent}) async {
+    await _db.collection('settings').doc('theme').set({
+      'primary': primary.toARGB32(),
+      'accent': accent.toARGB32(),
+    });
+    await _log('إعدادات المظهر', 'قام ${currentUser?.name} بتخصيص ألوان الهوية');
+  }
+
+  Future<void> resetBrandColors() async {
+    await _db.collection('settings').doc('theme').delete();
+    await _log('إعدادات المظهر', 'قام ${currentUser?.name} بإعادة ألوان الهوية للوضع الافتراضي');
   }
 
   // ------------------------- التقارير -------------------------

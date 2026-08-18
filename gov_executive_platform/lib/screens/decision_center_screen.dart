@@ -132,7 +132,7 @@ class _RequestCardState extends State<_RequestCard> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
-                  child: Text(r.type.label, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 11)),
+                  child: Text(r.type.label, style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 11)),
                 ),
                 const SizedBox(width: 8),
                 PriorityChip(priority: r.priority),

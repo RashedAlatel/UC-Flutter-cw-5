@@ -166,7 +166,7 @@ class _ReportCardState extends State<_ReportCard> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                  child: const Icon(Icons.description_outlined, color: AppColors.primary, size: 18),
+                  child: Icon(Icons.description_outlined, color: AppColors.primary, size: 18),
                 ),
                 const SizedBox(width: 10),
                 Text('تقرير ${r.period.label} · ${Formatters.date(r.generatedDate)}',
@@ -214,7 +214,7 @@ class _ReportCardState extends State<_ReportCard> {
                             value: e.value / 100,
                             minHeight: 6,
                             backgroundColor: AppColors.border,
-                            valueColor: const AlwaysStoppedAnimation(AppColors.primary),
+                            valueColor: AlwaysStoppedAnimation(AppColors.primary),
                           ),
                         ),
                       ),

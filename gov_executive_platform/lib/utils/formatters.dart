@@ -12,6 +12,15 @@ class Formatters {
 
   static String percent(double v) => '${v.toStringAsFixed(0)}٪';
 
+  static const _arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+  /// يحوّل رقماً صحيحاً موجباً إلى رقم عربي بصيغة ترتيبية بحرفين على الأقل
+  /// (مثل ٠١، ٠٢...٩٩)، للاستخدام في قوائم مرقّمة رسمية.
+  static String arabicOrdinal(int n) {
+    final padded = n.toString().padLeft(2, '0');
+    return padded.split('').map((d) => _arabicDigits[int.parse(d)]).join();
+  }
+
   static String timeAgo(DateTime d) {
     final diff = DateTime.now().difference(d);
     if (diff.inMinutes < 1) return 'الآن';

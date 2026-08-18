@@ -67,6 +67,9 @@ class DashboardScreen extends StatelessWidget {
                 ),
             ],
           ),
+          const SizedBox(height: 14),
+          Container(height: 2, color: AppColors.accent),
+          Container(height: 1, color: AppColors.border, margin: const EdgeInsets.only(top: 2)),
           if (!store.isAdmin) ...[
             const SizedBox(height: 16),
             const _BootstrapAdminBanner(),
@@ -241,24 +244,44 @@ class _PendingDecisionsCard extends StatelessWidget {
                 child: Text('لا توجد قرارات معلقة حالياً', style: TextStyle(color: AppColors.textSecondary)),
               )
             else
-              ...decisions.map((d) {
+              ...List.generate(decisions.length, (i) {
+                final d = decisions[i];
                 final dept = d.departmentId != null ? store.departmentById(d.departmentId!) : null;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                return Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(color: AppColors.border, width: i == decisions.length - 1 ? 0 : 1),
+                    ),
+                  ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      PriorityChip(priority: d.priority),
-                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 24,
+                        child: Text(
+                          Formatters.arabicOrdinal(i + 1),
+                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: AppColors.accent),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text('[${d.type.label}] ${d.title}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${dept?.name ?? 'عام'}${d.delayImpactDays > 0 ? ' · أثر التأخير: ${d.delayImpactDays} يوم' : ''}',
-                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 11.5),
+                            const SizedBox(height: 5),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                PriorityChip(priority: d.priority),
+                                Text(
+                                  '${dept?.name ?? 'عام'}${d.delayImpactDays > 0 ? ' · أثر التأخير: ${d.delayImpactDays} يوم' : ''}',
+                                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 11.5),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -300,8 +323,13 @@ class _DepartmentRankingList extends StatelessWidget {
                     body: DepartmentDetailScreen(departmentId: dept.id),
                   ),
                 )),
-                child: Padding(
+                child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(color: AppColors.border, width: i == ranking.length - 1 ? 0 : 1),
+                    ),
+                  ),
                   child: Row(
                     children: [
                       CircleAvatar(
@@ -369,7 +397,8 @@ class _RecentUpdatesCard extends StatelessWidget {
                 child: Text('لا توجد تحديثات بعد', style: TextStyle(color: AppColors.textSecondary)),
               )
             else
-              ...updates.map((u) {
+              ...List.generate(updates.length, (i) {
+                final u = updates[i];
                 final project = store.projectById(u.projectId);
                 return InkWell(
                   onTap: project == null
@@ -380,18 +409,17 @@ class _RecentUpdatesCard extends StatelessWidget {
                               body: ProjectDetailScreen(projectId: project.id),
                             ),
                           )),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: AppColors.border, width: i == updates.length - 1 ? 0 : 1),
+                      ),
+                    ),
                     child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        CircleAvatar(
-                          radius: 14,
-                          backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                          child: Text(u.authorName.isNotEmpty ? u.authorName.substring(0, 1) : '?',
-                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.primary)),
-                        ),
-                        const SizedBox(width: 10),
+                        Container(width: 3, margin: const EdgeInsets.only(left: 10), decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(3))),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -399,16 +427,20 @@ class _RecentUpdatesCard extends StatelessWidget {
                               Row(
                                 children: [
                                   Expanded(
-                                    child: Text('${u.authorName} · ${project?.name ?? ''}',
-                                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+                                    child: Text(u.authorName,
+                                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: AppColors.primary),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis),
                                   ),
                                   Text(Formatters.timeAgo(u.date), style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
                                 ],
                               ),
-                              const SizedBox(height: 2),
-                              Text(u.achievements, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary), maxLines: 2, overflow: TextOverflow.ellipsis),
+                              const SizedBox(height: 4),
+                              Text(u.achievements, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.5), maxLines: 2, overflow: TextOverflow.ellipsis),
+                              if (project != null) ...[
+                                const SizedBox(height: 5),
+                                Text(project.name, style: TextStyle(fontSize: 10.5, color: AppColors.accent, fontWeight: FontWeight.w700)),
+                              ],
                             ],
                           ),
                         ),

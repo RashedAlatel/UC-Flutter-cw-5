@@ -71,7 +71,7 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
           children: [
             Container(
               padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+              decoration: BoxDecoration(color: AppColors.primary, borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
               child: Row(
                 children: [
                   const Icon(Icons.edit_note_rounded, color: Colors.white),

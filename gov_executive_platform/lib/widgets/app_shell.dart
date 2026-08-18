@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/enums.dart';
+import '../screens/appearance_settings_screen.dart';
 import '../screens/audit_log_screen.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/decision_center_screen.dart';
@@ -99,6 +100,9 @@ class _AppShellState extends State<AppShell> {
       entries.add(const _NavEntry(label: 'المستخدمون', icon: Icons.manage_accounts_rounded, page: UserManagementScreen()));
       entries.add(const _NavEntry(label: 'إدارة الأدوار', icon: Icons.badge_outlined, page: RolesManagementScreen()));
     }
+    if (store.isAdmin) {
+      entries.add(const _NavEntry(label: 'إعدادات المظهر', icon: Icons.palette_outlined, page: AppearanceSettingsScreen()));
+    }
     return entries;
   }
 
@@ -159,7 +163,7 @@ class _Sidebar extends StatelessWidget {
     final user = store.currentUser;
     return Container(
       width: 260,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [AppColors.primaryDark, AppColors.primary],
           begin: Alignment.topCenter,
@@ -246,7 +250,7 @@ class _Sidebar extends StatelessWidget {
                     radius: 18,
                     child: Text(
                       user != null && user.name.isNotEmpty ? user.name.substring(0, 1) : '?',
-                      style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800),
+                      style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -302,7 +306,7 @@ class _TopBar extends StatelessWidget {
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(store.currentUser?.role.label ?? '',
-                style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 12)),
+                style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 12)),
           ),
         ],
       ),

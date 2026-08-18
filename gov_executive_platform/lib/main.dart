@@ -24,19 +24,24 @@ class GovExecutivePlatformApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => AppStore()..init(),
-      child: MaterialApp(
-        title: 'المنصة التنفيذية الحكومية',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.theme,
-        locale: const Locale('ar'),
-        supportedLocales: const [Locale('ar'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
-        home: const _RootGate(),
+      // نستخدم Consumer هنا (بدل قراءة AppTheme.theme مرة واحدة) لأن ألوان
+      // الهوية (primary/accent) قابلة للتخصيص من مسؤول النظام في أي وقت
+      // (راجع AppColors.applyBrand)، فيجب إعادة بناء الثيم عند أي تغيير.
+      child: Consumer<AppStore>(
+        builder: (context, store, _) => MaterialApp(
+          title: 'المنصة التنفيذية الحكومية',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.theme,
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar'), Locale('en')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
+          home: const _RootGate(),
+        ),
       ),
     );
   }
@@ -49,9 +54,9 @@ class _RootGate extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     if (!store.ready) {
-      return const Scaffold(
+      return Scaffold(
         backgroundColor: AppColors.primary,
-        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+        body: const Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
     final user = store.currentUser;

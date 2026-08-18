@@ -42,5 +42,25 @@
         "headers": [{ "key": "Cache-Control", "value": "max-age=86400" }]
       }
     ]
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "project-management-syste-8e599",
+          "appId": "1:1052263879223:android:93f8fa243bb6bbce48a5b2",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "project-management-syste-8e599",
+          "configurations": {
+            "android": "1:1052263879223:android:93f8fa243bb6bbce48a5b2",
+            "web": "1:1052263879223:web:2ef76e55bf8f9a5848a5b2"
+          }
+        }
+      }
+    }
   }
 }

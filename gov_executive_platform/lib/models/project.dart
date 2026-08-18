@@ -12,7 +12,6 @@ class Project {
   final ProjectStatus status;
   final PriorityLevel priority;
   final double progressPercent; // 0-100
-  final int delayDays; // أيام التأخير عن الخطة (0 = لا يوجد تأخير)
   final String executorName; // الشخص المنفذ/المسؤول عن المشروع
   final String createdByUid;
   final String? managerUid; // حساب "مدير المشروع" المُسنَد إليه (يرى هذا المشروع فقط)
@@ -27,11 +26,21 @@ class Project {
     required this.status,
     required this.priority,
     required this.progressPercent,
-    required this.delayDays,
     this.executorName = '',
     this.createdByUid = '',
     this.managerUid,
   });
+
+  /// أيام التأخير عن الخطة، محسوبة ديناميكياً في كل مرة (الفرق بين اليوم
+  /// الحالي وتاريخ الاستحقاق) بدل قيمة ثابتة تُخزَّن وتتجمّد عند الإدخال —
+  /// 0 لأي مشروع مكتمل أو لم يتجاوز موعده النهائي بعد.
+  int get delayDays {
+    if (status == ProjectStatus.completed) return 0;
+    final due = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    final today = DateTime.now();
+    final now = DateTime(today.year, today.month, today.day);
+    return now.isAfter(due) ? now.difference(due).inDays : 0;
+  }
 
   Project copyWith({
     String? name,
@@ -41,7 +50,6 @@ class Project {
     ProjectStatus? status,
     PriorityLevel? priority,
     double? progressPercent,
-    int? delayDays,
     String? executorName,
     String? managerUid,
   }) {
@@ -55,7 +63,6 @@ class Project {
       status: status ?? this.status,
       priority: priority ?? this.priority,
       progressPercent: progressPercent ?? this.progressPercent,
-      delayDays: delayDays ?? this.delayDays,
       executorName: executorName ?? this.executorName,
       createdByUid: createdByUid,
       managerUid: managerUid ?? this.managerUid,
@@ -71,7 +78,6 @@ class Project {
         'status': status.name,
         'priority': priority.name,
         'progressPercent': progressPercent,
-        'delayDays': delayDays,
         'executorName': executorName,
         'createdByUid': createdByUid,
         'managerUid': managerUid,
@@ -89,7 +95,6 @@ class Project {
       status: ProjectStatus.fromName(json['status'] as String? ?? ProjectStatus.onTrack.name),
       priority: PriorityLevel.fromName(json['priority'] as String? ?? PriorityLevel.medium.name),
       progressPercent: (json['progressPercent'] as num?)?.toDouble() ?? 0,
-      delayDays: (json['delayDays'] as num?)?.toInt() ?? 0,
       executorName: json['executorName'] as String? ?? '',
       createdByUid: json['createdByUid'] as String? ?? '',
       managerUid: json['managerUid'] as String?,

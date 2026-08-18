@@ -26,7 +26,6 @@ class DemoData {
           status: ProjectStatus.delayed,
           priority: PriorityLevel.high,
           progressPercent: 45,
-          delayDays: 12,
           executorName: 'سلطان الكعبي',
         ),
         Project(
@@ -39,7 +38,6 @@ class DemoData {
           status: ProjectStatus.onTrack,
           priority: PriorityLevel.medium,
           progressPercent: 70,
-          delayDays: 0,
           executorName: 'مريم الحوسني',
         ),
         Project(
@@ -52,7 +50,6 @@ class DemoData {
           status: ProjectStatus.atRisk,
           priority: PriorityLevel.high,
           progressPercent: 30,
-          delayDays: 5,
           executorName: 'خالد المطيري',
         ),
         Project(
@@ -65,7 +62,6 @@ class DemoData {
           status: ProjectStatus.completed,
           priority: PriorityLevel.medium,
           progressPercent: 100,
-          delayDays: 0,
           executorName: 'نورة السويدي',
         ),
         Project(
@@ -78,7 +74,6 @@ class DemoData {
           status: ProjectStatus.onTrack,
           priority: PriorityLevel.critical,
           progressPercent: 55,
-          delayDays: 0,
           executorName: 'فهد العامري',
         ),
       ];

@@ -667,7 +667,6 @@ class AppStore extends ChangeNotifier {
       status: ProjectStatus.onTrack,
       priority: priority,
       progressPercent: 0,
-      delayDays: 0,
       executorName: executorName,
       createdByUid: currentUser?.id ?? '',
       managerUid: managerUid,

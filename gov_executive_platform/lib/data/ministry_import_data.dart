@@ -26,7 +26,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'مجدي محمد - سيد الديب',
     ),
     Project(
@@ -39,7 +38,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'مجدي محمد - سيد الديب',
     ),
     Project(
@@ -52,7 +50,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'مجدي محمد - سيد الديب',
     ),
     Project(
@@ -65,7 +62,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 25,
-      delayDays: 20,
       executorName: 'مجدي محمد - سيد الديب',
     ),
     Project(
@@ -78,7 +74,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 25,
-      delayDays: 20,
       executorName: 'مجدي محمد - سيد الديب',
     ),
     Project(
@@ -91,7 +86,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 25,
-      delayDays: 20,
       executorName: 'مجدي محمد - سيد الديب',
     ),
     Project(
@@ -104,7 +98,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 25,
-      delayDays: 20,
       executorName: 'مجدي محمد - سيد الديب',
     ),
     Project(
@@ -117,7 +110,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'مجدي محمد - سيد الديب - إسراء',
     ),
     Project(
@@ -130,7 +122,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: '',
     ),
     Project(
@@ -143,7 +134,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: 'سيد الديب - أشرف بشرى',
     ),
     Project(
@@ -156,7 +146,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالله اشكناني',
     ),
     Project(
@@ -169,7 +158,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'مجدي محمد - عبدالرحمن راسم - إسراء',
     ),
     Project(
@@ -182,7 +170,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: '',
     ),
     Project(
@@ -195,7 +182,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'ناصر قريطم- سيد الديب',
     ),
     Project(
@@ -208,7 +194,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: 'سيد الديب',
     ),
     Project(
@@ -221,7 +206,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'عبدالرحمن راسم',
     ),
     Project(
@@ -234,7 +218,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'عبدالرحمن راسم',
     ),
     Project(
@@ -247,7 +230,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالرحمن راسم',
     ),
     Project(
@@ -260,7 +242,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالرحمن راسم',
     ),
     Project(
@@ -273,7 +254,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'عبدالرحمن راسم',
     ),
     Project(
@@ -286,7 +266,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالرحمن راسم',
     ),
     Project(
@@ -299,7 +278,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالرحمن راسم',
     ),
     Project(
@@ -312,7 +290,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالرحمن راسم',
     ),
     Project(
@@ -325,7 +302,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'اشرف بشرى',
     ),
     Project(
@@ -338,7 +314,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'اشرف بشرى',
     ),
     Project(
@@ -351,7 +326,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: 'هيا فرج / شيماء الحجرف',
     ),
     Project(
@@ -364,7 +338,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: 'أمين العهدة السيد / حمد المنصور',
     ),
     Project(
@@ -377,7 +350,6 @@ class MinistryImportData {
       status: ProjectStatus.atRisk,
       priority: PriorityLevel.medium,
       progressPercent: 35,
-      delayDays: 0,
       executorName: 'الكنوز علي بو حيميد',
     ),
     Project(
@@ -390,7 +362,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'أحمد العنزي',
     ),
     Project(
@@ -403,7 +374,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: 'أحمد العنزي',
     ),
     Project(
@@ -416,7 +386,6 @@ class MinistryImportData {
       status: ProjectStatus.atRisk,
       priority: PriorityLevel.medium,
       progressPercent: 20,
-      delayDays: 0,
       executorName: 'أحمد العنزي',
     ),
     Project(
@@ -429,7 +398,6 @@ class MinistryImportData {
       status: ProjectStatus.completed,
       priority: PriorityLevel.medium,
       progressPercent: 100,
-      delayDays: 0,
       executorName: 'أحمد العنزي',
     ),
     Project(
@@ -442,7 +410,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: 'محمد جميل',
     ),
     Project(
@@ -455,7 +422,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: '',
     ),
     Project(
@@ -468,7 +434,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: '',
     ),
     Project(
@@ -481,7 +446,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: '',
     ),
     Project(
@@ -494,7 +458,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: '',
     ),
     Project(
@@ -507,7 +470,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: '',
     ),
     Project(
@@ -520,7 +482,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'لولوة الصولة',
     ),
     Project(
@@ -533,7 +494,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'لولوة الصولة',
     ),
     Project(
@@ -546,7 +506,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'لولوة الصولة',
     ),
     Project(
@@ -559,7 +518,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'لولوة الصولة',
     ),
     Project(
@@ -572,7 +530,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'لولوة الصولة',
     ),
     Project(
@@ -585,7 +542,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'لولوة الصولة',
     ),
     Project(
@@ -598,7 +554,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'لولوة الصولة',
     ),
     Project(
@@ -611,7 +566,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالله اللوغاني',
     ),
     Project(
@@ -624,7 +578,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالله اللوغاني',
     ),
     Project(
@@ -637,7 +590,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالله اللوغاني',
     ),
     Project(
@@ -650,7 +602,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالله اللوغاني',
     ),
     Project(
@@ -663,7 +614,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالله اللوغاني',
     ),
     Project(
@@ -676,7 +626,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'عبدالله اللوغاني',
     ),
     Project(
@@ -689,7 +638,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'ابرار المنصوري',
     ),
     Project(
@@ -702,7 +650,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'ابرار المنصوري',
     ),
     Project(
@@ -715,7 +662,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'ابرار المنصوري',
     ),
     Project(
@@ -728,7 +674,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 55,
-      delayDays: 0,
       executorName: 'ابرار المنصوري',
     ),
     Project(
@@ -741,7 +686,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'ابرار المنصوري',
     ),
     Project(
@@ -754,7 +698,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'فاطمه حياة',
     ),
     Project(
@@ -767,7 +710,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'فاطمه حياة',
     ),
     Project(
@@ -780,7 +722,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'فاطمه حياة',
     ),
     Project(
@@ -793,7 +734,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'فاطمه حياة',
     ),
     Project(
@@ -806,7 +746,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'م.منى الملا',
     ),
     Project(
@@ -819,7 +758,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'م.منى الملا',
     ),
     Project(
@@ -832,7 +770,6 @@ class MinistryImportData {
       status: ProjectStatus.delayed,
       priority: PriorityLevel.medium,
       progressPercent: 30,
-      delayDays: 18,
       executorName: 'م.منى الملا',
     ),
     Project(
@@ -845,7 +782,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: 'فاطمه حياة',
     ),
     Project(
@@ -858,7 +794,6 @@ class MinistryImportData {
       status: ProjectStatus.onTrack,
       priority: PriorityLevel.medium,
       progressPercent: 50,
-      delayDays: 0,
       executorName: '',
     ),
   ];

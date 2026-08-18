@@ -16,20 +16,21 @@ class AppearanceSettingsScreen extends StatefulWidget {
 
 class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
   static const List<Color> _primaryPresets = [
-    Color(0xFF0A3358), // الافتراضي: أزرق حكومي عميق
+    Color(0xFF4B3585), // الافتراضي: بنفسجي عميق
+    Color(0xFF0A3358), // أزرق حكومي عميق
     Color(0xFF163A2E), // أخضر غابي داكن
     Color(0xFF5A1F1F), // عنّابي
     Color(0xFF2B2E3A), // كحلي رمادي (سليت)
     Color(0xFF0E3B3B), // أخضر مسي داكن
     Color(0xFF2C2560), // نيلي
-    Color(0xFF3A1F4D), // بنفسجي داكن
     Color(0xFF4A2A16), // بنّي بندقي
     Color(0xFF123448), // أزرق بترولي
     Color(0xFF1F2937), // رمادي فحمي
   ];
 
   static const List<Color> _accentPresets = [
-    Color(0xFFCB9B3C), // الافتراضي: ذهبي دافئ
+    Color(0xFFB1479E), // الافتراضي: أوركيدي دافئ
+    Color(0xFFCB9B3C), // ذهبي دافئ
     Color(0xFFB5732E), // نحاسي
     Color(0xFF3E7CB1), // أزرق سماوي
     Color(0xFF3F8F5F), // زمردي
@@ -37,7 +38,6 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
     Color(0xFFC97A2B), // كهرماني
     Color(0xFF2E8E8A), // تركواز
     Color(0xFF8C93A6), // فضي فولاذي
-    Color(0xFFB94A34), // مرجاني
     Color(0xFF8965B3), // ليلكي
   ];
 

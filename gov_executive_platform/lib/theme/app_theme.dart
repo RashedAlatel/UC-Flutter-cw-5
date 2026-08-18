@@ -6,13 +6,13 @@ import 'package:flutter/material.dart';
 /// خلافاً لبقية الألوان الدلالية (نجاح/تحذير/خطر...) التي تبقى ثابتة عمداً
 /// لأنها تحمل معنى وظيفياً لا يجوز تخصيصه. راجع [AppColors.applyBrand].
 class AppColors {
-  static Color primary = const Color(0xFF0A3358); // أزرق حكومي عميق (افتراضي)
-  static Color primaryLight = const Color(0xFF1D6FA8);
-  static Color primaryDark = const Color(0xFF06213B);
-  static Color accent = const Color(0xFFCB9B3C); // ذهبي دافئ (افتراضي)
+  static Color primary = const Color(0xFF4B3585); // بنفسجي عميق (افتراضي)
+  static Color primaryLight = const Color(0xFF7A5FC4);
+  static Color primaryDark = const Color(0xFF2E2058);
+  static Color accent = const Color(0xFFB1479E); // أوركيدي دافئ (افتراضي)
 
-  static const Color defaultPrimary = Color(0xFF0A3358);
-  static const Color defaultAccent = Color(0xFFCB9B3C);
+  static const Color defaultPrimary = Color(0xFF4B3585);
+  static const Color defaultAccent = Color(0xFFB1479E);
 
   static const Color background = Color(0xFFF3F5F9);
   static const Color surface = Colors.white;

@@ -80,12 +80,39 @@ class DashboardScreen extends StatelessWidget {
             const _DemoDataBanner(),
           ],
           const SizedBox(height: 22),
-          _KpiGrid(store: store, projects: projects.map((p) => p).toList()),
-          const SizedBox(height: 24),
-          ...store.dashboardWidgets.map((w) => Padding(
-                padding: const EdgeInsets.only(bottom: 20),
-                child: _buildWidget(context, w.type, store, scoped, ranking, statusCounts, statusColors),
-              )),
+          LayoutBuilder(builder: (context, constraints) {
+            final wideSplit = constraints.maxWidth > 980;
+            final kpiGrid = _KpiGrid(
+              store: store,
+              projects: projects.map((p) => p).toList(),
+              forceColumns: wideSplit ? 2 : null,
+            );
+            final widgetsColumn = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: store.dashboardWidgets
+                  .map((w) => Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: _buildWidget(context, w.type, store, scoped, ranking, statusCounts, statusColors),
+                      ))
+                  .toList(),
+            );
+            // تقسيم بعمودين على الشاشات الواسعة (عمود جانبي ضيق للمؤشرات +
+            // عمود رئيسي للرسوم والقوائم)، مطابقاً لتقسيمات لوحات BI المرجعية.
+            if (!wideSplit) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [kpiGrid, const SizedBox(height: 24), widgetsColumn],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 300, child: kpiGrid),
+                const SizedBox(width: 20),
+                Expanded(child: widgetsColumn),
+              ],
+            );
+          }),
         ],
       ),
     );
@@ -237,18 +264,22 @@ void _showProjectsPeek(BuildContext context, {required String title, required Li
 class _KpiGrid extends StatelessWidget {
   final AppStore store;
   final List projects;
-  const _KpiGrid({required this.store, required this.projects});
+  /// إن حُدِّد، يُستخدم كعدد أعمدة ثابت (عمود جانبي ضيق ذو صفّين)، بدل
+  /// الحساب التلقائي حسب العرض (المستخدم للتخطيط أحادي العمود على الشاشات الضيقة).
+  final int? forceColumns;
+  const _KpiGrid({required this.store, required this.projects, this.forceColumns});
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      final cols = constraints.maxWidth > 1150
-          ? 5
-          : constraints.maxWidth > 820
-              ? 3
-              : constraints.maxWidth > 520
-                  ? 2
-                  : 1;
+      final cols = forceColumns ??
+          (constraints.maxWidth > 1150
+              ? 5
+              : constraints.maxWidth > 820
+                  ? 3
+                  : constraints.maxWidth > 520
+                      ? 2
+                      : 1);
       final items = [
         KpiCard(
           title: 'نسبة الإنجاز العام',

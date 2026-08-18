@@ -8,6 +8,17 @@ import '../theme/department_icons.dart';
 import '../widgets/progress_bar.dart';
 import 'department_detail_screen.dart';
 
+/// يوحّد الفروقات الشكلية الشائعة في الكتابة العربية (الهمزة على الألف
+/// وحذفها، ألف مقصورة/ياء، تاء مربوطة/هاء، والمسافات الزائدة) قبل مقارنة
+/// أسماء الإدارات — لمنع إنشاء إدارة مكررة بالخطأ بسبب فرق إملائي بسيط
+/// مثل "إدارة X" مقابل "ادارة X".
+String _normalizeArabic(String s) => s
+    .trim()
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .replaceAll(RegExp('[إأآا]'), 'ا')
+    .replaceAll('ى', 'ي')
+    .replaceAll('ة', 'ه');
+
 class DepartmentsListScreen extends StatelessWidget {
   const DepartmentsListScreen({super.key});
 
@@ -112,6 +123,12 @@ class DepartmentsListScreen extends StatelessWidget {
                                   ],
                                 ),
                               ),
+                              if (store.canManageUsers)
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline_rounded, size: 19, color: AppColors.danger),
+                                  tooltip: 'حذف الإدارة',
+                                  onPressed: () => _confirmDelete(context, dept),
+                                ),
                             ],
                           ),
                           const SizedBox(height: 16),
@@ -139,6 +156,33 @@ class DepartmentsListScreen extends StatelessWidget {
   }
 }
 
+Future<void> _confirmDelete(BuildContext context, Department dept) async {
+  final store = context.read<AppStore>();
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('حذف الإدارة'),
+      content: Text('هل أنت متأكد من حذف "${dept.name}"؟ لا يمكن التراجع عن هذا الإجراء.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('حذف'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+  final error = await store.deleteDepartment(dept);
+  if (!context.mounted) return;
+  if (error != null) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: AppColors.danger));
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم حذف "${dept.name}"')));
+  }
+}
+
 class _AddDepartmentDialog extends StatefulWidget {
   const _AddDepartmentDialog();
 
@@ -150,6 +194,7 @@ class _AddDepartmentDialogState extends State<_AddDepartmentDialog> {
   final _nameCtrl = TextEditingController();
   final _headCtrl = TextEditingController();
   bool _busy = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -159,12 +204,23 @@ class _AddDepartmentDialogState extends State<_AddDepartmentDialog> {
   }
 
   Future<void> _submit() async {
-    if (_nameCtrl.text.trim().isEmpty) return;
-    setState(() => _busy = true);
+    final name = _nameCtrl.text.trim();
+    if (name.isEmpty) return;
+    final store = context.read<AppStore>();
+    final normalized = _normalizeArabic(name);
+    final duplicate = store.departments.any((d) => _normalizeArabic(d.name) == normalized);
+    if (duplicate) {
+      setState(() => _error = 'توجد إدارة بنفس الاسم تقريباً بالفعل. تأكد من عدم التكرار قبل الإضافة.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     final id = 'dept_${DateTime.now().microsecondsSinceEpoch}';
-    await context.read<AppStore>().addDepartment(Department(
+    await store.addDepartment(Department(
           id: id,
-          name: _nameCtrl.text.trim(),
+          name: name,
           headName: _headCtrl.text.trim(),
           colorValue: 0xFF0B3D66,
           iconKey: DepartmentIcons.defaultKey,
@@ -185,6 +241,10 @@ class _AddDepartmentDialogState extends State<_AddDepartmentDialog> {
             TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: 'اسم الإدارة')),
             const SizedBox(height: 12),
             TextField(controller: _headCtrl, decoration: const InputDecoration(labelText: 'اسم مسؤول الإدارة')),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+            ],
           ],
         ),
       ),

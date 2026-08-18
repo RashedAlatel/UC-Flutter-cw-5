@@ -970,6 +970,19 @@ class AppStore extends ChangeNotifier {
     await _log('إدارة الإدارات', 'تمت إضافة إدارة جديدة "${dept.name}"');
   }
 
+  /// يحذف إدارة فقط إذا لم يعد مرتبطاً بها أي مشروع (لتفادي فقدان بيانات
+  /// مشاريع قائمة عن طريق الخطأ) — يُستخدم لتنظيف الإدارات المكررة التي
+  /// أُنشئت بالخطأ (كفروقات الهمزة "إدارة"/"ادارة"). يُعيد رسالة خطأ عند
+  /// الفشل أو null عند النجاح.
+  Future<String?> deleteDepartment(Department dept) async {
+    if (projectsForDepartment(dept.id).isNotEmpty) {
+      return 'لا يمكن حذف "${dept.name}" لوجود مشاريع مرتبطة بها. انقل المشاريع إلى إدارة أخرى أولاً.';
+    }
+    await _db.collection('departments').doc(dept.id).delete();
+    await _log('إدارة الإدارات', 'تم حذف الإدارة "${dept.name}"');
+    return null;
+  }
+
   Future<void> seedDefaultDepartments() async {
     final batch = _db.batch();
     for (final d in DefaultDepartments.suggestions()) {

@@ -39,4 +39,22 @@ class DashboardWidgetConfig {
         DashboardWidgetConfig(id: 'default_3', type: DashboardWidgetType.projectsTable),
         DashboardWidgetConfig(id: 'default_4', type: DashboardWidgetType.deptBarChart),
       ];
+
+  /// يُبقي أول ظهور فقط لكل نوع جاهز (غير مخصص) ويحذف أي تكرار، مع إبقاء
+  /// كل الودجات المخصصة كما هي (يمكن تكرارها بمواصفات مختلفة). يُطبَّق عند
+  /// كل قراءة وحفظ لتنظيف أي تكرار تراكم من نسخ سابقة كانت تسمح بإضافة نفس
+  /// النوع الجاهز أكثر من مرة — تراكم عشرات الودجات كان يجعل الصفحة طويلة
+  /// جداً بشكل غير طبيعي عند التمرير للأسفل.
+  static List<DashboardWidgetConfig> dedupe(List<DashboardWidgetConfig> list) {
+    final seenTypes = <DashboardWidgetType>{};
+    final result = <DashboardWidgetConfig>[];
+    for (final w in list) {
+      if (w.type == DashboardWidgetType.custom) {
+        result.add(w);
+      } else if (seenTypes.add(w.type)) {
+        result.add(w);
+      }
+    }
+    return result;
+  }
 }

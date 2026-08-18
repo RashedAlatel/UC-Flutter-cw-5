@@ -80,21 +80,21 @@ class AppStore extends ChangeNotifier {
       final widgets = doc.data()?['widgets'] as List?;
       _projectWidgets[projectId] = widgets == null
           ? []
-          : widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList();
+          : DashboardWidgetConfig.dedupe(widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList());
       notifyListeners();
     }));
   }
 
   Future<void> saveProjectWidgets(String projectId, List<DashboardWidgetConfig> widgets) async {
     await _db.collection('projectWidgets').doc(projectId).set({
-      'widgets': widgets.map((w) => w.toMap()).toList(),
+      'widgets': DashboardWidgetConfig.dedupe(widgets).map((w) => w.toMap()).toList(),
     });
     await _log('تخصيص ودجات المشروع', 'قام ${currentUser?.name} بتحديث الودجات المخصصة لأحد المشاريع');
   }
 
   Future<void> saveProjectsPageWidgets(List<DashboardWidgetConfig> widgets) async {
     await _db.collection('dashboardConfig').doc('projectsPage').set({
-      'widgets': widgets.map((w) => w.toMap()).toList(),
+      'widgets': DashboardWidgetConfig.dedupe(widgets).map((w) => w.toMap()).toList(),
     });
     await _log('تخصيص صفحة المشاريع', 'قام ${currentUser?.name} بتحديث الودجات المخصصة في صفحة المشاريع');
   }
@@ -308,14 +308,14 @@ class AppStore extends ChangeNotifier {
       final widgets = doc.data()?['widgets'] as List?;
       dashboardWidgets = widgets == null || widgets.isEmpty
           ? DashboardWidgetConfig.defaults()
-          : widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList();
+          : DashboardWidgetConfig.dedupe(widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList());
       notifyListeners();
     }));
     _dataSubs.add(_db.collection('dashboardConfig').doc('projectsPage').snapshots().listen((doc) {
       final widgets = doc.data()?['widgets'] as List?;
       projectsPageWidgets = widgets == null
           ? []
-          : widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList();
+          : DashboardWidgetConfig.dedupe(widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList());
       notifyListeners();
     }));
     _dataSubs.add(_db.collection('announcements').orderBy('createdAt', descending: true).snapshots().listen((snap) {
@@ -1037,7 +1037,7 @@ class AppStore extends ChangeNotifier {
 
   Future<void> saveDashboardWidgets(List<DashboardWidgetConfig> widgets) async {
     await _db.collection('dashboardConfig').doc('main').set({
-      'widgets': widgets.map((w) => w.toMap()).toList(),
+      'widgets': DashboardWidgetConfig.dedupe(widgets).map((w) => w.toMap()).toList(),
     });
     await _log('تخصيص لوحة القيادة', 'قام ${currentUser?.name} بتحديث تخطيط لوحة القيادة الرئيسية');
   }

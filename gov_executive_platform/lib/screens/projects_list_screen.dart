@@ -8,6 +8,7 @@ import '../utils/formatters.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
 import 'project_detail_screen.dart';
+import 'request_project_dialog.dart';
 
 /// شاشة موحّدة لعرض جميع المشاريع (ضمن النطاق المسموح به للمستخدم) بمعزل
 /// عن التنقل عبر الإدارات، مع فلاتر حسب الإدارة والشخص المنفذ.
@@ -43,9 +44,27 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('المشاريع', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-          const SizedBox(height: 4),
-          const Text('كل المشاريع ضمن نطاقك، بمعزل عن التنقل عبر الإدارات', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('المشاريع', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                    SizedBox(height: 4),
+                    Text('كل المشاريع ضمن نطاقك، بمعزل عن التنقل عبر الإدارات', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+                  ],
+                ),
+              ),
+              if (store.isAdmin)
+                ElevatedButton.icon(
+                  onPressed: () => showDialog(context: context, builder: (_) => const RequestProjectDialog()),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('إضافة مشروع'),
+                ),
+            ],
+          ),
           const SizedBox(height: 18),
           Wrap(
             spacing: 12,
@@ -143,7 +162,9 @@ class _ProjectRow extends StatelessWidget {
                               const SizedBox(width: 4),
                               Text(dept.name, style: TextStyle(fontSize: 11.5, color: dept.color, fontWeight: FontWeight.w700)),
                             ],
-                          ),
+                          )
+                        else
+                          const Text('بدون إدارة', style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary, fontWeight: FontWeight.w700)),
                       ],
                     ),
                   ),

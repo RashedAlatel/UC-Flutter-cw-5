@@ -524,7 +524,7 @@ class _ProjectsTableCard extends StatelessWidget {
                       )),
                       cells: [
                         DataCell(SizedBox(width: 190, child: Text(p.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis))),
-                        DataCell(Text(dept?.name ?? '', style: const TextStyle(fontSize: 11.5))),
+                        DataCell(Text(dept?.name ?? 'بدون إدارة', style: const TextStyle(fontSize: 11.5))),
                         DataCell(StatusChip(status: p.status)),
                         DataCell(Text(Formatters.percent(p.progressPercent), style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700))),
                         DataCell(Text(Formatters.shortDate(p.dueDate), style: const TextStyle(fontSize: 11.5))),

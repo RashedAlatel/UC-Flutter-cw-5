@@ -7,10 +7,12 @@ import '../theme/app_theme.dart';
 
 /// نموذج إضافة مشروع: لمسؤول النظام يُنشئ المشروع مباشرة (موافقته الذاتية
 /// كافية)، ولأي دور آخر يُرسل "طلب إضافة مشروع" ينتظر اعتماد مسؤول النظام
-/// من مركز القرارات التنفيذية.
+/// من مركز القرارات التنفيذية. إن لم تُحدَّد [departmentId] (الاستدعاء من
+/// شاشة "المشاريع" الموحّدة بدل شاشة إدارة بعينها) يظهر حقل اختيار إدارة
+/// اختياري يشمل خيار "بدون إدارة" — لا يتوفر هذا المسار إلا لمسؤول النظام.
 class RequestProjectDialog extends StatefulWidget {
-  final String departmentId;
-  const RequestProjectDialog({super.key, required this.departmentId});
+  final String? departmentId;
+  const RequestProjectDialog({super.key, this.departmentId});
 
   @override
   State<RequestProjectDialog> createState() => _RequestProjectDialogState();
@@ -24,6 +26,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
   DateTime _startDate = DateTime.now();
   DateTime _dueDate = DateTime.now().add(const Duration(days: 60));
   String? _managerUid;
+  late String? _selectedDepartmentId = widget.departmentId;
   bool _busy = false;
   String? _error;
 
@@ -58,9 +61,10 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
     });
     final store = context.read<AppStore>();
     final isAdmin = store.isAdmin;
+    final departmentId = _selectedDepartmentId ?? '';
     if (isAdmin) {
       await store.createProjectDirect(
-        departmentId: widget.departmentId,
+        departmentId: departmentId,
         name: _nameCtrl.text.trim(),
         description: _descCtrl.text.trim(),
         startDate: _startDate,
@@ -71,7 +75,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
       );
     } else {
       await store.submitProjectRequest(
-        departmentId: widget.departmentId,
+        departmentId: departmentId,
         name: _nameCtrl.text.trim(),
         description: _descCtrl.text.trim(),
         startDate: _startDate,
@@ -107,6 +111,18 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
               const SizedBox(height: 12),
               TextField(controller: _executorCtrl, decoration: const InputDecoration(labelText: 'الشخص المنفذ / المسؤول عن المشروع')),
               const SizedBox(height: 12),
+              if (widget.departmentId == null) ...[
+                DropdownButtonFormField<String?>(
+                  initialValue: _selectedDepartmentId,
+                  decoration: const InputDecoration(labelText: 'الإدارة (اختياري)'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('بدون إدارة')),
+                    ...store.departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))),
+                  ],
+                  onChanged: (v) => setState(() => _selectedDepartmentId = v),
+                ),
+                const SizedBox(height: 12),
+              ],
               if (isAdmin) ...[
                 DropdownButtonFormField<String?>(
                   initialValue: _managerUid,

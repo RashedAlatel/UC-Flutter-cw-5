@@ -70,7 +70,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final filterDepartments = store.visibleDepartments;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

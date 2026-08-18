@@ -217,12 +217,14 @@ class AppStore extends ChangeNotifier {
         notifyListeners();
       }));
     }
-    if (canManageUsers) {
-      _dataSubs.add(_db.collection('users').orderBy('createdAt', descending: true).snapshots().listen((snap) {
-        users = snap.docs.map(AppUser.fromDoc).toList();
-        notifyListeners();
-      }));
-    }
+    // قائمة المستخدمين مطلوبة لأي مستخدم معتمد (وليس فقط من يدير المستخدمين):
+    // قوائم اختيار "مدير المشروع" و"المنفذون" تحتاج أسماء المستخدمين
+    // المسجَّلين، وقواعد Firestore تسمح أصلاً بقراءة المجموعة لأي مستخدم
+    // معتمد (allow list: if isApproved()) فلا يوجد كشف صلاحيات إضافي هنا.
+    _dataSubs.add(_db.collection('users').orderBy('createdAt', descending: true).snapshots().listen((snap) {
+      users = snap.docs.map(AppUser.fromDoc).toList();
+      notifyListeners();
+    }));
   }
 
   bool canViewAll(ApprovalRequest r) {

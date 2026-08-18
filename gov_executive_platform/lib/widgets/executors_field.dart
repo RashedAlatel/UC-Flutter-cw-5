@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../data/app_store.dart';
 import '../theme/app_theme.dart';
 
-/// حقل إدخال متعدد لأسماء الأشخاص المنفذين: اكتب اسماً واضغط إضافة أو Enter
-/// ليتحوّل إلى شريحة (Chip) قابلة للحذف، ويمكن تكرار ذلك لأي عدد من الأشخاص.
+/// اختيار الأشخاص المنفذين من قائمة مستخدمي المنصة المسجَّلين (بدل كتابة
+/// اسم حر)، بشريحة قابلة للحذف لكل اسم مختار وقائمة منسدلة للإضافة.
 class ExecutorsField extends StatefulWidget {
   final List<String> initial;
   final ValueChanged<List<String>> onChanged;
@@ -15,7 +17,6 @@ class ExecutorsField extends StatefulWidget {
 
 class _ExecutorsFieldState extends State<ExecutorsField> {
   late List<String> _names;
-  final _ctrl = TextEditingController();
 
   @override
   void initState() {
@@ -23,17 +24,9 @@ class _ExecutorsFieldState extends State<ExecutorsField> {
     _names = List.of(widget.initial);
   }
 
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void _add() {
-    final value = _ctrl.text.trim();
-    if (value.isEmpty || _names.contains(value)) return;
-    setState(() => _names.add(value));
-    _ctrl.clear();
+  void _add(String name) {
+    if (_names.contains(name)) return;
+    setState(() => _names.add(name));
     widget.onChanged(_names);
   }
 
@@ -44,21 +37,26 @@ class _ExecutorsFieldState extends State<ExecutorsField> {
 
   @override
   Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final userNames = store.users.map((u) => u.name).toSet().toList()..sort();
+    // أسماء مضافة سابقاً (بيانات قديمة مثلاً) قد لا تطابق أي مستخدم مسجَّل
+    // حالياً — تبقى معروضة كشريحة عادية دون أن تُفقد، لكنها لا تظهر في
+    // القائمة المنسدلة لتفادي التكرار.
+    final available = userNames.where((n) => !_names.contains(n)).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _ctrl,
-                decoration: const InputDecoration(labelText: 'اسم المنفذ'),
-                onSubmitted: (_) => _add(),
-              ),
-            ),
-            const SizedBox(width: 8),
-            IconButton.filled(onPressed: _add, icon: const Icon(Icons.add_rounded)),
-          ],
+        SizedBox(
+          width: double.infinity,
+          child: DropdownButtonFormField<String>(
+            initialValue: null,
+            decoration: const InputDecoration(labelText: 'إضافة منفذ من المستخدمين المسجّلين'),
+            items: available.isEmpty
+                ? const [DropdownMenuItem(value: null, child: Text('لا يوجد مستخدمون آخرون لإضافتهم'))]
+                : available.map((n) => DropdownMenuItem(value: n, child: Text(n))).toList(),
+            onChanged: available.isEmpty ? null : (v) => v == null ? null : _add(v),
+          ),
         ),
         if (_names.isNotEmpty) ...[
           const SizedBox(height: 10),

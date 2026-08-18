@@ -124,6 +124,12 @@ class AppStore extends ChangeNotifier {
         await user.getIdToken(true);
       }
       if (currentUser?.status == UserStatus.approved) {
+        // يُلغي أي اشتراكات سابقة قبل إعادة الاشتراك دائماً، لأن مستند
+        // المستخدم قد يتغيّر لأسباب لا علاقة لها بنطاق البيانات (مثل أي
+        // تحديث بسيط من مسؤول آخر)؛ بدون هذا الإلغاء تتراكم مستمعات مكررة
+        // على نفس المجموعات (بينها dashboardConfig)، وقد يُعيد أحدها لاحقاً
+        // نسخة قديمة مخزَّنة محلياً فيبدو الأمر وكأن الحفظ "لم يُحفظ".
+        _cancelDataSubs();
         _subscribeAppData();
       } else {
         _cancelDataSubs();

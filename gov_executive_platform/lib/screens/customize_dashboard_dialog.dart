@@ -33,10 +33,18 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
 
   Future<void> _save() async {
     setState(() => _busy = true);
-    await context.read<AppStore>().saveDashboardWidgets(_widgets);
-    if (!mounted) return;
-    Navigator.of(context).pop();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ تخطيط لوحة القيادة')));
+    try {
+      await context.read<AppStore>().saveDashboardWidgets(_widgets);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ تخطيط لوحة القيادة')));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر حفظ التخطيط: $e'), backgroundColor: AppColors.danger),
+      );
+    }
   }
 
   void _showAddWidgetSheet() {

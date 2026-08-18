@@ -12,7 +12,7 @@ class Project {
   final ProjectStatus status;
   final PriorityLevel priority;
   final double progressPercent; // 0-100
-  final String executorName; // الشخص المنفذ/المسؤول عن المشروع
+  final List<String> executorNames; // الأشخاص المنفذون/المسؤولون عن المشروع (يمكن أن يكون أكثر من شخص)
   final String createdByUid;
   final String? managerUid; // حساب "مدير المشروع" المُسنَد إليه (يرى هذا المشروع فقط)
 
@@ -26,10 +26,14 @@ class Project {
     required this.status,
     required this.priority,
     required this.progressPercent,
-    this.executorName = '',
+    this.executorNames = const [],
     this.createdByUid = '',
     this.managerUid,
   });
+
+  /// نص واحد يجمع كل أسماء المنفذين مفصولة بفاصلة، للاستخدام في الأماكن
+  /// التي تعرض نصاً واحداً بدل قائمة (جداول، تصدير التقارير...).
+  String get executorLabel => executorNames.join('، ');
 
   /// أيام التأخير عن الخطة، محسوبة ديناميكياً في كل مرة (الفرق بين اليوم
   /// الحالي وتاريخ الاستحقاق) بدل قيمة ثابتة تُخزَّن وتتجمّد عند الإدخال —
@@ -50,7 +54,7 @@ class Project {
     ProjectStatus? status,
     PriorityLevel? priority,
     double? progressPercent,
-    String? executorName,
+    List<String>? executorNames,
     String? managerUid,
   }) {
     return Project(
@@ -63,7 +67,7 @@ class Project {
       status: status ?? this.status,
       priority: priority ?? this.priority,
       progressPercent: progressPercent ?? this.progressPercent,
-      executorName: executorName ?? this.executorName,
+      executorNames: executorNames ?? this.executorNames,
       createdByUid: createdByUid,
       managerUid: managerUid ?? this.managerUid,
     );
@@ -78,13 +82,16 @@ class Project {
         'status': status.name,
         'priority': priority.name,
         'progressPercent': progressPercent,
-        'executorName': executorName,
+        'executorNames': executorNames,
         'createdByUid': createdByUid,
         'managerUid': managerUid,
       };
 
   factory Project.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final json = doc.data() ?? {};
+    // توافق مع مستندات قديمة كانت تخزّن "executorName" كنص واحد فقط.
+    final namesList = json['executorNames'] as List?;
+    final legacyName = json['executorName'] as String?;
     return Project(
       id: doc.id,
       departmentId: json['departmentId'] as String? ?? '',
@@ -95,7 +102,9 @@ class Project {
       status: ProjectStatus.fromName(json['status'] as String? ?? ProjectStatus.onTrack.name),
       priority: PriorityLevel.fromName(json['priority'] as String? ?? PriorityLevel.medium.name),
       progressPercent: (json['progressPercent'] as num?)?.toDouble() ?? 0,
-      executorName: json['executorName'] as String? ?? '',
+      executorNames: namesList != null
+          ? namesList.map((e) => e.toString()).toList()
+          : (legacyName != null && legacyName.isNotEmpty ? [legacyName] : const []),
       createdByUid: json['createdByUid'] as String? ?? '',
       managerUid: json['managerUid'] as String?,
     );

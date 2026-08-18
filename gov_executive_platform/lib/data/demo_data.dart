@@ -26,7 +26,7 @@ class DemoData {
           status: ProjectStatus.delayed,
           priority: PriorityLevel.high,
           progressPercent: 45,
-          executorName: 'سلطان الكعبي',
+          executorNames: ['سلطان الكعبي'],
         ),
         Project(
           id: 'demo_proj_2',
@@ -38,7 +38,7 @@ class DemoData {
           status: ProjectStatus.onTrack,
           priority: PriorityLevel.medium,
           progressPercent: 70,
-          executorName: 'مريم الحوسني',
+          executorNames: ['مريم الحوسني'],
         ),
         Project(
           id: 'demo_proj_3',
@@ -50,7 +50,7 @@ class DemoData {
           status: ProjectStatus.atRisk,
           priority: PriorityLevel.high,
           progressPercent: 30,
-          executorName: 'خالد المطيري',
+          executorNames: ['خالد المطيري'],
         ),
         Project(
           id: 'demo_proj_4',
@@ -62,7 +62,7 @@ class DemoData {
           status: ProjectStatus.completed,
           priority: PriorityLevel.medium,
           progressPercent: 100,
-          executorName: 'نورة السويدي',
+          executorNames: ['نورة السويدي'],
         ),
         Project(
           id: 'demo_proj_5',
@@ -74,7 +74,7 @@ class DemoData {
           status: ProjectStatus.onTrack,
           priority: PriorityLevel.critical,
           progressPercent: 55,
-          executorName: 'فهد العامري',
+          executorNames: ['فهد العامري'],
         ),
       ];
 

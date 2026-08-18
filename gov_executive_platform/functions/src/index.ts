@@ -149,7 +149,7 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         priority: payload.priority ?? "medium",
         progressPercent: 0,
         delayDays: 0,
-        executorName: payload.executorName ?? "",
+        executorNames: payload.executorNames ?? [],
         createdByUid: data.requestedByUid,
         managerUid: null,
       });

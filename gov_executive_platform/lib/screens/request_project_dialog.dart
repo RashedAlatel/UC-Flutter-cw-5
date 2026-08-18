@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
+import '../widgets/executors_field.dart';
 
 /// نموذج إضافة مشروع: لمسؤول النظام يُنشئ المشروع مباشرة (موافقته الذاتية
 /// كافية)، ولأي دور آخر يُرسل "طلب إضافة مشروع" ينتظر اعتماد مسؤول النظام
@@ -21,7 +22,7 @@ class RequestProjectDialog extends StatefulWidget {
 class _RequestProjectDialogState extends State<RequestProjectDialog> {
   final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
-  final _executorCtrl = TextEditingController();
+  List<String> _executorNames = [];
   PriorityLevel _priority = PriorityLevel.medium;
   DateTime _startDate = DateTime.now();
   DateTime _dueDate = DateTime.now().add(const Duration(days: 60));
@@ -34,7 +35,6 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
   void dispose() {
     _nameCtrl.dispose();
     _descCtrl.dispose();
-    _executorCtrl.dispose();
     super.dispose();
   }
 
@@ -70,7 +70,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
         startDate: _startDate,
         dueDate: _dueDate,
         priority: _priority,
-        executorName: _executorCtrl.text.trim(),
+        executorNames: _executorNames,
         managerUid: _managerUid,
       );
     } else {
@@ -81,7 +81,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
         startDate: _startDate,
         dueDate: _dueDate,
         priority: _priority,
-        executorName: _executorCtrl.text.trim(),
+        executorNames: _executorNames,
       );
     }
     if (!mounted) return;
@@ -109,7 +109,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
               const SizedBox(height: 12),
               TextField(controller: _descCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'وصف المشروع')),
               const SizedBox(height: 12),
-              TextField(controller: _executorCtrl, decoration: const InputDecoration(labelText: 'الشخص المنفذ / المسؤول عن المشروع')),
+              ExecutorsField(initial: _executorNames, onChanged: (v) => _executorNames = v),
               const SizedBox(height: 12),
               if (widget.departmentId == null) ...[
                 DropdownButtonFormField<String?>(

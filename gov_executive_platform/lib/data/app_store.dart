@@ -616,7 +616,7 @@ class AppStore extends ChangeNotifier {
     required DateTime startDate,
     required DateTime dueDate,
     required PriorityLevel priority,
-    String executorName = '',
+    List<String> executorNames = const [],
   }) async {
     final now = DateTime.now();
     await _db.collection('approvalRequests').add(ApprovalRequest(
@@ -638,7 +638,7 @@ class AppStore extends ChangeNotifier {
             'startDate': startDate.toIso8601String(),
             'dueDate': dueDate.toIso8601String(),
             'priority': priority.name,
-            'executorName': executorName,
+            'executorNames': executorNames,
           },
         ).toMap());
     await _log('طلب مشروع جديد', 'قدّم ${currentUser?.name} طلب إضافة مشروع "$name"');
@@ -653,7 +653,7 @@ class AppStore extends ChangeNotifier {
     required DateTime startDate,
     required DateTime dueDate,
     required PriorityLevel priority,
-    String executorName = '',
+    List<String> executorNames = const [],
     String? managerUid,
   }) async {
     final ref = _db.collection('projects').doc();
@@ -667,7 +667,7 @@ class AppStore extends ChangeNotifier {
       status: ProjectStatus.onTrack,
       priority: priority,
       progressPercent: 0,
-      executorName: executorName,
+      executorNames: executorNames,
       createdByUid: currentUser?.id ?? '',
       managerUid: managerUid,
     ).toMap());
@@ -679,6 +679,12 @@ class AppStore extends ChangeNotifier {
   Future<void> setProjectManager(Project project, String? managerUid) async {
     await _db.collection('projects').doc(project.id).update({'managerUid': managerUid});
     await _log('تعيين مدير مشروع', 'تم تعيين مدير المشروع لمشروع "${project.name}"');
+  }
+
+  /// تحديث قائمة الأشخاص المنفذين للمشروع (يمكن أن يكون أكثر من شخص).
+  Future<void> updateProjectExecutors(Project project, List<String> executorNames) async {
+    await _db.collection('projects').doc(project.id).update({'executorNames': executorNames});
+    await _log('تحديث المنفذين', 'تم تحديث قائمة منفذي مشروع "${project.name}"');
   }
 
   Future<void> submitDeadlineChangeRequest({

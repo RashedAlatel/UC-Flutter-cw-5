@@ -32,12 +32,12 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
       projects = projects.where((p) => p.departmentId == _departmentFilter).toList();
     }
     if (_executorFilter != null) {
-      projects = projects.where((p) => p.executorName == _executorFilter).toList();
+      projects = projects.where((p) => p.executorNames.contains(_executorFilter)).toList();
     }
     projects = projects.toList()..sort((a, b) => a.name.compareTo(b.name));
 
     final departmentOptions = store.visibleDepartments.where((d) => store.projectsForDepartment(d.id).isNotEmpty).toList();
-    final executorOptions = store.visibleProjects.map((p) => p.executorName).where((e) => e.isNotEmpty).toSet().toList()..sort();
+    final executorOptions = store.visibleProjects.expand((p) => p.executorNames).toSet().toList()..sort();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -178,8 +178,8 @@ class _ProjectRow extends StatelessWidget {
                 spacing: 16,
                 runSpacing: 6,
                 children: [
-                  if (project.executorName.isNotEmpty)
-                    _InfoBit(icon: Icons.badge_outlined, text: 'المنفذ: ${project.executorName}'),
+                  if (project.executorNames.isNotEmpty)
+                    _InfoBit(icon: Icons.badge_outlined, text: 'المنفذ: ${project.executorLabel}'),
                   _InfoBit(icon: Icons.event_outlined, text: 'الاستحقاق: ${Formatters.shortDate(project.dueDate)}'),
                   _InfoBit(
                     icon: Icons.schedule_rounded,

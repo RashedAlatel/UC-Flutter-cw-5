@@ -249,9 +249,9 @@ void _showProjectsPeek(BuildContext context, {required String title, required Li
                                   ),
                                   const SizedBox(height: 10),
                                   LabeledProgressBar(value: p.progressPercent, label: 'نسبة الإنجاز'),
-                                  if (p.executorName.isNotEmpty) ...[
+                                  if (p.executorLabel.isNotEmpty) ...[
                                     const SizedBox(height: 8),
-                                    Text('المنفذ: ${p.executorName}', style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                                    Text('المنفذ: ${p.executorLabel}', style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
                                   ],
                                 ],
                               ),
@@ -528,7 +528,7 @@ class _ProjectsTableCard extends StatelessWidget {
                         DataCell(StatusChip(status: p.status)),
                         DataCell(Text(Formatters.percent(p.progressPercent), style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700))),
                         DataCell(Text(Formatters.shortDate(p.dueDate), style: const TextStyle(fontSize: 11.5))),
-                        DataCell(SizedBox(width: 120, child: Text(p.executorName, style: const TextStyle(fontSize: 11.5), maxLines: 1, overflow: TextOverflow.ellipsis))),
+                        DataCell(SizedBox(width: 120, child: Text(p.executorLabel, style: const TextStyle(fontSize: 11.5), maxLines: 1, overflow: TextOverflow.ellipsis))),
                       ],
                     );
                   }).toList(),

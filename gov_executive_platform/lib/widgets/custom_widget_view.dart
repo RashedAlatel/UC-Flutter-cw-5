@@ -38,7 +38,7 @@ class CustomWidgetEngine {
           case 'department':
             return p.departmentId;
           case 'executor':
-            return p.executorName.trim().toLowerCase();
+            return p.executorLabel.trim().toLowerCase();
         }
       case CustomWidgetSource.tasks:
         final t = item as ProjectTask;
@@ -79,7 +79,7 @@ class CustomWidgetEngine {
           case 'department':
             return store.departmentById(p.departmentId)?.name ?? 'غير محدد';
           case 'executor':
-            return p.executorName.isEmpty ? 'غير محدد' : p.executorName;
+            return p.executorLabel.isEmpty ? 'غير محدد' : p.executorLabel;
         }
       case CustomWidgetSource.tasks:
         final t = item as ProjectTask;

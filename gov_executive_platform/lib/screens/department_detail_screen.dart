@@ -150,8 +150,8 @@ class _ProjectCard extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   _InfoBit(icon: Icons.flag_outlined, text: project.priority.label),
-                  if (project.executorName.isNotEmpty)
-                    _InfoBit(icon: Icons.badge_outlined, text: 'المنفذ: ${project.executorName}'),
+                  if (project.executorNames.isNotEmpty)
+                    _InfoBit(icon: Icons.badge_outlined, text: 'المنفذ: ${project.executorLabel}'),
                   _InfoBit(icon: Icons.event_outlined, text: 'الاستحقاق: ${Formatters.shortDate(project.dueDate)}'),
                   _InfoBit(
                     icon: Icons.schedule_rounded,

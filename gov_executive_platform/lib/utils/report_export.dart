@@ -70,7 +70,7 @@ class ReportExporter {
         xls.TextCellValue(p.status.label),
         xls.DoubleCellValue(p.progressPercent),
         xls.IntCellValue(p.delayDays),
-        xls.TextCellValue(p.executorName),
+        xls.TextCellValue(p.executorLabel),
         xls.TextCellValue(Formatters.shortDate(p.dueDate)),
       ]);
     }
@@ -185,7 +185,7 @@ class ReportExporter {
                       departmentById(p.departmentId)?.name ?? '',
                       p.status.label,
                       '${p.progressPercent.toStringAsFixed(0)}٪',
-                      p.executorName,
+                      p.executorLabel,
                     ])
                 .toList(),
           ),

@@ -8,6 +8,7 @@ import '../models/project_task.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
+import '../widgets/executors_field.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
@@ -66,8 +67,29 @@ class ProjectDetailScreen extends StatelessWidget {
                     runSpacing: 10,
                     children: [
                       _MetaBit(icon: Icons.flag_outlined, label: 'الأولوية', child: PriorityChip(priority: project.priority)),
-                      if (project.executorName.isNotEmpty)
-                        _MetaBit(icon: Icons.badge_outlined, label: 'الشخص المنفذ', value: project.executorName),
+                      _MetaBit(
+                        icon: Icons.badge_outlined,
+                        label: 'المنفذون',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              project.executorNames.isEmpty ? 'بدون تعيين' : project.executorLabel,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                            ),
+                            if (canEdit) ...[
+                              const SizedBox(width: 4),
+                              InkWell(
+                                onTap: () => showDialog(
+                                  context: context,
+                                  builder: (_) => _EditExecutorsDialog(project: project),
+                                ),
+                                child: Icon(Icons.edit_outlined, size: 14, color: AppColors.primary),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                       _MetaBit(
                         icon: Icons.manage_accounts_outlined,
                         label: 'مدير المشروع',
@@ -357,6 +379,47 @@ class _AssignManagerDialogState extends State<_AssignManagerDialog> {
           ],
           onChanged: (v) => setState(() => _managerUid = v),
         ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+        ElevatedButton(
+          onPressed: _busy ? null : _save,
+          child: _busy
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Text('حفظ'),
+        ),
+      ],
+    );
+  }
+}
+
+/// تعديل قائمة الأشخاص المنفذين للمشروع (يمكن أن يكون أكثر من شخص).
+class _EditExecutorsDialog extends StatefulWidget {
+  final Project project;
+  const _EditExecutorsDialog({required this.project});
+
+  @override
+  State<_EditExecutorsDialog> createState() => _EditExecutorsDialogState();
+}
+
+class _EditExecutorsDialogState extends State<_EditExecutorsDialog> {
+  late List<String> _names = List.of(widget.project.executorNames);
+  bool _busy = false;
+
+  Future<void> _save() async {
+    setState(() => _busy = true);
+    await context.read<AppStore>().updateProjectExecutors(widget.project, _names);
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('تعديل المنفذين'),
+      content: SizedBox(
+        width: 380,
+        child: ExecutorsField(initial: _names, onChanged: (v) => _names = v),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),

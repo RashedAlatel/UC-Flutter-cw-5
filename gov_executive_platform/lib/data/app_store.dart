@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
+import '../models/alert_rules.dart';
 import '../models/announcement.dart';
 import '../models/app_user.dart';
 import '../models/approval_request.dart';
@@ -57,6 +58,7 @@ class AppStore extends ChangeNotifier {
   List<DashboardWidgetConfig> dashboardWidgets = DashboardWidgetConfig.defaults();
   List<DashboardWidgetConfig> projectsPageWidgets = [];
   List<PlatformAnnouncement> announcements = [];
+  AlertRulesConfig alertRules = const AlertRulesConfig();
   List<CustomRole> customRoles = [];
 
   StreamSubscription<fb_auth.User?>? _authSub;
@@ -116,6 +118,45 @@ class AppStore extends ChangeNotifier {
     await _log('حذف إشعار عام', 'حذف ${currentUser?.name} إشعاراً عاماً');
   }
 
+  Future<void> saveAlertRules(AlertRulesConfig config) async {
+    await _db.collection('settings').doc('alertRules').set(config.toMap());
+    await _log('تحديث التنبيهات الذكية', 'قام ${currentUser?.name} بتحديث إعدادات التنبيهات التلقائية');
+  }
+
+  /// تنبيهات تُحسب حيّة من بيانات المشاريع الفعلية حسب إعدادات [alertRules]
+  /// (بدل أن تُكتب يدوياً)، ضمن نطاق رؤية المستخدم الحالي.
+  List<ProjectAlertGroup> get liveProjectAlerts {
+    final groups = <ProjectAlertGroup>[];
+    if (alertRules.delayedEnabled) {
+      final delayed = visibleProjects.where((p) => p.delayDays > 0).toList();
+      if (delayed.isNotEmpty) {
+        groups.add(ProjectAlertGroup(
+          title: '${delayed.length} مشروع متأخر عن الخطة',
+          style: AnnouncementStyle.danger,
+          projects: delayed,
+        ));
+      }
+    }
+    if (alertRules.dueSoonEnabled) {
+      final today = DateTime.now();
+      final todayDate = DateTime(today.year, today.month, today.day);
+      final dueSoon = visibleProjects.where((p) {
+        if (p.status == ProjectStatus.completed) return false;
+        final due = DateTime(p.dueDate.year, p.dueDate.month, p.dueDate.day);
+        final diff = due.difference(todayDate).inDays;
+        return diff >= 0 && diff <= alertRules.dueSoonDays;
+      }).toList();
+      if (dueSoon.isNotEmpty) {
+        groups.add(ProjectAlertGroup(
+          title: '${dueSoon.length} مشروع يستحق خلال ${alertRules.dueSoonDays} أيام',
+          style: AnnouncementStyle.warning,
+          projects: dueSoon,
+        ));
+      }
+    }
+    return groups;
+  }
+
   Future<void> init() async {
     _authSub = _auth.authStateChanges().listen(_onAuthChanged);
     // ألوان الهوية تُطبَّق فوراً عند بدء التشغيل بمعزل عن حالة تسجيل الدخول
@@ -161,6 +202,7 @@ class AppStore extends ChangeNotifier {
     dashboardWidgets = DashboardWidgetConfig.defaults();
     projectsPageWidgets = [];
     announcements = [];
+    alertRules = const AlertRulesConfig();
     customRoles = [];
     _projectWidgets.clear();
     _projectWidgetsSubscribed.clear();
@@ -278,6 +320,10 @@ class AppStore extends ChangeNotifier {
     }));
     _dataSubs.add(_db.collection('announcements').orderBy('createdAt', descending: true).snapshots().listen((snap) {
       announcements = snap.docs.map(PlatformAnnouncement.fromDoc).toList();
+      notifyListeners();
+    }));
+    _dataSubs.add(_db.collection('settings').doc('alertRules').snapshots().listen((doc) {
+      alertRules = AlertRulesConfig.fromMap(doc.data());
       notifyListeners();
     }));
 

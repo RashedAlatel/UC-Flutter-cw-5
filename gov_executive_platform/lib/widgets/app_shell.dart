@@ -16,6 +16,7 @@ import '../screens/roles_management_screen.dart';
 import '../screens/user_management_screen.dart';
 import '../theme/app_theme.dart';
 import 'announcements_banner.dart';
+import 'smart_alerts_banner.dart';
 
 class _NavEntry {
   final String label;
@@ -118,6 +119,14 @@ class _AppShellState extends State<AppShell> {
     final entries = _buildEntries(store);
     final selected = _selected.clamp(0, entries.length - 1);
     final wide = MediaQuery.of(context).size.width >= 980;
+    final liveAlerts = store.liveProjectAlerts;
+    final hasBanners = store.announcements.isNotEmpty || liveAlerts.isNotEmpty;
+    final banners = Column(
+      children: [
+        AnnouncementsBanner(announcements: store.announcements),
+        SmartAlertsBanner(alerts: liveAlerts),
+      ],
+    );
 
     final sidebar = _Sidebar(
       entries: entries,
@@ -145,10 +154,10 @@ class _AppShellState extends State<AppShell> {
                       color: AppColors.background,
                       child: Column(
                         children: [
-                          if (store.announcements.isNotEmpty)
+                          if (hasBanners)
                             Padding(
                               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                              child: AnnouncementsBanner(announcements: store.announcements),
+                              child: banners,
                             ),
                           Expanded(
                             child: IndexedStack(
@@ -187,10 +196,10 @@ class _AppShellState extends State<AppShell> {
                 color: AppColors.background,
                 child: Column(
                   children: [
-                    if (store.announcements.isNotEmpty)
+                    if (hasBanners)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                        child: AnnouncementsBanner(announcements: store.announcements),
+                        child: banners,
                       ),
                     Expanded(child: entries[selected].page),
                   ],

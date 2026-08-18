@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/alert_rules.dart';
 import '../models/announcement.dart';
 import '../theme/app_theme.dart';
 
@@ -189,6 +190,15 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
           ),
           const SizedBox(height: 16),
           const _AnnouncementsManager(),
+          const SizedBox(height: 28),
+          const Text('التنبيهات الذكية التلقائية', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+          const SizedBox(height: 4),
+          const Text(
+            'تنبيهات تُحسب تلقائياً من بيانات المشاريع الفعلية (بلا كتابة يدوية) وتظهر لكل المستخدمين أعلى كل صفحة، ضمن نطاق ما يراه كل مستخدم من مشاريع.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+          ),
+          const SizedBox(height: 16),
+          const _AlertRulesManager(),
         ],
       ),
     );
@@ -461,6 +471,111 @@ class _ColorPickerCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AlertRulesManager extends StatefulWidget {
+  const _AlertRulesManager();
+
+  @override
+  State<_AlertRulesManager> createState() => _AlertRulesManagerState();
+}
+
+class _AlertRulesManagerState extends State<_AlertRulesManager> {
+  late bool _dueSoonEnabled;
+  late int _dueSoonDays;
+  late bool _delayedEnabled;
+  late final TextEditingController _daysCtrl;
+  bool _busy = false;
+  bool _initialized = false;
+
+  void _syncFrom(AlertRulesConfig config) {
+    if (_initialized) return;
+    _initialized = true;
+    _dueSoonEnabled = config.dueSoonEnabled;
+    _dueSoonDays = config.dueSoonDays;
+    _delayedEnabled = config.delayedEnabled;
+    _daysCtrl = TextEditingController(text: '$_dueSoonDays');
+  }
+
+  @override
+  void dispose() {
+    _daysCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final days = int.tryParse(_daysCtrl.text.trim()) ?? _dueSoonDays;
+    setState(() {
+      _dueSoonDays = days.clamp(1, 90);
+      _busy = true;
+    });
+    await context.read<AppStore>().saveAlertRules(AlertRulesConfig(
+          dueSoonEnabled: _dueSoonEnabled,
+          dueSoonDays: _dueSoonDays,
+          delayedEnabled: _delayedEnabled,
+        ));
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ إعدادات التنبيهات الذكية')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _syncFrom(context.watch<AppStore>().alertRules);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: _dueSoonEnabled,
+              onChanged: (v) => setState(() => _dueSoonEnabled = v ?? true),
+              title: const Text('تنبيه بالمشاريع القريبة من الاستحقاق', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+              subtitle: Row(
+                children: [
+                  const Text('قبل الموعد النهائي بـ', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 60,
+                    child: TextField(
+                      controller: _daysCtrl,
+                      enabled: _dueSoonEnabled,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('أيام', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+            const Divider(height: 20),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: _delayedEnabled,
+              onChanged: (v) => setState(() => _delayedEnabled = v ?? true),
+              title: const Text('تنبيه بالمشاريع المتأخرة عن الخطة', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _busy ? null : _save,
+                icon: _busy
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.check_rounded, size: 18),
+                label: const Text('حفظ إعدادات التنبيهات'),
+              ),
             ),
           ],
         ),

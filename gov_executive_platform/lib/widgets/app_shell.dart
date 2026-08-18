@@ -15,6 +15,7 @@ import '../screens/reports_screen.dart';
 import '../screens/roles_management_screen.dart';
 import '../screens/user_management_screen.dart';
 import '../theme/app_theme.dart';
+import 'announcements_banner.dart';
 
 class _NavEntry {
   final String label;
@@ -140,9 +141,23 @@ class _AppShellState extends State<AppShell> {
                   padding: const EdgeInsets.all(16),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(20),
-                    child: IndexedStack(
-                      index: selected,
-                      children: entries.map((e) => Container(color: AppColors.background, child: e.page)).toList(),
+                    child: Container(
+                      color: AppColors.background,
+                      child: Column(
+                        children: [
+                          if (store.announcements.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                              child: AnnouncementsBanner(announcements: store.announcements),
+                            ),
+                          Expanded(
+                            child: IndexedStack(
+                              index: selected,
+                              children: entries.map((e) => e.page).toList(),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -168,7 +183,19 @@ class _AppShellState extends State<AppShell> {
             padding: const EdgeInsets.all(12),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(18),
-              child: Container(color: AppColors.background, child: entries[selected].page),
+              child: Container(
+                color: AppColors.background,
+                child: Column(
+                  children: [
+                    if (store.announcements.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                        child: AnnouncementsBanner(announcements: store.announcements),
+                      ),
+                    Expanded(child: entries[selected].page),
+                  ],
+                ),
+              ),
             ),
           ),
         ),

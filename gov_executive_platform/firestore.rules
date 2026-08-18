@@ -177,6 +177,14 @@ service cloud.firestore {
       allow write: if isAdmin() || customPerm('md');
     }
 
+    // إشعارات عامة تظهر لكل المستخدمين أعلى كل الصفحات — إنشاء وحذف حصراً
+    // من مسؤول النظام.
+    match /announcements/{id} {
+      allow read: if isApproved();
+      allow create, delete: if isAdmin();
+      allow update: if false;
+    }
+
     // ------------------------- الأدوار المخصصة -------------------------
     // تعريف الأدوار (الاسم ومجموعة الصلاحيات) يديره مسؤول النظام فقط؛ أما
     // تعيين دور لمستخدم معيّن فيتم حصراً عبر Cloud Function (setUserRole)

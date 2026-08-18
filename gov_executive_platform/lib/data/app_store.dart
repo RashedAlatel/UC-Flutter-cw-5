@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
+import '../models/announcement.dart';
 import '../models/app_user.dart';
 import '../models/approval_request.dart';
 import '../models/audit_log_entry.dart';
@@ -55,6 +56,7 @@ class AppStore extends ChangeNotifier {
   List<AppUser> users = []; // يُملأ فقط لمسؤول النظام (إدارة المستخدمين)
   List<DashboardWidgetConfig> dashboardWidgets = DashboardWidgetConfig.defaults();
   List<DashboardWidgetConfig> projectsPageWidgets = [];
+  List<PlatformAnnouncement> announcements = [];
   List<CustomRole> customRoles = [];
 
   StreamSubscription<fb_auth.User?>? _authSub;
@@ -93,6 +95,25 @@ class AppStore extends ChangeNotifier {
       'widgets': widgets.map((w) => w.toMap()).toList(),
     });
     await _log('تخصيص صفحة المشاريع', 'قام ${currentUser?.name} بتحديث الودجات المخصصة في صفحة المشاريع');
+  }
+
+  // ------------------------- إشعارات عامة على المنصة (مسؤول النظام فقط) -------------------------
+
+  Future<void> addAnnouncement(String message, AnnouncementStyle style) async {
+    final ref = _db.collection('announcements').doc();
+    await ref.set(PlatformAnnouncement(
+      id: ref.id,
+      message: message,
+      style: style,
+      createdAt: DateTime.now(),
+      createdByName: currentUser?.name ?? '',
+    ).toMap());
+    await _log('إشعار عام جديد', 'أضاف ${currentUser?.name} إشعاراً عاماً لكل المستخدمين');
+  }
+
+  Future<void> deleteAnnouncement(String id) async {
+    await _db.collection('announcements').doc(id).delete();
+    await _log('حذف إشعار عام', 'حذف ${currentUser?.name} إشعاراً عاماً');
   }
 
   Future<void> init() async {
@@ -139,6 +160,7 @@ class AppStore extends ChangeNotifier {
     users = [];
     dashboardWidgets = DashboardWidgetConfig.defaults();
     projectsPageWidgets = [];
+    announcements = [];
     customRoles = [];
     _projectWidgets.clear();
     _projectWidgetsSubscribed.clear();
@@ -252,6 +274,10 @@ class AppStore extends ChangeNotifier {
       projectsPageWidgets = widgets == null
           ? []
           : widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList();
+      notifyListeners();
+    }));
+    _dataSubs.add(_db.collection('announcements').orderBy('createdAt', descending: true).snapshots().listen((snap) {
+      announcements = snap.docs.map(PlatformAnnouncement.fromDoc).toList();
       notifyListeners();
     }));
 

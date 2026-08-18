@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/announcement.dart';
 import '../theme/app_theme.dart';
 
 /// شاشة إعدادات المظهر (مسؤول النظام فقط): تخصيص لوني الهوية (الأساسي
@@ -177,7 +178,133 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 36),
+          const Divider(),
+          const SizedBox(height: 20),
+          const Text('الإشعارات العامة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+          const SizedBox(height: 4),
+          const Text(
+            'إشعار يظهر أعلى كل صفحات المنصة لجميع المستخدمين إلى أن تحذفه. يمكن لأي مستخدم إخفاءه لجلسته فقط.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+          ),
+          const SizedBox(height: 16),
+          const _AnnouncementsManager(),
         ],
+      ),
+    );
+  }
+}
+
+class _AnnouncementsManager extends StatefulWidget {
+  const _AnnouncementsManager();
+
+  @override
+  State<_AnnouncementsManager> createState() => _AnnouncementsManagerState();
+}
+
+class _AnnouncementsManagerState extends State<_AnnouncementsManager> {
+  final _messageCtrl = TextEditingController();
+  AnnouncementStyle _style = AnnouncementStyle.info;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _messageCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _add() async {
+    final text = _messageCtrl.text.trim();
+    if (text.isEmpty) return;
+    setState(() => _busy = true);
+    await context.read<AppStore>().addAnnouncement(text, _style);
+    if (!mounted) return;
+    _messageCtrl.clear();
+    setState(() => _busy = false);
+  }
+
+  Future<void> _delete(String id) => context.read<AppStore>().deleteAnnouncement(id);
+
+  Color _colorFor(AnnouncementStyle s) {
+    switch (s) {
+      case AnnouncementStyle.info:
+        return AppColors.info;
+      case AnnouncementStyle.success:
+        return AppColors.success;
+      case AnnouncementStyle.warning:
+        return AppColors.warning;
+      case AnnouncementStyle.danger:
+        return AppColors.danger;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    controller: _messageCtrl,
+                    decoration: const InputDecoration(labelText: 'نص الإشعار'),
+                    onSubmitted: (_) => _add(),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<AnnouncementStyle>(
+                    initialValue: _style,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'شكل التنبيه'),
+                    items: AnnouncementStyle.values.map((s) => DropdownMenuItem(value: s, child: Text(s.label))).toList(),
+                    onChanged: (v) => setState(() => _style = v ?? _style),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _busy ? null : _add,
+                icon: _busy
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.campaign_outlined, size: 18),
+                label: const Text('نشر الإشعار'),
+              ),
+            ),
+            if (store.announcements.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 8),
+              ...store.announcements.map((a) {
+                final color = _colorFor(a.style);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(a.message, style: const TextStyle(fontSize: 12.5))),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
+                        onPressed: () => _delete(a.id),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ],
+        ),
       ),
     );
   }

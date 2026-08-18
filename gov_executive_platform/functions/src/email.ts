@@ -23,7 +23,19 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
     to,
     subject,
     html,
+    // وجود نسخة نصية عادية إلى جانب HTML يقلّل احتمال تصنيف الرسالة كبريد
+    // مهمل من مرشِّحات البريد (Gmail وغيره)، وهي غياب شائع في الرسائل الآلية.
+    text: htmlToPlainText(html),
   });
+}
+
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function wrapEmailHtml(recipientName: string, message: string): string {

@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/department.dart';
 import '../models/enums.dart';
+import '../models/project.dart';
 import '../models/report.dart';
+import '../models/work_item.dart';
 import '../theme/app_theme.dart';
+import '../utils/file_download.dart';
 import '../utils/formatters.dart';
 import '../utils/report_export.dart';
 import '../widgets/kpi_card.dart';
@@ -154,33 +159,68 @@ class _ReportCardState extends State<_ReportCard> {
     });
   }
 
-  Future<void> _exportExcel() async {
-    setState(() => _exportingExcel = true);
-    final store = context.read<AppStore>();
-    try {
-      await ReportExporter.exportExcel(
-        report: widget.report,
-        projects: store.visibleProjects,
-        departmentById: store.departmentById,
-        works: store.visibleWorks,
+  Future<void> _exportExcel() => _runExport(
+        label: 'Excel',
+        setBusy: (v) => setState(() => _exportingExcel = v),
+        export: ReportExporter.exportExcel,
       );
-    } finally {
-      if (mounted) setState(() => _exportingExcel = false);
-    }
-  }
 
-  Future<void> _exportPdf() async {
-    setState(() => _exportingPdf = true);
+  Future<void> _exportPdf() => _runExport(
+        label: 'PDF',
+        setBusy: (v) => setState(() => _exportingPdf = v),
+        export: ReportExporter.exportPdf,
+      );
+
+  /// مسار التصدير المشترك للصيغتين.
+  ///
+  /// كان هنا `try { } finally { }` **بلا `catch`**: فأي استثناء — خط ناقص،
+  /// متصفح يمنع التنزيل، أي سبب — يختفي بلا أثر، فيرى المستخدم الدوّار يدور
+  /// لحظة ثم يعود كل شيء كما كان: لا ملف ولا رسالة ولا سبب. وهذا أسوأ من
+  /// العطل نفسه لأنه لا يترك ما يُشخَّص به. الآن يُمسك الخطأ ويُعرض بنصّه.
+  Future<void> _runExport({
+    required String label,
+    required void Function(bool) setBusy,
+    required Future<String> Function({
+      required ReportSnapshot report,
+      required List<Project> projects,
+      required Department? Function(String id) departmentById,
+      List<WorkItem> works,
+    }) export,
+  }) async {
+    setBusy(true);
     final store = context.read<AppStore>();
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      await ReportExporter.exportPdf(
+      final url = await export(
         report: widget.report,
         projects: store.visibleProjects,
         departmentById: store.departmentById,
         works: store.visibleWorks,
       );
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('تم إنشاء ملف $label وبدأ تنزيله.'),
+          duration: const Duration(seconds: 12),
+          // مخرج بديل: بعض المتصفحات — وسفاري على الآيفون خاصةً — تمنع
+          // التنزيل التلقائي الذي يقع بعد انتظار غير متزامن، وتمنعه صامتةً.
+          // هذا الزر يفتح الملف **داخل لمسة المستخدم مباشرة** بلا انتظار
+          // بينهما، وهو الشرط الذي تقبله تلك المتصفحات.
+          action: SnackBarAction(
+            label: 'لم يبدأ التنزيل؟ افتح الملف',
+            onPressed: () => openDownloadedUrl(url),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => _ExportErrorDialog(label: label, details: e.toString()),
+      );
     } finally {
-      if (mounted) setState(() => _exportingPdf = false);
+      if (mounted) setBusy(false);
     }
   }
 
@@ -298,6 +338,70 @@ class _ReportCardState extends State<_ReportCard> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// رسالة فشل التصدير — ونصّها التقني قابل للنسخ.
+///
+/// المستخدم غير تقني، لكن تفاصيل الخطأ هي كل ما نملكه لتشخيص عطل يقع على
+/// جهازه لا على أجهزتنا. فالحوار يقول له بالعربية ما جرى، ويمنحه زراً واحداً
+/// ينسخ التفاصيل ليرسلها كما هي — بدل أن يصف عطلاً صامتاً بكلماته.
+class _ExportErrorDialog extends StatelessWidget {
+  final String label;
+  final String details;
+  const _ExportErrorDialog({required this.label, required this.details});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 22),
+          const SizedBox(width: 8),
+          Expanded(child: Text('تعذّر إنشاء ملف $label', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
+        ],
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'لم يكتمل إنشاء التقرير. أعد المحاولة، وإن تكرّر الأمر فانسخ '
+                'التفاصيل التقنية أدناه وأرسلها لمسؤول النظام — فهي تحدّد السبب.',
+                style: TextStyle(fontSize: 13, height: 1.8, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SelectableText(
+                  details,
+                  style: const TextStyle(fontSize: 11.5, height: 1.7, color: AppColors.textSecondary),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: details));
+            if (context.mounted) Navigator.pop(context);
+          },
+          icon: const Icon(Icons.copy_rounded, size: 16),
+          label: const Text('نسخ التفاصيل'),
+        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق')),
+      ],
     );
   }
 }

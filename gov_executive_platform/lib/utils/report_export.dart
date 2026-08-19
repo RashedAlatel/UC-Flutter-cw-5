@@ -4,13 +4,13 @@ import 'package:excel/excel.dart' as xls;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 
 import '../models/department.dart';
 import '../models/project.dart';
 import '../models/report.dart';
 import '../models/work_item.dart';
 import '../theme/brand.dart';
+import 'file_download.dart';
 import 'formatters.dart';
 
 /// تصدير التقارير التنفيذية إلى ملفات Excel أو PDF قابلة للتنزيل مباشرة من
@@ -18,12 +18,21 @@ import 'formatters.dart';
 /// التقارير، وتحمل نفس بيانات التقرير المعروضة على الشاشة (الملخص، المؤشرات،
 /// ترتيب الإدارات) بالإضافة إلى قائمة المشاريع الحالية ضمن نطاق المستخدم.
 class ReportExporter {
+  /// اسم ملف التقرير — **لاتيني عمداً**.
+  ///
+  /// كان `تقرير_...`، وقياسٌ في متصفح حقيقي أثبت أن كروم يُسقط أي اسم تنزيل
+  /// فيه حرف عربي فيحفظ الملف باسم `download` بلا امتداد، فلا يفتحه عارض
+  /// PDF ويبدو للمستخدم أن شيئاً لم يحدث. تفصيل القياس في
+  /// `lib/utils/safe_file_name.dart`.
   static String _fileBaseName(ReportSnapshot report) =>
-      'تقرير_${report.period.name}_${Formatters.shortDate(report.generatedDate).replaceAll('/', '-')}';
+      'MOJ-report-${report.period.name}-'
+      '${Formatters.shortDate(report.generatedDate).replaceAll('/', '-')}';
 
   // ------------------------- Excel -------------------------
 
-  static Future<void> exportExcel({
+  /// يبني ملف Excel وينزّله، ويعيد عنوان الملف داخل المتصفح ليُعرض للمستخدم
+  /// مخرج بديل إن لم يبدأ التنزيل تلقائياً.
+  static Future<String> exportExcel({
     required ReportSnapshot report,
     required List<Project> projects,
     required Department? Function(String id) departmentById,
@@ -105,19 +114,33 @@ class ReportExporter {
     }
 
     if (defaultSheetName != null) workbook.delete(defaultSheetName);
-    workbook.save(fileName: '${_fileBaseName(report)}.xlsx');
+
+    // `encode()` لا `save()`: الأخيرة تُنزّل الملف بنفسها عبر مسارها الخاص،
+    // فيصير للمنصة مساران مختلفان للتنزيل — أحدهما لا نملكه ولا نعرف سبب
+    // فشله ولا يعطينا عنوان الملف. `encode()` تعطينا البايتات فحسب، فيمرّ
+    // التصديران كلاهما من مسار واحد نملكه ونشخّصه.
+    final bytes = workbook.encode();
+    if (bytes == null) {
+      throw StateError('تعذّر ترميز ملف Excel — لم تُنتج المكتبة أي بايتات.');
+    }
+    return downloadBytes(
+      Uint8List.fromList(bytes),
+      '${_fileBaseName(report)}.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
   }
 
   // ------------------------- PDF -------------------------
 
-  static Future<void> exportPdf({
+  /// يبني تقرير PDF وينزّله، ويعيد عنوان الملف داخل المتصفح.
+  static Future<String> exportPdf({
     required ReportSnapshot report,
     required List<Project> projects,
     required Department? Function(String id) departmentById,
     List<WorkItem> works = const [],
   }) async {
     final bytes = await buildPdfBytes(report: report, projects: projects, departmentById: departmentById, works: works);
-    await Printing.sharePdf(bytes: bytes, filename: '${_fileBaseName(report)}.pdf');
+    return downloadBytes(bytes, '${_fileBaseName(report)}.pdf', 'application/pdf');
   }
 
   /// يبني ملف التقرير ويعيد بايتاته دون مشاركته. مفصول عن [exportPdf] حتى
@@ -129,9 +152,9 @@ class ReportExporter {
     required Department? Function(String id) departmentById,
     List<WorkItem> works = const [],
   }) async {
-    final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Tajawal-Regular.ttf'));
-    final medium = pw.Font.ttf(await rootBundle.load('assets/fonts/Tajawal-Medium.ttf'));
-    final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Tajawal-Bold.ttf'));
+    final regular = await _loadFont('assets/fonts/Tajawal-Regular.ttf');
+    final medium = await _loadFont('assets/fonts/Tajawal-Medium.ttf');
+    final bold = await _loadFont('assets/fonts/Tajawal-Bold.ttf');
     final emblem = await _loadImage('assets/images/logo.png');
     final ornament = await _loadImage('assets/images/frame_border.png');
 
@@ -299,6 +322,20 @@ class ReportExporter {
     );
 
     return doc.save();
+  }
+
+  /// يحمّل خط التقرير من الأصول برسالة مفهومة عند الفشل.
+  ///
+  /// الخط ليس تفصيلاً تجميلياً هنا: بدونه لا يُكتب حرف عربي واحد في الملف،
+  /// فلا مجال لتجاوز فشله بصمت كما نفعل مع الشعار. والرسالة تسمّي الملف
+  /// المفقود صراحةً، لأن سبب الفشل الأرجح على شبكة الوزارة هو حجب أو تلف في
+  /// تحميل أصل بعينه — لا عطل عام في التوليد.
+  static Future<pw.Font> _loadFont(String path) async {
+    try {
+      return pw.Font.ttf(await rootBundle.load(path));
+    } catch (e) {
+      throw StateError('تعذّر تحميل خط التقرير «$path» من ملفات المنصة: $e');
+    }
   }
 
   /// يحمّل صورة من الأصول، ويعيد null إن لم تكن موجودة — حتى يبقى تصدير

@@ -9,8 +9,31 @@ import '../models/enums.dart';
 import '../theme/app_theme.dart';
 import 'custom_widget_builder_dialog.dart';
 
-/// محرر لوحة القيادة (مسؤول النظام فقط): إضافة/حذف/إعادة ترتيب الودجات
-/// (الرسوم البيانية والقوائم) المعروضة أسفل مؤشرات الأداء الرئيسية.
+/// نطاق التخصيص: لوحة المستخدم نفسه، أو لوحة دور كامل، أو اللوحة العامة.
+///
+/// الأخصّ يفوز عند العرض (لوحتي ← لوحة دوري ← اللوحة العامة)، فالمستخدم
+/// التنفيذي ومدير الإدارة يمكن أن يكون لكل منهما تخطيط مختلف دون أن يؤثر
+/// أحدهما على الآخر.
+class _DashboardScope {
+  /// `mine` أو `global` أو مفتاح الدور.
+  final String id;
+  final String label;
+  final String hint;
+  const _DashboardScope(this.id, this.label, this.hint);
+
+  static const String mine = 'mine';
+  static const String global = 'global';
+
+  bool get isMine => id == mine;
+  bool get isGlobal => id == global;
+}
+
+/// محرر لوحة القيادة: إضافة/حذف/إعادة ترتيب الودجات (الرسوم البيانية
+/// والقوائم) المعروضة أسفل مؤشرات الأداء الرئيسية.
+///
+/// كل مستخدم يعدّل لوحته الخاصة. ومن يملك صلاحية "التحكم بلوحة القيادة"
+/// (ومسؤول النظام دائماً) يستطيع إضافةً لذلك ضبط لوحة افتراضية لكل دور
+/// وللمنصة كاملةً.
 class CustomizeDashboardDialog extends StatefulWidget {
   const CustomizeDashboardDialog({super.key});
 
@@ -20,12 +43,79 @@ class CustomizeDashboardDialog extends StatefulWidget {
 
 class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
   late List<DashboardWidgetConfig> _widgets;
+  late List<_DashboardScope> _scopes;
+  late String _scopeId;
   bool _busy = false;
 
   @override
   void initState() {
     super.initState();
-    _widgets = List.of(context.read<AppStore>().dashboardWidgets);
+    final store = context.read<AppStore>();
+    _scopes = _buildScopes(store);
+    _scopeId = _DashboardScope.mine;
+    _widgets = List.of(store.dashboardWidgets);
+  }
+
+  List<_DashboardScope> _buildScopes(AppStore store) {
+    final list = <_DashboardScope>[
+      const _DashboardScope(_DashboardScope.mine, 'لوحتي أنا', 'تظهر لك وحدك ولا يراها أحد غيرك'),
+    ];
+    if (!store.canManageSharedDashboards) return list;
+    for (final role in UserRole.configurable) {
+      list.add(_DashboardScope(role.name, 'لوحة دور: ${role.label}', 'تظهر لكل من يحمل هذا الدور ولم يخصّص لوحته'));
+    }
+    for (final role in store.customRoles) {
+      list.add(_DashboardScope('custom_${role.id}', 'لوحة دور: ${role.name}', 'تظهر لكل من يحمل هذا الدور ولم يخصّص لوحته'));
+    }
+    list.add(const _DashboardScope(_DashboardScope.global, 'اللوحة العامة', 'نقطة البداية لكل من لم يُضبط لدوره تخطيط'));
+    return list;
+  }
+
+  _DashboardScope get _scope => _scopes.firstWhere((s) => s.id == _scopeId, orElse: () => _scopes.first);
+
+  /// التخطيط المخزَّن للنطاق المختار. النطاق الفارغ يعرض الطبقة التي سيراها
+  /// المستخدم فعلاً كنقطة بداية بدل لوحة خالية تُربكه.
+  List<DashboardWidgetConfig> _widgetsForScope(AppStore store, String scopeId) {
+    if (scopeId == _DashboardScope.mine) return List.of(store.dashboardWidgets);
+    if (scopeId == _DashboardScope.global) return List.of(store.globalDashboardWidgets);
+    final stored = store.roleDashboardWidgets(scopeId);
+    return List.of(stored.isEmpty ? store.globalDashboardWidgets : stored);
+  }
+
+  void _switchScope(String scopeId) {
+    final store = context.read<AppStore>();
+    setState(() {
+      _scopeId = scopeId;
+      _widgets = _widgetsForScope(store, scopeId);
+    });
+  }
+
+  Future<void> _persist(AppStore store, List<DashboardWidgetConfig> widgets) {
+    switch (_scopeId) {
+      case _DashboardScope.mine:
+        return store.saveMyDashboardWidgets(widgets);
+      case _DashboardScope.global:
+        return store.saveDashboardWidgets(widgets);
+      default:
+        return store.saveRoleDashboardWidgets(_scopeId, widgets);
+    }
+  }
+
+  Future<void> _resetMine() async {
+    final store = context.read<AppStore>();
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    setState(() => _busy = true);
+    try {
+      await store.resetMyDashboardWidgets();
+      if (!mounted) return;
+      navigator.pop();
+      messenger.showSnackBar(const SnackBar(content: Text('تمت العودة إلى اللوحة الافتراضية')));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      messenger.showSnackBar(SnackBar(content: Text('تعذر الإلغاء: $e'), backgroundColor: AppColors.danger));
+    }
   }
 
   void _addWidget(DashboardWidgetType type, {CustomWidgetSpec? custom}) {
@@ -60,7 +150,7 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
-      await store.saveDashboardWidgets(updated);
+      await _persist(store, updated);
       if (!mounted) return;
       navigator.pop();
       messenger.showSnackBar(const SnackBar(content: Text('تمت إضافة الودجت المخصص وحفظه في اللوحة')));
@@ -74,7 +164,7 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
   Future<void> _save() async {
     setState(() => _busy = true);
     try {
-      await context.read<AppStore>().saveDashboardWidgets(_widgets);
+      await _persist(context.read<AppStore>(), _widgets);
       if (!mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ تخطيط لوحة القيادة')));
@@ -157,13 +247,31 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Expanded(
-                    child: Text(
-                      'أعِد ترتيب الودجات بالسحب، احذف ما لا تحتاجه، وأضف رسوماً أو قوائم جديدة.',
-                      style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                  if (_scopes.length > 1) ...[
+                    DropdownButtonFormField<String>(
+                      initialValue: _scopeId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'أطبّق التخصيص على',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _scopes
+                          .map((s) => DropdownMenuItem(
+                                value: s.id,
+                                child: Text(s.label, style: const TextStyle(fontSize: 12.5)),
+                              ))
+                          .toList(),
+                      onChanged: _busy ? null : (v) => v == null ? null : _switchScope(v),
                     ),
+                    const SizedBox(height: 6),
+                  ],
+                  Text(
+                    '${_scope.hint}. أعِد ترتيب الودجات بالسحب، احذف ما لا تحتاجه، وأضف رسوماً أو قوائم جديدة.',
+                    style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.5),
                   ),
                 ],
               ),
@@ -229,9 +337,18 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
                       onPressed: _busy ? null : _save,
                       child: _busy
                           ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Text('حفظ التخطيط'),
+                          : Text(_scope.isMine ? 'حفظ لوحتي' : 'حفظ التخطيط'),
                     ),
                   ),
+                  // يظهر فقط حين يكون للمستخدم تخصيص فعلي يمكن التراجع عنه.
+                  if (_scope.isMine && context.watch<AppStore>().hasPersonalDashboard) ...[
+                    const SizedBox(height: 6),
+                    TextButton.icon(
+                      onPressed: _busy ? null : _resetMine,
+                      icon: const Icon(Icons.settings_backup_restore_rounded, size: 17),
+                      label: const Text('العودة إلى اللوحة الافتراضية'),
+                    ),
+                  ],
                 ],
               ),
             ),

@@ -73,7 +73,7 @@ AppStore _seededStore() {
   );
 
   // التخطيط الافتراضي + ودجت مخصص مضاف في الآخر (كما يفعل التطبيق اليوم).
-  store.dashboardWidgets = [
+  store.globalDashboardWidgets = [
     ...DashboardWidgetConfig.defaults(),
     const DashboardWidgetConfig(
       id: 'custom-1',

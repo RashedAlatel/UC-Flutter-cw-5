@@ -123,7 +123,22 @@ class _DepartmentsListScreenState extends State<DepartmentsListScreen> {
           ],
           if (store.canManageUsers) ...[
             const SizedBox(height: 14),
-            const _MinistryImportCard(),
+            _MinistryImportCard(
+              title: 'استيراد ملف مراقبة تنفيذ المشروعات ٢٠٢٦',
+              description:
+                  'يستورد ٥ أقسام كإدارات مستقلة برؤسائها (النظم الآلية، حفظ الوثائق، صيانة النظم، جودة الإنتاج، ومشاريع خطط واتفاقيات الدولة) '
+                  'و٧١ مشروعاً بوصفه وجهته المستفيدة وفريق عمله وملاحظاته كما وردت في الملف. '
+                  'الحالة ونسبة الإنجاز مستنتجتان من نص الملف وقد تحتاجان مراجعة يدوية لبعض البنود.',
+              onImport: (store) => store.importMinistryProjects2026(),
+            ),
+            const SizedBox(height: 14),
+            _MinistryImportCard(
+              title: 'استيراد بيانات وزارة العدل (ملف Excel)',
+              description:
+                  'يستورد ٤ إدارات (تطوير النظم، التشغيل، الدعم الفني، الإحصاء والبحوث) و٦٥ مشروعاً من ملف Excel، مع تعيين المنفذين لكل مشروع. '
+                  'الحالة ونسبة الإنجاز استُنتجتا آلياً من نص الملاحظات الأصلي وقد تحتاجان مراجعة يدوية لبعض المشاريع.',
+              onImport: (store) => store.importMinistryData(),
+            ),
           ],
           const SizedBox(height: 20),
           if (departments.isEmpty && all.isNotEmpty)
@@ -367,8 +382,19 @@ class _AddDepartmentDialogState extends State<_AddDepartmentDialog> {
 
 /// استيراد بيانات وزارة العدل الحقيقية (٤ إدارات + ٦٥ مشروعاً بمنفذيها) من
 /// ملف Excel الذي زوّده مسؤول النظام. آمن التكرار (معرّفات ثابتة).
+/// بطاقة استيراد دفعة بيانات جاهزة. تُستخدم لأكثر من ملف مصدر (Excel متابعة
+/// الأعمال، وملف مراقبة تنفيذ المشروعات ٢٠٢٦)، لذا يُمرَّر لها العنوان والشرح
+/// ودالة الاستيراد بدل تكرار البطاقة نفسها لكل ملف.
 class _MinistryImportCard extends StatefulWidget {
-  const _MinistryImportCard();
+  final String title;
+  final String description;
+  final Future<void> Function(AppStore store) onImport;
+
+  const _MinistryImportCard({
+    required this.title,
+    required this.description,
+    required this.onImport,
+  });
 
   @override
   State<_MinistryImportCard> createState() => _MinistryImportCardState();
@@ -385,7 +411,7 @@ class _MinistryImportCardState extends State<_MinistryImportCard> {
       _error = null;
     });
     try {
-      await context.read<AppStore>().importMinistryData();
+      await widget.onImport(context.read<AppStore>());
       if (!mounted) return;
       setState(() {
         _busy = false;
@@ -414,12 +440,11 @@ class _MinistryImportCardState extends State<_MinistryImportCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('استيراد بيانات وزارة العدل', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+                  Text(widget.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
                   const SizedBox(height: 4),
-                  const Text(
-                    'يستورد ٤ إدارات (تطوير النظم، التشغيل، الدعم الفني، الإحصاء والبحوث) و٦٥ مشروعاً من ملف Excel، مع تعيين المنفذين لكل مشروع. '
-                    'الحالة ونسبة الإنجاز استُنتجتا آلياً من نص الملاحظات الأصلي وقد تحتاجان مراجعة يدوية لبعض المشاريع.',
-                    style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.6),
+                  Text(
+                    widget.description,
+                    style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.6),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 8),

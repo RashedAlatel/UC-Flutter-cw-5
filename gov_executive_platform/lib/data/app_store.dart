@@ -27,6 +27,7 @@ import '../utils/formatters.dart';
 import 'default_departments.dart';
 import 'demo_data.dart';
 import 'ministry_import_data.dart';
+import 'ministry_projects_2026.dart';
 
 /// طبقة إدارة الحالة المركزية للمنصة، مبنية بالكامل على Firebase:
 /// - المصادقة: Firebase Authentication (بريد إلكتروني/كلمة مرور)
@@ -61,7 +62,13 @@ class AppStore extends ChangeNotifier {
   List<AuditLogEntry> auditLog = [];
   List<ReportSnapshot> reports = [];
   List<AppUser> users = []; // يُملأ فقط لمسؤول النظام (إدارة المستخدمين)
-  List<DashboardWidgetConfig> dashboardWidgets = DashboardWidgetConfig.defaults();
+  /// تخطيط لوحة القيادة على ثلاث طبقات، تُقرأ من الأخصّ إلى الأعمّ:
+  /// لوحة المستخدم نفسه ← لوحة دوره ← اللوحة العامة ← الودجات الافتراضية.
+  /// راجع [dashboardWidgets] للتخطيط الفعلي المعروض.
+  List<DashboardWidgetConfig> globalDashboardWidgets = DashboardWidgetConfig.defaults();
+  final Map<String, List<DashboardWidgetConfig>> _roleDashboards = {};
+  List<DashboardWidgetConfig>? _myDashboard;
+
   List<DashboardWidgetConfig> projectsPageWidgets = [];
   List<PlatformAnnouncement> announcements = [];
   AlertRulesConfig alertRules = const AlertRulesConfig();
@@ -78,6 +85,78 @@ class AppStore extends ChangeNotifier {
   final Set<String> _projectWidgetsSubscribed = {};
 
   List<DashboardWidgetConfig> projectWidgetsFor(String projectId) => _projectWidgets[projectId] ?? const [];
+
+  // ------------------------- طبقات لوحة القيادة -------------------------
+
+  /// مفتاح دور المستخدم الحالي في تخزين لوحات الأدوار.
+  ///
+  /// الأدوار الأساسية تُخزَّن باسمها (`executiveViewer`، `departmentManager`...)،
+  /// والأدوار المخصّصة يحمل كل دور منها مفتاحه الخاص حتى لا يتشارك دوران
+  /// مخصّصان مختلفان لوحة واحدة.
+  String? get dashboardRoleKey {
+    final role = currentUser?.role;
+    if (role == null) return null;
+    if (role == UserRole.custom) {
+      final id = currentUser?.customRoleId;
+      return id == null ? null : 'custom_$id';
+    }
+    return role.name;
+  }
+
+  /// التخطيط الفعلي الذي يراه المستخدم الحالي.
+  ///
+  /// الأخصّ يفوز: إن خصّص المستخدم لوحته رآها، وإلا فلوحة دوره التي ضبطها
+  /// مسؤول النظام، وإلا فاللوحة العامة. قائمة فارغة تعني "لم يُضبط" لا
+  /// "لوحة بلا ودجات"، فتُتخطّى إلى الطبقة التالية.
+  List<DashboardWidgetConfig> get dashboardWidgets {
+    final key = dashboardRoleKey;
+    return DashboardWidgetConfig.resolveLayers(
+      personal: _myDashboard,
+      role: key == null ? null : _roleDashboards[key],
+      global: globalDashboardWidgets,
+    );
+  }
+
+  /// هل خصّص المستخدم الحالي لوحته الخاصة؟ (لإظهار زر "العودة للوحة الافتراضية")
+  bool get hasPersonalDashboard => (_myDashboard ?? const []).isNotEmpty;
+
+  /// تخطيط دور معيّن كما هو مخزَّن (فارغ إن لم يُضبط بعد) — لشاشة التخصيص.
+  List<DashboardWidgetConfig> roleDashboardWidgets(String roleKey) => _roleDashboards[roleKey] ?? const [];
+
+  /// هل يملك المستخدم الحالي ضبط لوحات الأدوار واللوحة العامة لغيره؟
+  /// تخصيص لوحته الشخصية متاح للجميع ولا يمرّ من هنا.
+  bool get canManageSharedDashboards => hasPermission(RolePermission.manageDashboard);
+
+  static List<DashboardWidgetConfig> _parseWidgets(Object? raw) {
+    if (raw is! List || raw.isEmpty) return const [];
+    return DashboardWidgetConfig.dedupe(
+      raw.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList(),
+    );
+  }
+
+  /// حفظ لوحة المستخدم الحالي وحده. متاح لكل مستخدم معتمَد على مستنده هو.
+  Future<void> saveMyDashboardWidgets(List<DashboardWidgetConfig> widgets) async {
+    final uid = currentUser?.id;
+    if (uid == null) return;
+    await _db.collection('userDashboards').doc(uid).set({
+      'widgets': DashboardWidgetConfig.dedupe(widgets).map((w) => w.toMap()).toList(),
+    });
+  }
+
+  /// إلغاء تخصيص المستخدم الحالي فيعود لرؤية لوحة دوره أو اللوحة العامة.
+  Future<void> resetMyDashboardWidgets() async {
+    final uid = currentUser?.id;
+    if (uid == null) return;
+    await _db.collection('userDashboards').doc(uid).delete();
+  }
+
+  /// حفظ لوحة دور كامل (مسؤول النظام أو من يملك صلاحية التحكم باللوحة).
+  Future<void> saveRoleDashboardWidgets(String roleKey, List<DashboardWidgetConfig> widgets) async {
+    await _db.collection('dashboardConfig').doc('role_$roleKey').set({
+      'widgets': DashboardWidgetConfig.dedupe(widgets).map((w) => w.toMap()).toList(),
+    });
+    await _log('تخصيص لوحة القيادة', 'قام ${currentUser?.name} بتحديث تخطيط لوحة القيادة لدور $roleKey');
+  }
 
   void ensureProjectWidgetsSubscribed(String projectId) {
     if (_projectWidgetsSubscribed.contains(projectId)) return;
@@ -395,7 +474,9 @@ class AppStore extends ChangeNotifier {
     auditLog = [];
     reports = [];
     users = [];
-    dashboardWidgets = DashboardWidgetConfig.defaults();
+    globalDashboardWidgets = DashboardWidgetConfig.defaults();
+    _roleDashboards.clear();
+    _myDashboard = null;
     projectsPageWidgets = [];
     announcements = [];
     alertRules = const AlertRulesConfig();
@@ -505,18 +586,26 @@ class AppStore extends ChangeNotifier {
       customRoles = snap.docs.map(CustomRole.fromDoc).toList();
       notifyListeners();
     }));
-    _dataSubs.add(_db.collection('dashboardConfig').doc('main').snapshots().listen((doc) {
-      final widgets = doc.data()?['widgets'] as List?;
-      dashboardWidgets = widgets == null || widgets.isEmpty
-          ? DashboardWidgetConfig.defaults()
-          : DashboardWidgetConfig.dedupe(widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList());
-      notifyListeners();
-    }));
-    _dataSubs.add(_db.collection('dashboardConfig').doc('projectsPage').snapshots().listen((doc) {
-      final widgets = doc.data()?['widgets'] as List?;
-      projectsPageWidgets = widgets == null
-          ? []
-          : DashboardWidgetConfig.dedupe(widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList());
+    // مستند واحد لكل طبقة داخل dashboardConfig: `main` اللوحة العامة،
+    // `projectsPage` ودجات صفحة المشاريع، و`role_<الدور>` لوحة كل دور.
+    // نستمع للمجموعة كاملةً بدل مستند لكل دور حتى لا يتغيّر عدد الاشتراكات
+    // كلما أُضيف دور مخصّص جديد.
+    _dataSubs.add(_db.collection('dashboardConfig').snapshots().listen((snap) {
+      var global = const <DashboardWidgetConfig>[];
+      var projectsPage = const <DashboardWidgetConfig>[];
+      _roleDashboards.clear();
+      for (final doc in snap.docs) {
+        final widgets = _parseWidgets(doc.data()['widgets']);
+        if (doc.id == 'main') {
+          global = widgets;
+        } else if (doc.id == 'projectsPage') {
+          projectsPage = widgets;
+        } else if (doc.id.startsWith('role_')) {
+          _roleDashboards[doc.id.substring('role_'.length)] = widgets;
+        }
+      }
+      globalDashboardWidgets = global.isEmpty ? DashboardWidgetConfig.defaults() : global;
+      projectsPageWidgets = projectsPage.toList();
       notifyListeners();
     }));
     _dataSubs.add(_db.collection('announcements').orderBy('createdAt', descending: true).snapshots().listen((snap) {
@@ -542,6 +631,11 @@ class AppStore extends ChangeNotifier {
         final data = doc.data() ?? {};
         myFocusProjectIds = ((data['projectIds'] as List?) ?? []).map((e) => e.toString()).toList();
         myFocusWorkIds = ((data['workIds'] as List?) ?? []).map((e) => e.toString()).toList();
+        notifyListeners();
+      }));
+      _dataSubs.add(_db.collection('userDashboards').doc(myUid).snapshots().listen((doc) {
+        final widgets = _parseWidgets(doc.data()?['widgets']);
+        _myDashboard = widgets.isEmpty ? null : widgets;
         notifyListeners();
       }));
     }
@@ -1361,6 +1455,22 @@ class AppStore extends ChangeNotifier {
     }
     await batch.commit();
     await _log('استيراد بيانات', 'قام ${currentUser?.name} باستيراد بيانات وزارة العدل من ملف Excel');
+  }
+
+  /// استيراد ملف «مراقبة تنفيذ المشروعات ٢٠٢٦»: خمسة أقسام كإدارات مستقلة
+  /// برؤسائها، و٧١ مشروعاً بأوصافها وجهاتها المستفيدة وفرق عملها وملاحظاتها.
+  /// معرّفات ثابتة (merge) فتكرار الاستيراد آمن ولا يُنشئ سجلات مكرّرة، ولا
+  /// يمسّ بوابات الاعتماد الثلاث.
+  Future<void> importMinistryProjects2026() async {
+    final batch = _db.batch();
+    for (final d in MinistryProjects2026.departments()) {
+      batch.set(_db.collection('departments').doc(d.id), d.toMap(), SetOptions(merge: true));
+    }
+    for (final p in MinistryProjects2026.projects()) {
+      batch.set(_db.collection('projects').doc(p.id), p.toMap(), SetOptions(merge: true));
+    }
+    await batch.commit();
+    await _log('استيراد بيانات', 'قام ${currentUser?.name} باستيراد ملف مراقبة تنفيذ المشروعات ٢٠٢٦');
   }
 
   /// توليد بيانات تجريبية كاملة (إدارات + مشاريع + مهام + مخاطر/عوائق +

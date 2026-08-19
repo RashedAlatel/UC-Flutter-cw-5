@@ -57,4 +57,22 @@ class DashboardWidgetConfig {
     }
     return result;
   }
+
+  /// يختار التخطيط الذي يراه المستخدم من طبقات التخصيص الثلاث: لوحته
+  /// الشخصية، ثم لوحة دوره التي ضبطها مسؤول النظام، ثم اللوحة العامة، وأخيراً
+  /// الودجات الافتراضية.
+  ///
+  /// القائمة الفارغة (أو null) تعني «هذه الطبقة لم تُضبط» لا «لوحة بلا
+  /// ودجات»، فتُتخطّى إلى الطبقة التالية — لولا ذلك لظهرت لوحة خالية لأي
+  /// مستخدم حُذف آخر ودجت من لوحته.
+  static List<DashboardWidgetConfig> resolveLayers({
+    List<DashboardWidgetConfig>? personal,
+    List<DashboardWidgetConfig>? role,
+    List<DashboardWidgetConfig>? global,
+  }) {
+    if (personal != null && personal.isNotEmpty) return personal;
+    if (role != null && role.isNotEmpty) return role;
+    if (global != null && global.isNotEmpty) return global;
+    return defaults();
+  }
 }

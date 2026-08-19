@@ -97,12 +97,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
               ),
-              if (store.canManageDashboard)
-                OutlinedButton.icon(
-                  onPressed: () => showDialog(context: context, builder: (_) => const CustomizeDashboardDialog()),
-                  icon: const Icon(Icons.tune_rounded, size: 17),
-                  label: const Text('تخصيص اللوحة'),
-                ),
+              // التخصيص متاح لكل مستخدم معتمَد: كلٌّ يعدّل لوحته هو. أما لوحات
+              // الأدوار واللوحة العامة فلا تظهر في النافذة إلا لمن يملك
+              // صلاحية "التحكم بلوحة القيادة".
+              OutlinedButton.icon(
+                onPressed: () => showDialog(context: context, builder: (_) => const CustomizeDashboardDialog()),
+                icon: const Icon(Icons.tune_rounded, size: 17),
+                label: const Text('تخصيص اللوحة'),
+              ),
             ],
           ),
           const SizedBox(height: 14),

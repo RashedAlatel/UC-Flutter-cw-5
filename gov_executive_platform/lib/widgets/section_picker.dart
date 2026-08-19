@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/department_section.dart';
+import '../models/project.dart';
+import '../theme/app_theme.dart';
 
 /// منتقي قسم داخل إدارة: قائمتان متتاليتان (القسم ثم القسم الفرعي).
 ///
@@ -122,4 +124,47 @@ class _SectionPickerState extends State<SectionPicker> {
       ],
     );
   }
+}
+
+/// نقل مشروع بين أقسام إدارته (أو رفعه ليصبح تحت الإدارة مباشرةً).
+///
+/// مشتركة بين صفحة الإدارة وصفحة المشروع نفسه حتى يكون النقل متاحاً من
+/// الموضعين بنفس السلوك بدل نسختين تتباعدان.
+Future<void> showMoveProjectToSectionDialog(BuildContext context, Project project) async {
+  final store = context.read<AppStore>();
+  var target = project.sectionId;
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('نقل "${project.name}"'),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              store.sectionsOf(project.departmentId).isEmpty
+                  ? 'لا توجد أقسام في هذه الإدارة بعد. أضف قسماً أولاً من زر "إضافة قسم".'
+                  : 'اختر القسم الذي سيظهر تحته هذا المشروع.',
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.6),
+            ),
+            const SizedBox(height: 14),
+            SectionPicker(
+              departmentId: project.departmentId,
+              initialSectionId: project.sectionId,
+              label: 'نقل إلى',
+              onChanged: (v) => target = v,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+        ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('نقل')),
+      ],
+    ),
+  );
+  if (confirmed != true || target == project.sectionId) return;
+  await store.assignProjectSection(project, target);
 }

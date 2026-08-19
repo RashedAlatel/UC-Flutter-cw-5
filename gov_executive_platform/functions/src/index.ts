@@ -225,6 +225,8 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         executorNames: payload.executorNames ?? [],
         createdByUid: data.requestedByUid,
         managerUid: null,
+        // القسم داخل الإدارة كما اختاره مقدّم الطلب (null = تحت الإدارة مباشرةً).
+        sectionId: payload.sectionId ?? null,
       });
       break;
     }

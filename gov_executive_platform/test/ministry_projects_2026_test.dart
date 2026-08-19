@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gov_exec_platform/data/ministry_projects_2026.dart';
 import 'package:gov_exec_platform/models/enums.dart';
+import 'package:gov_exec_platform/models/project.dart';
 
 /// اختبارات سلامة بيانات ملف «مراقبة تنفيذ المشروعات ٢٠٢٦».
 ///
@@ -11,9 +12,9 @@ void main() {
   final departments = MinistryProjects2026.departments();
   final projects = MinistryProjects2026.projects();
 
-  test('عدد الأقسام والمشاريع يطابق الملف الأصلي', () {
-    expect(departments.length, 5);
-    expect(projects.length, 71);
+  test('عدد الأقسام والمشاريع يطابق الملفين', () {
+    expect(departments.length, 6);
+    expect(projects.length, 108);
   });
 
   test('توزيع المشاريع على الأقسام يطابق الملف', () {
@@ -23,6 +24,52 @@ void main() {
     expect(countIn(MinistryProjects2026.deptSysMaintenance), 18);
     expect(countIn(MinistryProjects2026.deptProductionQuality), 4);
     expect(countIn(MinistryProjects2026.deptStateAgreements), 11);
+    // ٣٧ لا ٣٨: ترقيم الملف يقفز من ١٥ إلى ١٧ (لا وجود للبند ١٦).
+    expect(countIn(MinistryProjects2026.deptPlanning), 37);
+  });
+
+  /// الملف الثاني يعيد الأول كاملاً، فالحماية الوحيدة من ازدواج الـ٧١ مشروعاً
+  /// القديمة هي **ثبات معرّفاتها**: أي تغيير في معرّف يجعل الاستيراد يُنشئ
+  /// سجلاً ثانياً بدل أن يدمج. هذا الاختبار يثبّتها.
+  test('معرّفات المشاريع الـ٧١ السابقة لم تتغيّر — وإلا ازدوجت البيانات', () {
+    final ids = projects.map((p) => p.id).toSet();
+    for (var i = 1; i <= 33; i++) {
+      expect(ids.contains('mp26_auto_$i'), isTrue, reason: 'مفقود mp26_auto_$i');
+    }
+    for (var i = 1; i <= 5; i++) {
+      expect(ids.contains('mp26_doc_$i'), isTrue, reason: 'مفقود mp26_doc_$i');
+    }
+    for (var i = 1; i <= 18; i++) {
+      expect(ids.contains('mp26_maint_$i'), isTrue, reason: 'مفقود mp26_maint_$i');
+    }
+    for (var i = 1; i <= 4; i++) {
+      expect(ids.contains('mp26_qual_$i'), isTrue, reason: 'مفقود mp26_qual_$i');
+    }
+    for (var i = 1; i <= 11; i++) {
+      expect(ids.contains('mp26_state_$i'), isTrue, reason: 'مفقود mp26_state_$i');
+    }
+  });
+
+  test('معرّفات قسم التخطيط تحمل رقم البند كما في الملف، بلا البند ١٦', () {
+    final planIds = projects
+        .where((p) => p.departmentId == MinistryProjects2026.deptPlanning)
+        .map((p) => p.id)
+        .toSet();
+    expect(planIds.contains('mp26_plan_16'), isFalse);
+    for (final i in [...List.generate(15, (i) => i + 1), ...List.generate(22, (i) => i + 17)]) {
+      expect(planIds.contains('mp26_plan_$i'), isTrue, reason: 'مفقود mp26_plan_$i');
+    }
+  });
+
+  test('المشاريع المتشابهة موضوعاً تحمل إشارة متبادلة لبعضها', () {
+    Project byId(String id) => projects.firstWhere((p) => p.id == id);
+    // كل طرف يشير للآخر، فلا يمرّ أحدهما على المستخدم دون أن يعلم بنظيره.
+    expect(byId('mp26_plan_6').description, contains('يشبه موضوعاً'));
+    expect(byId('mp26_maint_18').description, contains('يشبه موضوعاً'));
+    expect(byId('mp26_plan_13').description, contains('يشبه موضوعاً'));
+    expect(byId('mp26_state_11').description, contains('يشبه موضوعاً'));
+    expect(byId('mp26_plan_32').description, contains('يشبه موضوعاً'));
+    expect(byId('mp26_auto_30').description, contains('يشبه موضوعاً'));
   });
 
   test('المعرّفات فريدة — وإلا داس الاستيراد سجلات بعضها', () {
@@ -73,5 +120,6 @@ void main() {
     expect(headOf(MinistryProjects2026.deptAutoSystems), contains('آلاء الضفيري'));
     expect(headOf(MinistryProjects2026.deptSysMaintenance), contains('أشواق الخباز'));
     expect(headOf(MinistryProjects2026.deptProductionQuality), contains('شيماء العلي'));
+    expect(headOf(MinistryProjects2026.deptPlanning), contains('هدى الفهد'));
   });
 }

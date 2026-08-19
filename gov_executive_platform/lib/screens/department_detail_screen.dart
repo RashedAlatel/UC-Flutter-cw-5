@@ -183,6 +183,61 @@ class _SectionBlock extends StatelessWidget {
     if (ok == true) await store.deleteSection(section);
   }
 
+  /// نقل القسم بكامل فرعه إلى إدارة أخرى. النافذة تذكر بالضبط ما سينتقل معه
+  /// قبل التأكيد، لأن النقل يغيّر من يرى هذه المشاريع ومن يعدّلها.
+  Future<void> _confirmMove(BuildContext context, AppStore store) async {
+    final targets = store.departments.where((d) => d.id != section.departmentId).toList();
+    if (targets.isEmpty) return;
+    final projectCount = store.projectsInSection(section.id).length;
+    final childCount = store.sectionWithDescendants(section.id).length - 1;
+    String? targetId;
+    final messenger = ScaffoldMessenger.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text('نقل قسم "${section.name}" إلى إدارة أخرى'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'سينتقل القسم ومعه $childCount قسماً فرعياً و$projectCount مشروعاً. '
+                  'لن يُحذف شيء، لكن من يرى هذه المشاريع ومن يعدّلها سيتغيّر تبعاً للإدارة الجديدة.',
+                  style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.7),
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  initialValue: targetId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'الإدارة المستقبِلة'),
+                  items: targets.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
+                  onChanged: (v) => setLocal(() => targetId = v),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+            ElevatedButton(
+              onPressed: targetId == null ? null : () => Navigator.pop(ctx, true),
+              child: const Text('نقل القسم'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || targetId == null) return;
+    final error = await store.moveSectionToDepartment(section, targetId!);
+    messenger.showSnackBar(SnackBar(
+      content: Text(error ?? 'تم نقل القسم وكل ما تحته'),
+      backgroundColor: error == null ? null : AppColors.danger,
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
@@ -230,6 +285,8 @@ class _SectionBlock extends StatelessWidget {
                               title: 'إضافة قسم فرعي تحت "${section.name}"',
                               onSubmit: (n) => store.addSection(
                                   departmentId: section.departmentId, parentId: section.id, name: n));
+                        case 'move':
+                          _confirmMove(context, store);
                         case 'delete':
                           _confirmDelete(context, store);
                       }
@@ -238,6 +295,9 @@ class _SectionBlock extends StatelessWidget {
                       const PopupMenuItem(value: 'rename', child: Text('إعادة التسمية')),
                       if (store.canAddChildSection(section))
                         const PopupMenuItem(value: 'child', child: Text('إضافة قسم فرعي')),
+                      // نقل القسم بين الإدارات لمسؤول النظام وحده.
+                      if (store.canMoveSectionAcrossDepartments)
+                        const PopupMenuItem(value: 'move', child: Text('نقل القسم إلى إدارة أخرى')),
                       const PopupMenuItem(
                           value: 'delete', child: Text('حذف القسم', style: TextStyle(color: AppColors.danger))),
                     ],
@@ -331,7 +391,7 @@ class _ProjectCard extends StatelessWidget {
                     IconButton(
                       tooltip: 'نقل المشروع إلى قسم',
                       icon: const Icon(Icons.drive_file_move_outline, size: 18),
-                      onPressed: () => _showMoveToSectionDialog(context, project),
+                      onPressed: () => showMoveProjectToSectionDialog(context, project),
                     ),
                 ],
               ),
@@ -405,45 +465,4 @@ class _InfoBit extends StatelessWidget {
       ],
     );
   }
-}
-
-
-/// نقل مشروع بين أقسام إدارته (أو رفعه ليصبح تحت الإدارة مباشرةً).
-Future<void> _showMoveToSectionDialog(BuildContext context, Project project) async {
-  final store = context.read<AppStore>();
-  var target = project.sectionId;
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text('نقل "${project.name}"'),
-      content: SizedBox(
-        width: 380,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              store.sectionsOf(project.departmentId).isEmpty
-                  ? 'لا توجد أقسام في هذه الإدارة بعد. أضف قسماً أولاً من زر "إضافة قسم".'
-                  : 'اختر القسم الذي سيظهر تحته هذا المشروع.',
-              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.6),
-            ),
-            const SizedBox(height: 14),
-            SectionPicker(
-              departmentId: project.departmentId,
-              initialSectionId: project.sectionId,
-              label: 'نقل إلى',
-              onChanged: (v) => target = v,
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-        ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('نقل')),
-      ],
-    ),
-  );
-  if (confirmed != true || target == project.sectionId) return;
-  await store.assignProjectSection(project, target);
 }

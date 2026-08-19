@@ -145,4 +145,54 @@ void main() {
     );
     expect(store.canManageSections('d1'), isFalse);
   });
+
+  group('نقل قسم إلى إدارة أخرى', () {
+    test('الصلاحية لمسؤول النظام وحده', () {
+      final store = _store();
+      expect(store.canMoveSectionAcrossDepartments, isTrue);
+
+      store.currentUser = AppUser(
+        id: 'mgr-1',
+        name: 'مدير إدارة',
+        email: 'mgr@moj.gov.kw',
+        phone: '+96555555556',
+        role: UserRole.departmentManager,
+        status: UserStatus.approved,
+        createdAt: DateTime(2026, 1, 1),
+        departmentIds: const ['d1', 'd2'],
+      );
+      // يملك الإدارتين ومع ذلك لا يملك النقل بينهما: قرار هيكلي لا تنظيمي.
+      expect(store.canMoveSectionAcrossDepartments, isFalse);
+    });
+
+    test('النقل يرفض من لا يملك الصلاحية ولا يغيّر شيئاً', () async {
+      final store = _store();
+      store.currentUser = AppUser(
+        id: 'emp-1',
+        name: 'موظف',
+        email: 'emp@moj.gov.kw',
+        phone: '+96555555557',
+        role: UserRole.employee,
+        status: UserStatus.approved,
+        createdAt: DateTime(2026, 1, 1),
+        departmentId: 'd1',
+      );
+      final error = await store.moveSectionToDepartment(
+        store.sections.firstWhere((s) => s.id == 's1'),
+        'd2',
+      );
+      expect(error, isNotNull);
+    });
+
+    test('فرع القسم المنقول يشمل القسم وأقسامه الفرعية ومشاريعها', () {
+      final store = _store();
+      // ما سينتقل: القسم s1 وفرعاه، ومشاريع p1 وp2 وp3.
+      final branch = store.sectionWithDescendants('s1');
+      expect(branch, {'s1', 's1a', 's1b'});
+      final moving = store.projects.where((p) => p.sectionId != null && branch.contains(p.sectionId));
+      expect(moving.map((p) => p.id), containsAll(['p1', 'p2', 'p3']));
+      // ولا يمسّ أقسام إدارة أخرى.
+      expect(branch.contains('x1'), isFalse);
+    });
+  });
 }

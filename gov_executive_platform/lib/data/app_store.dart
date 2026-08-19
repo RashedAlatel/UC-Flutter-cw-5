@@ -1016,6 +1016,41 @@ class AppStore extends ChangeNotifier {
     await _log('أقسام الإدارات', 'حذف ${currentUser?.name} قسم "${section.name}" ونُقل محتواه للمستوى الأعلى');
   }
 
+  /// هل يملك المستخدم نقل قسم من إدارة إلى أخرى؟ مسؤول النظام وحده.
+  ///
+  /// إنشاء الأقسام وترتيبها داخل الإدارة تنظيم داخلي يملكه مدير الإدارة
+  /// ([canManageSections])، أما نقل قسم بين إدارتين فيغيّر **من يرى مشاريعه
+  /// ومن يعدّلها** — قرار هيكلي لا يصح أن يتخذه من لا يملك الإدارتين معاً.
+  bool get canMoveSectionAcrossDepartments => isAdmin;
+
+  /// نقل قسم بكامل فرعه إلى إدارة أخرى: القسم نفسه، وكل أقسامه الفرعية، وكل
+  /// مشاريع الفرع تنتقل معه. لا يُحذف شيء ولا يبقى شيء خلفه.
+  ///
+  /// القسم المنقول يصبح جذراً في الإدارة الجديدة (`parentId: null`) لأن أباه
+  /// السابق بقي في الإدارة القديمة، ولو أبقيناه لأشار إلى قسم في إدارة أخرى.
+  Future<String?> moveSectionToDepartment(DepartmentSection section, String targetDepartmentId) async {
+    if (!canMoveSectionAcrossDepartments) return 'لا تملك صلاحية نقل الأقسام بين الإدارات';
+    if (targetDepartmentId == section.departmentId) return null;
+    try {
+      final ids = sectionWithDescendants(section.id);
+      final batch = _db.batch();
+      for (final id in ids) {
+        final data = <String, dynamic>{'departmentId': targetDepartmentId};
+        if (id == section.id) data['parentId'] = null;
+        batch.update(_db.collection('sections').doc(id), data);
+      }
+      for (final p in projects.where((p) => p.sectionId != null && ids.contains(p.sectionId))) {
+        batch.update(_db.collection('projects').doc(p.id), {'departmentId': targetDepartmentId});
+      }
+      await batch.commit();
+      final target = departmentById(targetDepartmentId)?.name ?? targetDepartmentId;
+      await _log('أقسام الإدارات', 'نقل ${currentUser?.name} قسم "${section.name}" وكل ما تحته إلى إدارة "$target"');
+      return null;
+    } catch (e) {
+      return 'تعذر نقل القسم: $e';
+    }
+  }
+
   /// إسناد مشروع لقسم (أو رفعه للإدارة مباشرةً بتمرير null).
   Future<void> assignProjectSection(Project project, String? sectionId) async {
     await _db.collection('projects').doc(project.id).update({'sectionId': sectionId});
@@ -1243,6 +1278,7 @@ class AppStore extends ChangeNotifier {
     required DateTime dueDate,
     required PriorityLevel priority,
     List<String> executorNames = const [],
+    String? sectionId,
   }) async {
     final now = DateTime.now();
     await _db.collection('approvalRequests').add(ApprovalRequest(
@@ -1265,6 +1301,9 @@ class AppStore extends ChangeNotifier {
             'dueDate': dueDate.toIso8601String(),
             'priority': priority.name,
             'executorNames': executorNames,
+            // القسم يُحمل مع الطلب لا يُترك للاعتماد: بدونه يخرج المشروع
+            // المُعتمَد بلا قسم فيضطر مدير الإدارة لإسناده يدوياً بعد كل موافقة.
+            'sectionId': sectionId,
           },
         ).toMap());
     await _log('طلب مشروع جديد', 'قدّم ${currentUser?.name} طلب إضافة مشروع "$name"');

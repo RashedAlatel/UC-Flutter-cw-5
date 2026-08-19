@@ -15,6 +15,7 @@ import '../models/notify_templates.dart';
 import '../widgets/focus_assignment_dialog.dart';
 import '../widgets/notify_dialog.dart';
 import '../widgets/project_actions.dart';
+import '../widgets/section_picker.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
 import 'request_deadline_change_dialog.dart';
@@ -59,11 +60,26 @@ class ProjectDetailScreen extends StatelessWidget {
                             // مسار المشروع كاملاً: الإدارة ثم القسم فالقسم
                             // الفرعي إن وُجدا، ليعرف القارئ موقعه في الهيكل
                             // دون العودة لصفحة الإدارة.
-                            Text(
-                              [dept?.name ?? 'بدون إدارة', store.sectionPathLabel(project.sectionId)]
-                                  .where((e) => e.isNotEmpty)
-                                  .join(' ← '),
-                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    [dept?.name ?? 'بدون إدارة', store.sectionPathLabel(project.sectionId)]
+                                        .where((e) => e.isNotEmpty)
+                                        .join(' ← '),
+                                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+                                  ),
+                                ),
+                                // نقل المشروع بين أقسام إدارته من صفحته نفسها،
+                                // لا من صفحة الإدارة وحدها.
+                                if (store.canManageSections(project.departmentId))
+                                  IconButton(
+                                    icon: const Icon(Icons.drive_file_move_outline, size: 17),
+                                    tooltip: 'تغيير قسم المشروع',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () => showMoveProjectToSectionDialog(context, project),
+                                  ),
+                              ],
                             ),
                           ],
                         ),

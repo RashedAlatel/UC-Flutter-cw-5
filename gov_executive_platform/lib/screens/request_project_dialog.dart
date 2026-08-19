@@ -85,6 +85,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
         dueDate: _dueDate,
         priority: _priority,
         executorNames: _executorNames,
+        sectionId: _sectionId,
       );
     }
     if (!mounted) return;

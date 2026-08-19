@@ -109,4 +109,19 @@ void main() {
     await _pump(tester, _store(role: UserRole.systemAdmin));
     expect(find.text('إضافة قسم'), findsOneWidget);
   });
+
+  testWidgets('بند «نقل القسم إلى إدارة أخرى» لمسؤول النظام وحده', (tester) async {
+    await _pump(tester, _store(role: UserRole.systemAdmin));
+    await tester.tap(find.byIcon(Icons.more_horiz_rounded).first);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('نقل القسم إلى إدارة أخرى'), findsOneWidget);
+  });
+
+  testWidgets('مدير الإدارة يدير أقسامه لكن لا ينقلها بين الإدارات', (tester) async {
+    await _pump(tester, _store(role: UserRole.departmentManager));
+    await tester.tap(find.byIcon(Icons.more_horiz_rounded).first);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('إعادة التسمية'), findsOneWidget);
+    expect(find.text('نقل القسم إلى إدارة أخرى'), findsNothing);
+  });
 }

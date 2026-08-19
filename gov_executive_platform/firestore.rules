@@ -91,8 +91,9 @@ service cloud.firestore {
     match /sections/{id} {
       allow read: if true;
       allow create: if isAdmin() || isMyDeptAny(deptOf(request.resource.data));
-      // يمنع نقل قسم من إدارة إلى أخرى تحايلاً على الصلاحية: من يملك القسم
-      // في إدارته لا يملك إدارة غيرها.
+      // نقل قسم بين الإدارات لمسؤول النظام وحده: هو قرار هيكلي يغيّر من يرى
+      // مشاريع القسم ومن يعدّلها. مدير الإدارة يعدّل أقسامه داخل إدارته فقط،
+      // ولا يستطيع تمرير قسم إلى إدارة لا يملكها.
       allow update: if isAdmin()
                     || (isMyDeptAny(deptOf(resource.data))
                         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['departmentId']));

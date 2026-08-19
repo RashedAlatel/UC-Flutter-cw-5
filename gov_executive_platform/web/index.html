@@ -17,6 +17,10 @@
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
+  <!-- بدون هذا الوسم تعرض متصفحات الجوال (سفاري خاصةً) الصفحة بعرض سطح
+       المكتب مصغّرة، فتبدو الخطوط دقيقة ولا تعمل نقاط التوقف الاستجابية. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0E4D3C">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="المنصة التنفيذية لمتابعة مشاريع وزارة العدل — دولة الكويت">
 
@@ -41,6 +45,97 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <script src="flutter_bootstrap.js" async></script>
+  <!--
+    تحميل محرك الرسم (CanvasKit) من ملفات المنصة نفسها لا من CDN خارجي.
+    بدون هذا يجلبه Flutter من www.gstatic.com عند كل فتح (نحو ٧ ميغابايت)،
+    وأي شبكة حكومية تحجب هذا النطاق تُظهر للمستخدم شاشة بيضاء فارغة بلا رسالة
+    خطأ. التثبيت هنا يجعل السلوك صحيحاً حتى لو بُني المشروع بلا راية
+    ‎--no-web-resources-cdn.
+  -->
+  <!--
+    شاشة تحميل مبدئية + حارس إقلاع.
+
+    سبب وجود الحارس: حزم Firebase تُحمَّل من www.gstatic.com أثناء تسجيل
+    إضافات Flutter، أي **قبل** تنفيذ main() في Dart. فإذا حُجب النطاق أو
+    انقطعت الشبكة لا يبدأ التطبيق أصلاً ولا يمكن التقاط العطل من داخل Dart،
+    فيرى المستخدم صفحة بيضاء صامتة بلا أي تفسير. الحارس هنا مكتوب بجافاسكربت
+    خالصة فيعمل مهما كان موضع التعليق.
+  -->
+  <style>
+    html, body { margin: 0; height: 100%; background: #072E24; }
+    #boot {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; text-align: center;
+      padding: 24px; box-sizing: border-box;
+    }
+    #boot .card { max-width: 460px; }
+    #boot h1 { font-size: 17px; margin: 0 0 10px; font-weight: 800; }
+    #boot p  { font-size: 13.5px; line-height: 1.9; color: rgba(255,255,255,.75); margin: 0 0 18px; }
+    #boot button {
+      background: #C9A227; color: #072E24; border: 0; border-radius: 8px;
+      padding: 11px 22px; font-size: 13.5px; font-weight: 700; cursor: pointer;
+      font-family: inherit;
+    }
+    .spinner {
+      width: 34px; height: 34px; margin: 0 auto 18px; border-radius: 50%;
+      border: 3px solid rgba(255,255,255,.22); border-top-color: #C9A227;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+  <div id="boot">
+    <div class="card">
+      <div class="spinner" id="boot-spinner"></div>
+      <h1 id="boot-title">جارٍ تحميل المنصة…</h1>
+      <p id="boot-msg">وزارة العدل — دولة الكويت</p>
+      <button id="boot-retry" style="display:none" onclick="location.reload()">إعادة المحاولة</button>
+      <button id="boot-skip" style="display:none;background:transparent;color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.3);margin-inline-start:8px" onclick="hideBoot()">المتابعة على أي حال</button>
+    </div>
+  </div>
+
+  <script>
+    {{flutter_js}}
+    {{flutter_build_config}}
+
+    // canvasKitBaseUrl يشير إلى نسخة المنصة المحلية لا إلى www.gstatic.com،
+    // فلا يُجلب محرك الرسم (نحو ٧ ميغابايت) من الإنترنت عند كل فتح.
+    // canvasKitBaseUrl يشير إلى نسخة المنصة المحلية لا إلى www.gstatic.com،
+    // فلا يُجلب محرك الرسم (نحو ٧ ميغابايت) من الإنترنت عند كل فتح.
+    // نترك بقية الإقلاع للسلوك الافتراضي: تمرير onEntrypointLoaded مخصص يمنع
+    // وصول هذا الإعداد إلى مُهيّئ المحرك فيعود لجلب CanvasKit من الشبكة.
+    _flutter.loader.load({
+      config: { canvasKitBaseUrl: "canvaskit/" }
+    });
+
+    function hideBoot() {
+      clearTimeout(bootTimer);
+      if (bootObserver) bootObserver.disconnect();
+      var el = document.getElementById('boot');
+      if (el) el.remove();
+    }
+
+    // إشارتان مستقلتان لإخفاء شاشة التحميل، حتى لا تبقى فوق تطبيق يعمل لو
+    // تخلّفت إحداهما:
+    // ١) flutter-first-frame — الحدث الرسمي عند رسم أول إطار.
+    window.addEventListener('flutter-first-frame', hideBoot);
+    // ٢) ظهور عنصر flutter-view في الصفحة — إشارة مبكرة على إقلاع المحرك.
+    var bootObserver = new MutationObserver(function () {
+      if (document.querySelector('flutter-view')) hideBoot();
+    });
+    bootObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+    // إن لم يُرسم شيء خلال ٢٥ ثانية نعرض سبباً مفهوماً بدل الفراغ، مع مخرج
+    // يدوي حتى لا يُحبس المستخدم خلف الشاشة لو كان التطبيق يعمل فعلاً.
+    var bootTimer = setTimeout(function () {
+      document.getElementById('boot-spinner').style.display = 'none';
+      document.getElementById('boot-title').textContent = 'يستغرق التحميل وقتاً أطول من المعتاد';
+      document.getElementById('boot-msg').innerHTML =
+        'إن استمر ذلك فتأكد من اتصال الشبكة، وإن كنت داخل شبكة الوزارة فقد يكون ' +
+        'الوصول إلى النطاق <strong>www.gstatic.com</strong> محجوباً — يلزم السماح ' +
+        'به لتشغيل المنصة.';
+      document.getElementById('boot-retry').style.display = 'inline-block';
+      document.getElementById('boot-skip').style.display = 'inline-block';
+    }, 25000);
+  </script>
 </body>
 </html>

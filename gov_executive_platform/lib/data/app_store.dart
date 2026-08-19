@@ -80,6 +80,44 @@ class AppStore extends ChangeNotifier {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _themeSub;
   final List<StreamSubscription> _dataSubs = [];
 
+  /// أخطاء قراءة البيانات من الخادم، مفتاحها اسم المجموعة.
+  ///
+  /// كانت مستمعات Firestore كلها بلا `onError`، فرفض الصلاحية يعود **صامتاً
+  /// تماماً**: تبقى القوائم فارغة بلا رسالة، فيظن المستخدم أن لا بيانات
+  /// بينما الحقيقة أن الخادم رفض قراءته. وهذا ما جعل مدير الإدارة يرى منصة
+  /// خالية — لا مشاريعه ولا حتى التعميمات العامة — بلا أي دليل على السبب.
+  ///
+  /// تُجمع هنا فتُعرض في لافتة أعلى المنصة، فيصير الرفض معلومة تُقرأ وتُصوَّر
+  /// بدل شاشة فارغة غامضة.
+  final Map<String, String> dataErrors = {};
+
+  /// هل رُفضت قراءة أي مجموعة؟ يُستخدم لإظهار اللافتة.
+  bool get hasDataErrors => dataErrors.isNotEmpty;
+
+  /// هل يبدو الرفض ناتجاً عن صلاحيات ناقصة (لا عن انقطاع شبكة)؟ يحدّد نصّ
+  /// اللافتة: نقص الصلاحيات له علاج (مزامنة بطاقة الدخول)، والانقطاع لا.
+  bool get hasPermissionErrors =>
+      dataErrors.values.any((e) => e.contains('permission-denied') || e.contains('PERMISSION_DENIED'));
+
+  void _noteDataError(String label, Object error) {
+    final text = error.toString();
+    if (dataErrors[label] == text) return;
+    dataErrors[label] = text;
+    notifyListeners();
+  }
+
+  /// يشترك في تدفّق بيانات **مع معالج خطأ دائماً**. لا يُشترك في أي تدفّق
+  /// خارج هذه الدالة، حتى لا يعود الصمت من باب جديد.
+  void _listen<T>(String label, Stream<T> stream, void Function(T) onData) {
+    _dataSubs.add(stream.listen(
+      (value) {
+        if (dataErrors.remove(label) != null) notifyListeners();
+        onData(value);
+      },
+      onError: (Object e) => _noteDataError(label, e),
+    ));
+  }
+
   // ودجات مخصصة لكل مشروع على حدة (صفحة المشروع) — تُشترَك عند الطلب فقط
   // (وليس مسبقاً لكل المشاريع دفعة واحدة) توفيراً للاستدعاءات.
   final Map<String, List<DashboardWidgetConfig>> _projectWidgets = {};
@@ -162,13 +200,13 @@ class AppStore extends ChangeNotifier {
   void ensureProjectWidgetsSubscribed(String projectId) {
     if (_projectWidgetsSubscribed.contains(projectId)) return;
     _projectWidgetsSubscribed.add(projectId);
-    _dataSubs.add(_db.collection('projectWidgets').doc(projectId).snapshots().listen((doc) {
+    _listen('projectWidgets', _db.collection('projectWidgets').doc(projectId).snapshots(), (doc) {
       final widgets = doc.data()?['widgets'] as List?;
       _projectWidgets[projectId] = widgets == null
           ? []
           : DashboardWidgetConfig.dedupe(widgets.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList());
       notifyListeners();
-    }));
+    });
   }
 
   Future<void> saveProjectWidgets(String projectId, List<DashboardWidgetConfig> widgets) async {
@@ -461,11 +499,55 @@ class AppStore extends ChangeNotifier {
     super.dispose();
   }
 
+  /// هل حاولنا مزامنة البطاقة في هذه الجلسة؟ محاولة واحدة تكفي — التكرار
+  /// عند كل تحديث للسجل يعني استدعاء دالة سحابية في حلقة.
+  bool _claimsSyncTried = false;
+
+  /// يوفّق بين سجل المستخدم وبطاقة دخوله.
+  ///
+  /// قواعد Firestore تقرأ `request.auth.token` لا مستند المستخدم. فحساب
+  /// عُدّل دوره أو إداراته بينما صاحبه مسجَّل دخوله يبقى يحمل بطاقة قديمة،
+  /// وحساب لم يُختم قط لا يحمل `approved` إطلاقاً — وفي الحالتين تُرفض كل
+  /// قراءاته بصمت. نجرّب أولاً تجديد التوكن (رخيص)، فإن بقي الاختلاف
+  /// استدعينا `syncMyClaims` مرة واحدة.
+  Future<void> _reconcileClaims(fb_auth.User user) async {
+    final me = currentUser;
+    if (me == null || me.status != UserStatus.approved) return;
+
+    Future<bool> mismatched({required bool refresh}) async {
+      try {
+        final claims = await currentTokenClaims(forceRefresh: refresh);
+        if (claims['approved'] != true) return true;
+        if (claims['role'] != me.role.name) return true;
+        final tokenDepts = ((claims['departmentIds'] as List?) ?? const [])
+            .map((e) => e.toString())
+            .toSet();
+        final mine = myDepartmentIds.toSet();
+        return !tokenDepts.containsAll(mine);
+      } catch (_) {
+        return false;
+      }
+    }
+
+    if (!await mismatched(refresh: false)) return;
+    if (!await mismatched(refresh: true)) {
+      _cancelDataSubs();
+      _subscribeAppData();
+      return;
+    }
+    if (_claimsSyncTried) return;
+    _claimsSyncTried = true;
+    await syncMyClaims();
+  }
+
   void _cancelDataSubs() {
     for (final s in _dataSubs) {
       s.cancel();
     }
     _dataSubs.clear();
+    // أخطاء الاشتراك السابق لا تصف الاشتراك الجديد، فتُمسح معه — وإلا بقيت
+    // لافتة خطأ معلّقة بعد أن صُحّحت صلاحيات الحساب فعلاً.
+    dataErrors.clear();
     departments = [];
     sections = [];
     projects = [];
@@ -526,6 +608,10 @@ class AppStore extends ChangeNotifier {
         // تحديث Custom Claims المخزّنة في التوكن بعد اعتماد الحساب لأول مرة
         await user.getIdToken(true);
       }
+      // بطاقة الدخول هي ما تحتكم إليه قواعد الخادم، لا هذا السجل. فإن اختلفا
+      // رأى المستخدم منصة خالية بلا سبب — وهو ما وقع لمدير إدارة معتمد لم يرَ
+      // مشاريعه ولا التعميمات العامة. نصحّح ذلك هنا بلا تدخّل منه.
+      await _reconcileClaims(user);
       if (currentUser?.status == UserStatus.approved) {
         // يُلغي أي اشتراكات سابقة قبل إعادة الاشتراك دائماً، لأن مستند
         // المستخدم قد يتغيّر لأسباب لا علاقة لها بنطاق البيانات (مثل أي
@@ -553,14 +639,14 @@ class AppStore extends ChangeNotifier {
 
     // أقسام الإدارات: مجموعة صغيرة تُقرأ كاملةً — الفلترة بالإدارة تتم في
     // الذاكرة لأن الشجرة تُعرض كاملةً على أي حال.
-    _dataSubs.add(_db.collection('sections').snapshots().listen((snap) {
+    _listen('sections', _db.collection('sections').snapshots(), (snap) {
       sections = snap.docs.map(DepartmentSection.fromDoc).toList();
       notifyListeners();
-    }));
-    _dataSubs.add(_db.collection('departments').orderBy('name').snapshots().listen((snap) {
+    });
+    _listen('departments', _db.collection('departments').orderBy('name').snapshots(), (snap) {
       departments = snap.docs.map(Department.fromDoc).toList();
       notifyListeners();
-    }));
+    });
 
     // مدير المشروع (officer) يُقيَّد بمشروعه المُسنَد إليه تحديداً (عبر managerUid).
     // مدير الإدارة (manager) قد يدير أكثر من إدارة، فيُقيَّد بقائمة departmentIds
@@ -577,47 +663,47 @@ class AppStore extends ChangeNotifier {
       return scopedDept == null ? col : col.where('departmentId', isEqualTo: scopedDept);
     }
 
-    _dataSubs.add(scoped('projects').snapshots().listen((snap) {
+    _listen('projects', scoped('projects').snapshots(), (snap) {
       projects = snap.docs.map(Project.fromDoc).toList();
       notifyListeners();
-    }));
-    _dataSubs.add(scoped('tasks').snapshots().listen((snap) {
+    });
+    _listen('tasks', scoped('tasks').snapshots(), (snap) {
       tasks = snap.docs.map(ProjectTask.fromDoc).toList();
       notifyListeners();
-    }));
-    _dataSubs.add(scoped('risks').snapshots().listen((snap) {
+    });
+    _listen('risks', scoped('risks').snapshots(), (snap) {
       risks = snap.docs.map(ProjectRisk.fromDoc).toList();
       notifyListeners();
-    }));
-    _dataSubs.add(scoped('blockers').snapshots().listen((snap) {
+    });
+    _listen('blockers', scoped('blockers').snapshots(), (snap) {
       blockers = snap.docs.map(ProjectBlocker.fromDoc).toList();
       notifyListeners();
-    }));
-    _dataSubs.add(scoped('dailyUpdates').snapshots().listen((snap) {
+    });
+    _listen('dailyUpdates', scoped('dailyUpdates').snapshots(), (snap) {
       dailyUpdates = snap.docs.map(DailyUpdate.fromDoc).toList();
       notifyListeners();
-    }));
-    _dataSubs.add(_db.collection('approvalRequests').snapshots().listen((snap) {
+    });
+    _listen('approvalRequests', _db.collection('approvalRequests').snapshots(), (snap) {
       approvalRequests = snap.docs
           .map(ApprovalRequest.fromDoc)
           .where((r) => canViewAll(r))
           .toList();
       notifyListeners();
-    }));
-    _dataSubs.add(_db.collection('reports').snapshots().listen((snap) {
+    });
+    _listen('reports', _db.collection('reports').snapshots(), (snap) {
       reports = snap.docs.map(ReportSnapshot.fromDoc).toList()
         ..sort((a, b) => b.generatedDate.compareTo(a.generatedDate));
       notifyListeners();
-    }));
-    _dataSubs.add(_db.collection('roles').orderBy('name').snapshots().listen((snap) {
+    });
+    _listen('roles', _db.collection('roles').orderBy('name').snapshots(), (snap) {
       customRoles = snap.docs.map(CustomRole.fromDoc).toList();
       notifyListeners();
-    }));
+    });
     // مستند واحد لكل طبقة داخل dashboardConfig: `main` اللوحة العامة،
     // `projectsPage` ودجات صفحة المشاريع، و`role_<الدور>` لوحة كل دور.
     // نستمع للمجموعة كاملةً بدل مستند لكل دور حتى لا يتغيّر عدد الاشتراكات
     // كلما أُضيف دور مخصّص جديد.
-    _dataSubs.add(_db.collection('dashboardConfig').snapshots().listen((snap) {
+    _listen('dashboardConfig', _db.collection('dashboardConfig').snapshots(), (snap) {
       var global = const <DashboardWidgetConfig>[];
       var projectsPage = const <DashboardWidgetConfig>[];
       _roleDashboards.clear();
@@ -634,58 +720,58 @@ class AppStore extends ChangeNotifier {
       globalDashboardWidgets = global.isEmpty ? DashboardWidgetConfig.defaults() : global;
       projectsPageWidgets = projectsPage.toList();
       notifyListeners();
-    }));
-    _dataSubs.add(_db.collection('announcements').orderBy('createdAt', descending: true).snapshots().listen((snap) {
+    });
+    _listen('announcements', _db.collection('announcements').orderBy('createdAt', descending: true).snapshots(), (snap) {
       announcements = snap.docs.map(PlatformAnnouncement.fromDoc).toList();
       notifyListeners();
-    }));
-    _dataSubs.add(_db.collection('settings').doc('alertRules').snapshots().listen((doc) {
+    });
+    _listen('settings/alertRules', _db.collection('settings').doc('alertRules').snapshots(), (doc) {
       alertRules = AlertRulesConfig.fromMap(doc.data());
       notifyListeners();
-    }));
-    _dataSubs.add(_db.collection('works').snapshots().listen((snap) {
+    });
+    _listen('works', _db.collection('works').snapshots(), (snap) {
       works = snap.docs.map(WorkItem.fromDoc).toList()
         ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
       notifyListeners();
-    }));
-    _dataSubs.add(_db.collection('settings').doc('rolePermissions').snapshots().listen((doc) {
+    });
+    _listen('settings/rolePermissions', _db.collection('settings').doc('rolePermissions').snapshots(), (doc) {
       rolePermissions = RolePermissionsConfig.fromMap(doc.data());
       notifyListeners();
-    }));
+    });
     final myUid = currentUser?.id;
     if (myUid != null) {
-      _dataSubs.add(_db.collection('userFocus').doc(myUid).snapshots().listen((doc) {
+      _listen('userFocus', _db.collection('userFocus').doc(myUid).snapshots(), (doc) {
         final data = doc.data() ?? {};
         myFocusProjectIds = ((data['projectIds'] as List?) ?? []).map((e) => e.toString()).toList();
         myFocusWorkIds = ((data['workIds'] as List?) ?? []).map((e) => e.toString()).toList();
         notifyListeners();
-      }));
-      _dataSubs.add(_db.collection('userDashboards').doc(myUid).snapshots().listen((doc) {
+      });
+      _listen('userDashboards', _db.collection('userDashboards').doc(myUid).snapshots(), (doc) {
         final widgets = _parseWidgets(doc.data()?['widgets']);
         _myDashboard = widgets.isEmpty ? null : widgets;
         notifyListeners();
-      }));
+      });
     }
-    _dataSubs.add(_db.collection('settings').doc('focus').snapshots().listen((doc) {
+    _listen('settings/focus', _db.collection('settings').doc('focus').snapshots(), (doc) {
       final ids = doc.data()?['projectIds'] as List?;
       focusedProjectIds = ids == null ? [] : ids.map((e) => e.toString()).toList();
       notifyListeners();
-    }));
+    });
 
     if (canViewAuditLog) {
-      _dataSubs.add(_db.collection('auditLog').orderBy('timestamp', descending: true).limit(300).snapshots().listen((snap) {
+      _listen('auditLog', _db.collection('auditLog').orderBy('timestamp', descending: true).limit(300).snapshots(), (snap) {
         auditLog = snap.docs.map(AuditLogEntry.fromDoc).toList();
         notifyListeners();
-      }));
+      });
     }
     // قائمة المستخدمين مطلوبة لأي مستخدم معتمد (وليس فقط من يدير المستخدمين):
     // قوائم اختيار "مدير المشروع" و"المنفذون" تحتاج أسماء المستخدمين
     // المسجَّلين، وقواعد Firestore تسمح أصلاً بقراءة المجموعة لأي مستخدم
     // معتمد (allow list: if isApproved()) فلا يوجد كشف صلاحيات إضافي هنا.
-    _dataSubs.add(_db.collection('users').orderBy('createdAt', descending: true).snapshots().listen((snap) {
+    _listen('users', _db.collection('users').orderBy('createdAt', descending: true).snapshots(), (snap) {
       users = snap.docs.map(AppUser.fromDoc).toList();
       notifyListeners();
-    }));
+    });
   }
 
   bool canViewAll(ApprovalRequest r) {
@@ -846,6 +932,50 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  /// بصمات بطاقة الدخول الحالية (Custom Claims) كما يراها الخادم.
+  ///
+  /// هي — لا مستند المستخدم — ما تحتكم إليه قواعد Firestore. وقراءتها هنا
+  /// تتيح مقارنتها بالمستند وكشف أي اختلاف، وهو سبب رؤية المستخدم منصة
+  /// خالية بينما سجلّه يقول إنه معتمد.
+  Future<Map<String, dynamic>> currentTokenClaims({bool forceRefresh = false}) async {
+    final user = _auth.currentUser;
+    if (user == null) return const {};
+    final result = await user.getIdTokenResult(forceRefresh);
+    return Map<String, dynamic>.from(result.claims ?? const {});
+  }
+
+  /// يزامن بطاقة دخول المستخدم الحالي مع سجلّه، ثم يجدّد التوكن ويعيد
+  /// الاشتراك بالبيانات.
+  ///
+  /// الدالة على الخادم تنسخ ما كتبه مسؤول النظام في السجل ولا تضيف شيئاً —
+  /// وسجل المستخدم لا يكتب فيه إلا مسؤول النظام (راجع firestore.rules).
+  Future<String?> syncMyClaims() async {
+    try {
+      await _functions.httpsCallable('syncMyClaims').call();
+      await _auth.currentUser?.getIdToken(true);
+      _cancelDataSubs();
+      _subscribeAppData();
+      notifyListeners();
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّرت مزامنة صلاحيات الحساب';
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// يعيد ختم بطاقة مستخدم بعينه — لمسؤول النظام، بلا تغيير دوره أو حالته.
+  Future<String?> restampUserClaims(String uid) async {
+    try {
+      await _functions.httpsCallable('adminRestampClaims').call({'uid': uid});
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّرت إعادة ختم الصلاحيات';
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
   bool get canViewAllDepartments => isAdmin || hasPermission(RolePermission.viewAllDepartments);
   bool get canManageUsers => isAdmin;
   // سجل التدقيق، الموافقة على تسجيل الأعضاء/المشاريع/المواعيد النهائية، وإضافة
@@ -881,7 +1011,19 @@ class AppStore extends ChangeNotifier {
   }
 
   /// إدارة/إدارات مدير الإدارة الحالي (دور departmentManager فقط قد يملك أكثر من إدارة).
-  List<String> get myDepartmentIds => currentUser?.departmentIds ?? const [];
+  /// إدارات المستخدم الحالي.
+  ///
+  /// الرجوع إلى `departmentId` المفرد ليس احتياطاً تجميلياً: حقل الإدارات
+  /// الجمع أُضيف لاحقاً لمدير الإدارة الذي يدير أكثر من إدارة، وبقيت حسابات
+  /// أُنشئت قبله تحمل المفرد وحده. ومدير إدارة بقائمة فارغة يصير استعلامه
+  /// `where('departmentId', isEqualTo: '__none__')` — أي **لا شيء إطلاقاً**،
+  /// فيرى منصة خالية ولا يفهم لماذا.
+  List<String> get myDepartmentIds {
+    final many = currentUser?.departmentIds ?? const <String>[];
+    if (many.isNotEmpty) return many;
+    final one = currentUser?.departmentId;
+    return (one == null || one.isEmpty) ? const [] : [one];
+  }
 
   bool canEditProject(Project project) {
     if (currentUser == null) return false;

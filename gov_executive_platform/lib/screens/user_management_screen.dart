@@ -177,6 +177,21 @@ class _UserRow extends StatefulWidget {
 
 class _UserRowState extends State<_UserRow> {
   bool _busy = false;
+  bool _restamping = false;
+
+  Future<void> _restampClaims() async {
+    setState(() => _restamping = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final error = await context.read<AppStore>().restampUserClaims(widget.user.id);
+    if (!mounted) return;
+    setState(() => _restamping = false);
+    messenger.showSnackBar(SnackBar(
+      content: Text(error ??
+          'أُعيد ختم صلاحيات "${widget.user.name}". يلزم أن يُحدِّث صفحته أو '
+              'يخرج ويدخل ليسري المفعول.'),
+      duration: const Duration(seconds: 8),
+    ));
+  }
 
   Future<void> _toggleStatus() async {
     setState(() => _busy = true);
@@ -234,6 +249,19 @@ class _UserRowState extends State<_UserRow> {
             icon: const Icon(Icons.mail_outline_rounded, size: 19),
             tooltip: 'إرسال إشعار',
             onPressed: () => showDialog(context: context, builder: (_) => NotifyDialog(initialUsers: [u])),
+          ),
+          // إعادة ختم بصمات الدخول من سجل المستخدم.
+          //
+          // قواعد الخادم تحتكم إلى بطاقة الدخول لا إلى السجل. فمستخدم بطاقته
+          // قديمة أو غير مختومة يرى منصة خالية تماماً رغم أن سجلّه سليم. هذا
+          // الزر ينسخ السجل إلى البطاقة **دون تغيير دوره أو حالته أو إداراته**،
+          // فهو علاج لا صلاحية جديدة.
+          IconButton(
+            icon: _restamping
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.sync_lock_outlined, size: 19),
+            tooltip: 'إعادة ختم الصلاحيات (يُصلح حساباً لا يرى بياناته)',
+            onPressed: _restamping ? null : _restampClaims,
           ),
           if (u.status == UserStatus.approved || u.status == UserStatus.suspended)
             IconButton(

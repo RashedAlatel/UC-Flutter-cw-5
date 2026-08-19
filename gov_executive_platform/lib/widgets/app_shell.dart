@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../models/role_permissions.dart';
 import '../screens/appearance_settings_screen.dart';
+import '../screens/account_diagnostics_screen.dart';
 import '../screens/audit_log_screen.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/decision_center_screen.dart';
@@ -22,6 +23,7 @@ import '../theme/app_theme.dart';
 import '../theme/brand.dart';
 import '../utils/formatters.dart';
 import 'announcements_banner.dart';
+import 'data_access_banner.dart';
 import 'ministry_logo.dart';
 import 'smart_alerts_banner.dart';
 import 'update_banner.dart';
@@ -157,6 +159,15 @@ class _AppShellState extends State<AppShell> {
             // فقد يكون كل ما يراه قديماً، فالأولى أن ينتبه له أولاً. يُخفي
             // نفسه ويحمل هوامشه بنفسه، فلا يترك فراغاً حين لا يوجد تحديث.
             UpdateBanner(horizontalPadding: wide ? 24 : 16),
+            // لافتة رفض القراءة تسبق كل شيء عدا التحديث: حين ترفض قواعد
+            // الخادم قراءة بيانات المستخدم تظهر له المنصة **خاليةً بلا أي
+            // رسالة**، فيظن أن لا بيانات بينما هي محجوبة عنه. وهذا ما وقع
+            // لمدير إدارة لم يرَ مشاريعه ولا حتى التعميمات العامة.
+            if (store.hasDataErrors)
+              Padding(
+                padding: EdgeInsets.fromLTRB(wide ? 24 : 16, 12, wide ? 24 : 16, 0),
+                child: const DataAccessBanner(),
+              ),
             if (hasBanners)
               Padding(
                 padding: EdgeInsets.fromLTRB(wide ? 24 : 16, 14, wide ? 24 : 16, 0),
@@ -413,6 +424,24 @@ class _Sidebar extends StatelessWidget {
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white.withValues(alpha: 0.40), fontSize: 9.5)),
                   const SizedBox(height: 8),
+                  // مدخل دائم لا يظهر عند العطل وحده: أول ما يسأله المستخدم
+                  // حين لا يرى بياناته هو «هل حسابي مضبوط؟»، ولا يجوز أن يكون
+                  // الجواب مخبوءاً خلف لافتة خطأ قد لا تظهر أصلاً.
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const AccountDiagnosticsScreen()),
+                      ),
+                      icon: const Icon(Icons.medical_information_outlined, size: 15),
+                      label: const Text('تشخيص حسابي'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white.withValues(alpha: 0.75),
+                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(

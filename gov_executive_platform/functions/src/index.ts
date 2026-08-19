@@ -503,3 +503,62 @@ export const sendUserNotification = onCall({secrets: notificationSecrets}, async
 
   return {ok: true, sent: targets.length};
 });
+
+/**
+ * يعيد ختم بصمات الدخول (Custom Claims) من مستند المستخدم إلى بطاقته.
+ *
+ * لماذا تلزم؟ قواعد Firestore كلها تبدأ من `isApproved()`، وهي تقرأ
+ * `request.auth.token.approved` — أي بصمة في **بطاقة الدخول**، لا الحقل
+ * الموجود في مستند المستخدم. بينما التطبيق يقرّر دخول المستخدم من المستند.
+ * فحساب مستنده يقول «معتمد» وبطاقته لا تحمل البصمة يدخل المنصة ثم يجد كل
+ * شيء فارغاً: لا مشاريعه ولا حتى التعميمات العامة. وهذا ما وقع فعلاً لمدير
+ * إدارة مُسنَد لإدارة فيها مشاريع.
+ *
+ * **ولا تصعيد صلاحيات فيها**، وهذا مقصود ومبنيّ على قاعدتين قائمتين في
+ * firestore.rules: مستند المستخدم `allow update: if isAdmin()` فلا يكتب فيه
+ * إلا مسؤول النظام، والتسجيل الذاتي مُجبَر على `status: 'pending'` و
+ * `role: 'projectOfficer'`. فالدالة تنسخ ما كتبه مسؤول النظام حرفياً ولا
+ * تضيف حرفاً. ولا تمسّ بوابات الاعتماد الثلاث (تسجيل الأعضاء، إضافة
+ * المشاريع، تغيير المواعيد النهائية) فهي تبقى حكراً على systemAdmin.
+ */
+async function restampClaims(uid: string): Promise<Record<string, unknown>> {
+  const doc = await db().collection("users").doc(uid).get();
+  if (!doc.exists) throw new HttpsError("not-found", "لا يوجد سجل لهذا المستخدم");
+  const u = doc.data()!;
+  const role = (u.role as string | undefined) ?? "projectOfficer";
+  const perms = await loadCustomRolePerms(role, (u.customRoleId as string | null) ?? null);
+  const claims = {
+    role,
+    departmentId: (u.departmentId as string | null) ?? null,
+    // حسابات أُنشئت قبل حقل الإدارات الجمع تحمل المفرد وحده؛ نشتقّ منه القائمة
+    // حتى لا يبقى مدير إدارة بنطاق فارغ فلا يرى شيئاً.
+    departmentIds: Array.isArray(u.departmentIds) && u.departmentIds.length > 0 ?
+      u.departmentIds :
+      (role === "departmentManager" && u.departmentId ? [u.departmentId] : []),
+    approved: u.status === "approved",
+    ...(perms ? {perms} : {}),
+  };
+  await admin.auth().setCustomUserClaims(uid, claims);
+  return claims;
+}
+
+/** يزامن بطاقة **المتصل نفسه** فقط. */
+export const syncMyClaims = onCall(async (request) => {
+  const auth = requireAuth(request);
+  const claims = await restampClaims(auth.uid);
+  return {ok: true, claims};
+});
+
+/** يعيد ختم بطاقة مستخدم بعينه — لمسؤول النظام، دون تعديل دوره أو حالته. */
+export const adminRestampClaims = onCall(async (request) => {
+  const auth = requireAdmin(request);
+  const {uid} = (request.data ?? {}) as {uid?: string};
+  if (!uid) throw new HttpsError("invalid-argument", "الرجاء تحديد المستخدم");
+  const claims = await restampClaims(uid);
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "إعادة ختم الصلاحيات",
+    `أُعيد ختم بصمات الدخول للمستخدم ${uid} من سجله دون تغيير دوره`,
+  );
+  return {ok: true, claims};
+});

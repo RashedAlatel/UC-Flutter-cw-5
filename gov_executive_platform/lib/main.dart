@@ -25,9 +25,14 @@ Future<void> main() async {
   // المهلة ضرورية ولا يكفي try/catch وحده: عند حجب النطاق لا ترمي التهيئة
   // استثناءً بل **تتعلّق بلا نهاية** (وعد JavaScript لا يُحسم)، فينتظر
   // التطبيق للأبد ولا يُرسم شيء إطلاقاً.
+  //
+  // المهلة اثنتا عشرة ثانية: كانت عشرين، وقياس الإقلاع على متصفح جوال أظهر
+  // أن أول إطار لا يُرسم قبل الثانية الخامسة والثلاثين عند تعذّر الوصول إلى
+  // www.gstatic.com — انتظار طويل جداً يظن معه المستخدم أن المنصة معطّلة.
+  // اثنتا عشرة ثانية تكفي لشبكة جوال بطيئة وتُظهر سبب العطل مبكراً.
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
-        .timeout(const Duration(seconds: 20));
+        .timeout(const Duration(seconds: 12));
   } catch (e) {
     runApp(StartupErrorApp(details: e.toString()));
     return;

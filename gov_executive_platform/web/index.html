@@ -113,13 +113,25 @@
       if (el) el.remove();
     }
 
-    // إشارتان مستقلتان لإخفاء شاشة التحميل، حتى لا تبقى فوق تطبيق يعمل لو
-    // تخلّفت إحداهما:
-    // ١) flutter-first-frame — الحدث الرسمي عند رسم أول إطار.
+    // إشارة واحدة تُخفي الشاشة: flutter-first-frame، أي **بعد رسم أول إطار
+    // فعلاً**.
+    //
+    // كانت هنا إشارة ثانية تُخفيها بمجرد ظهور عنصر flutter-view، وكان ذلك
+    // عيباً حقيقياً: المحرك يُنشئ flutter-view مبكراً جداً، قبل أن يُكمل
+    // main() تهيئة Firebase وقبل رسم أي شيء. فتختفي شاشة التحميل ويبقى
+    // المستخدم أمام خلفية خضراء صمّاء — بلا دوّار ولا رسالة — طوال مدة
+    // انتظار Firebase (١٥ ثانية أو أكثر على شبكات الجوال). قِيس ذلك فعلياً
+    // على متصفح جوال: الشاشة تفرغ عند الثانية ١٥ ولا يُرسم أول إطار قبل
+    // الثانية ٣٥. المستخدم يظن أن المنصة "لا تفتح" فيغلقها.
     window.addEventListener('flutter-first-frame', hideBoot);
-    // ٢) ظهور عنصر flutter-view في الصفحة — إشارة مبكرة على إقلاع المحرك.
+
+    // ظهور flutter-view لم يعد يُخفي الشاشة، بل يُحدّث نصّها فقط ليعرف
+    // المستخدم أن التقدّم مستمر ولم يتوقف.
     var bootObserver = new MutationObserver(function () {
-      if (document.querySelector('flutter-view')) hideBoot();
+      if (!document.querySelector('flutter-view')) return;
+      bootObserver.disconnect();
+      var msg = document.getElementById('boot-msg');
+      if (msg) msg.textContent = 'جارٍ الاتصال بخدمات المنصة…';
     });
     bootObserver.observe(document.documentElement, { childList: true, subtree: true });
 

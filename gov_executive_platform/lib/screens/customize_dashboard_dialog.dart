@@ -45,7 +45,10 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
       final i = updated.indexWhere((w) => w.id == editing.id);
       if (i != -1) updated[i] = DashboardWidgetConfig(id: editing.id, type: DashboardWidgetType.custom, custom: spec);
     } else {
-      updated.add(DashboardWidgetConfig(id: const Uuid().v4(), type: DashboardWidgetType.custom, custom: spec));
+      // يُدرَج في رأس القائمة لا في ذيلها: الإضافة في الذيل كانت تضع الودجت
+      // الجديد أسفل بقية اللوحة، فلا يراه المستخدم إلا بعد تمرير طويل ويظن
+      // أن الإضافة لم تنجح. الرأس يجعله أول ما يظهر فور إغلاق النافذة.
+      updated.insert(0, DashboardWidgetConfig(id: const Uuid().v4(), type: DashboardWidgetType.custom, custom: spec));
     }
 
     // نحفظ الودجت المخصص فور إنشائه مباشرةً (بدل الاكتفاء بإضافته للقائمة

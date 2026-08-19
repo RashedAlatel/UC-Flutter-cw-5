@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/department.dart';
 import '../theme/app_theme.dart';
 import '../theme/department_icons.dart';
+import '../widgets/focused_project_card.dart';
 import '../widgets/progress_bar.dart';
 import 'department_detail_screen.dart';
 
@@ -139,7 +140,11 @@ class _DepartmentsListScreenState extends State<DepartmentsListScreen> {
               crossAxisSpacing: 16,
               mainAxisSpacing: 16,
               childAspectRatio: 1.35,
-              children: departments.map((dept) {
+              children: [
+                // المشاريع الموضوعة تحت التركيز تظهر كبطاقات مستقلة بجانب
+                // بطاقات الإدارات، لا داخل إدارتها — وهو الغرض من تمييزها.
+                ...store.focusedProjects.map((p) => FocusedProjectCard(project: p, compact: true)),
+                ...departments.map((dept) {
                 final progress = store.departmentProgress(dept.id);
                 final delay = store.departmentAvgDelay(dept.id);
                 final projectCount = store.projectsForDepartment(dept.id).length;
@@ -200,7 +205,8 @@ class _DepartmentsListScreenState extends State<DepartmentsListScreen> {
                     ),
                   ),
                 );
-              }).toList(),
+                }),
+              ],
             );
           }),
         ],
@@ -209,30 +215,75 @@ class _DepartmentsListScreenState extends State<DepartmentsListScreen> {
   }
 }
 
+/// نتيجة نافذة تأكيد حذف الإدارة: إلغاء، أو حذف مع إبقاء المشاريع، أو حذف
+/// متسلسل يشمل المشاريع.
+enum _DeleteChoice { keepProjects, cascade }
+
 Future<void> _confirmDelete(BuildContext context, Department dept) async {
   final store = context.read<AppStore>();
-  final confirmed = await showDialog<bool>(
+  final count = store.projectsForDepartment(dept.id).length;
+
+  // بلا مشاريع: تأكيد بسيط. مع مشاريع: يختار المستخدم مصيرها صراحةً.
+  final choice = await showDialog<_DeleteChoice>(
     context: context,
     builder: (ctx) => AlertDialog(
       title: const Text('حذف الإدارة'),
-      content: Text('هل أنت متأكد من حذف "${dept.name}"؟ لا يمكن التراجع عن هذا الإجراء.'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            count == 0
+                ? 'هل أنت متأكد من حذف "${dept.name}"؟ لا توجد مشاريع مرتبطة بها.'
+                : 'بداخل "${dept.name}" $count مشروعاً. اختر ما يحدث لها:',
+            style: const TextStyle(fontSize: 13, height: 1.6),
+          ),
+          if (count > 0) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.danger.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'الحذف النهائي يشمل مهام المشاريع ومخاطرها وعوائقها وتحديثاتها اليومية، ولا يمكن التراجع عنه.',
+                style: TextStyle(fontSize: 11.5, color: AppColors.danger, height: 1.6),
+              ),
+            ),
+          ],
+        ],
+      ),
+      actionsOverflowDirection: VerticalDirection.down,
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+        if (count > 0)
+          OutlinedButton(
+            onPressed: () => Navigator.pop(ctx, _DeleteChoice.keepProjects),
+            child: const Text('حذف الإدارة وإبقاء المشاريع'),
+          ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
-          onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('حذف'),
+          onPressed: () => Navigator.pop(ctx, _DeleteChoice.cascade),
+          child: Text(count == 0 ? 'حذف' : 'حذف الإدارة ومشاريعها'),
         ),
       ],
     ),
   );
-  if (confirmed != true || !context.mounted) return;
-  final error = await store.deleteDepartment(dept);
+  if (choice == null || !context.mounted) return;
+
+  final error = await store.deleteDepartment(dept, cascade: choice == _DeleteChoice.cascade);
   if (!context.mounted) return;
   if (error != null) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: AppColors.danger));
   } else {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم حذف "${dept.name}"')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(choice == _DeleteChoice.cascade
+          ? 'تم حذف "${dept.name}" ومشاريعها'
+          : count == 0
+              ? 'تم حذف "${dept.name}"'
+              : 'تم حذف "${dept.name}" ونُقل $count مشروعاً إلى "بدون إدارة"'),
+    ));
   }
 }
 

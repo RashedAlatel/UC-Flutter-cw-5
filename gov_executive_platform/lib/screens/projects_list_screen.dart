@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import '../widgets/custom_widgets_section.dart';
 import '../widgets/progress_bar.dart';
+import '../widgets/project_actions.dart';
 import '../widgets/status_chip.dart';
 import 'project_detail_screen.dart';
 import 'request_project_dialog.dart';
@@ -219,6 +220,22 @@ class _ProjectRow extends StatelessWidget {
                     ),
                   ),
                   StatusChip(status: project.status),
+                  if (store.isAdmin) ...[
+                    IconButton(
+                      icon: Icon(
+                        store.isFocused(project.id) ? Icons.star_rounded : Icons.star_border_rounded,
+                        size: 19,
+                        color: store.isFocused(project.id) ? AppColors.accent : AppColors.textSecondary,
+                      ),
+                      tooltip: store.isFocused(project.id) ? 'إزالة من التركيز' : 'وضع تحت التركيز',
+                      onPressed: () => store.toggleFocusedProject(project),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded, size: 19, color: AppColors.danger),
+                      tooltip: 'حذف المشروع',
+                      onPressed: () => confirmDeleteProject(context, project),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 12),

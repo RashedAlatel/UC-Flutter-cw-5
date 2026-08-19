@@ -35,11 +35,15 @@ import 'ministry_import_data.dart';
 /// هذا الملف؛ كل ما يفعله الطلب هو إنشاء وثيقة "طلب موافقة" في Firestore، والتنفيذ
 /// الفعلي يتم حصرياً داخل Cloud Functions بعد تحقق الخادم من صلاحية مسؤول النظام.
 class AppStore extends ChangeNotifier {
-  final _auth = fb_auth.FirebaseAuth.instance;
-  final _db = FirebaseFirestore.instance;
+  // مقيَّمة بكسل (late) لا فور الإنشاء: هذا يسمح ببناء AppStore في اختبارات
+  // المعاينة وملء حقوله ببيانات تجريبية مباشرةً دون تهيئة Firebase، فنتمكن من
+  // تصيير الشاشات ومراجعتها بصرياً. في التشغيل الفعلي لا يتغير شيء — أول
+  // استخدام لأي منها يهيّئه تماماً كما كان.
+  late final _auth = fb_auth.FirebaseAuth.instance;
+  late final _db = FirebaseFirestore.instance;
   // يجب أن تطابق المنطقة (region) المحددة في functions/src/index.ts
   // (setGlobalOptions)، وإلا تفشل كل استدعاءات httpsCallable بصمت.
-  final _functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+  late final _functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
 
   AppUser? currentUser;
   bool _ready = false;
@@ -123,6 +127,32 @@ class AppStore extends ChangeNotifier {
     await _log('تحديث التنبيهات الذكية', 'قام ${currentUser?.name} بتحديث إعدادات التنبيهات التلقائية');
   }
 
+  // ------------------------- المشاريع تحت التركيز -------------------------
+
+  /// مشاريع اختار مسؤول النظام إبرازها منفردة بجانب الإدارات وأعلى لوحة
+  /// القيادة، لتكون أول ما يراه القيادي عند الدخول.
+  List<String> focusedProjectIds = [];
+
+  bool isFocused(String projectId) => focusedProjectIds.contains(projectId);
+
+  /// المشاريع المميّزة ضمن نطاق رؤية المستخدم الحالي فقط (تُرشَّح تلقائياً
+  /// فلا يرى مستخدم مشروعاً مميّزاً خارج صلاحيته).
+  List<Project> get focusedProjects {
+    final visible = visibleProjects;
+    return focusedProjectIds.map((id) => visible.where((p) => p.id == id)).expand((e) => e).toList();
+  }
+
+  Future<void> toggleFocusedProject(Project project) async {
+    final updated = List<String>.of(focusedProjectIds);
+    final wasFocused = updated.remove(project.id);
+    if (!wasFocused) updated.add(project.id);
+    await _db.collection('settings').doc('focus').set({'projectIds': updated});
+    await _log(
+      'المشاريع تحت التركيز',
+      wasFocused ? 'أُزيل المشروع "${project.name}" من التركيز' : 'وُضع المشروع "${project.name}" تحت التركيز',
+    );
+  }
+
   /// تنبيهات تُحسب حيّة من بيانات المشاريع الفعلية حسب إعدادات [alertRules]
   /// (بدل أن تُكتب يدوياً)، ضمن نطاق رؤية المستخدم الحالي.
   List<ProjectAlertGroup> get liveProjectAlerts {
@@ -203,6 +233,7 @@ class AppStore extends ChangeNotifier {
     projectsPageWidgets = [];
     announcements = [];
     alertRules = const AlertRulesConfig();
+    focusedProjectIds = [];
     customRoles = [];
     _projectWidgets.clear();
     _projectWidgetsSubscribed.clear();
@@ -324,6 +355,11 @@ class AppStore extends ChangeNotifier {
     }));
     _dataSubs.add(_db.collection('settings').doc('alertRules').snapshots().listen((doc) {
       alertRules = AlertRulesConfig.fromMap(doc.data());
+      notifyListeners();
+    }));
+    _dataSubs.add(_db.collection('settings').doc('focus').snapshots().listen((doc) {
+      final ids = doc.data()?['projectIds'] as List?;
+      focusedProjectIds = ids == null ? [] : ids.map((e) => e.toString()).toList();
       notifyListeners();
     }));
 
@@ -970,18 +1006,82 @@ class AppStore extends ChangeNotifier {
     await _log('إدارة الإدارات', 'تمت إضافة إدارة جديدة "${dept.name}"');
   }
 
-  /// يحذف إدارة فقط إذا لم يعد مرتبطاً بها أي مشروع (لتفادي فقدان بيانات
-  /// مشاريع قائمة عن طريق الخطأ) — يُستخدم لتنظيف الإدارات المكررة التي
-  /// أُنشئت بالخطأ (كفروقات الهمزة "إدارة"/"ادارة"). يُعيد رسالة خطأ عند
-  /// الفشل أو null عند النجاح.
-  Future<String?> deleteDepartment(Department dept) async {
-    if (projectsForDepartment(dept.id).isNotEmpty) {
-      return 'لا يمكن حذف "${dept.name}" لوجود مشاريع مرتبطة بها. انقل المشاريع إلى إدارة أخرى أولاً.';
+  /// يحذف إدارة ولو كانت تحتوي مشاريع.
+  ///
+  /// [cascade] يحدد مصير مشاريعها:
+  /// - `false`: تبقى المشاريع وتصبح "بدون إدارة" (`departmentId: ''`) — التطبيق
+  ///   يعرضها بهذه التسمية في كل المواضع، ويمكن إعادة توزيعها لاحقاً.
+  /// - `true`: تُحذف المشاريع وكل تابعيها (مهام/مخاطر/عوائق/تحديثات) نهائياً.
+  ///
+  /// يُعيد رسالة خطأ عند الفشل أو null عند النجاح.
+  Future<String?> deleteDepartment(Department dept, {required bool cascade}) async {
+    final owned = projectsForDepartment(dept.id);
+    try {
+      if (cascade) {
+        for (final p in owned) {
+          await _deleteProjectDocs(p);
+        }
+      } else {
+        // نقل المشاريع إلى "بدون إدارة" على دفعات (حد Firestore ٥٠٠ عملية للدفعة).
+        for (var i = 0; i < owned.length; i += 400) {
+          final batch = _db.batch();
+          for (final p in owned.skip(i).take(400)) {
+            batch.update(_db.collection('projects').doc(p.id), {'departmentId': ''});
+          }
+          await batch.commit();
+        }
+      }
+      await _db.collection('departments').doc(dept.id).delete();
+      await _log(
+        'إدارة الإدارات',
+        cascade
+            ? 'تم حذف الإدارة "${dept.name}" مع ${owned.length} مشروعاً وكل تابعيها'
+            : 'تم حذف الإدارة "${dept.name}" ونُقل ${owned.length} مشروعاً إلى "بدون إدارة"',
+      );
+      return null;
+    } catch (e) {
+      return 'تعذر حذف الإدارة: $e';
     }
-    await _db.collection('departments').doc(dept.id).delete();
-    await _log('إدارة الإدارات', 'تم حذف الإدارة "${dept.name}"');
-    return null;
   }
+
+  // ------------------------- حذف المشاريع -------------------------
+
+  /// يحذف مشروعاً وكل المستندات المرتبطة به. يُعيد رسالة خطأ أو null عند النجاح.
+  Future<String?> deleteProject(Project project) async {
+    try {
+      await _deleteProjectDocs(project);
+      await _log('إدارة المشاريع', 'تم حذف المشروع "${project.name}" وكل تابعيه');
+      return null;
+    } catch (e) {
+      return 'تعذر حذف المشروع: $e';
+    }
+  }
+
+  /// يحذف مستند المشروع وكل ما يتبعه من مهام ومخاطر وعوائق وتحديثات يومية
+  /// وودجات خاصة به — لئلا تبقى مستندات يتيمة تظهر في المؤشرات والتقارير.
+  Future<void> _deleteProjectDocs(Project project) async {
+    const related = ['tasks', 'risks', 'blockers', 'dailyUpdates'];
+    for (final collection in related) {
+      final snap = await _db.collection(collection).where('projectId', isEqualTo: project.id).get();
+      for (var i = 0; i < snap.docs.length; i += 400) {
+        final batch = _db.batch();
+        for (final doc in snap.docs.skip(i).take(400)) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
+      }
+    }
+    await _db.collection('projectWidgets').doc(project.id).delete();
+    await _db.collection('projects').doc(project.id).delete();
+  }
+
+  /// عدد المستندات التابعة لمشروع، لعرضه في نافذة تأكيد الحذف حتى يعرف
+  /// المستخدم حجم ما سيفقده قبل أن يؤكد.
+  ({int tasks, int risks, int blockers}) projectDependents(String projectId) => (
+        tasks: tasks.where((t) => t.projectId == projectId).length,
+        risks: risks.where((r) => r.projectId == projectId).length,
+        blockers: blockers.where((b) => b.projectId == projectId).length,
+      );
 
   Future<void> seedDefaultDepartments() async {
     final batch = _db.batch();

@@ -11,6 +11,7 @@ import '../widgets/charts.dart';
 import '../widgets/custom_widgets_section.dart';
 import '../widgets/executors_field.dart';
 import '../widgets/progress_bar.dart';
+import '../widgets/project_actions.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
 import 'request_deadline_change_dialog.dart';
@@ -57,6 +58,28 @@ class ProjectDetailScreen extends StatelessWidget {
                         ),
                       ),
                       StatusChip(status: project.status),
+                      if (store.isAdmin)
+                        IconButton(
+                          icon: Icon(
+                            store.isFocused(project.id) ? Icons.star_rounded : Icons.star_border_rounded,
+                            size: 20,
+                            color: store.isFocused(project.id) ? AppColors.accent : AppColors.textSecondary,
+                          ),
+                          tooltip: store.isFocused(project.id) ? 'إزالة من التركيز' : 'وضع تحت التركيز',
+                          onPressed: () => store.toggleFocusedProject(project),
+                        ),
+                      if (store.isAdmin)
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, size: 20, color: AppColors.danger),
+                          tooltip: 'حذف المشروع',
+                          onPressed: () async {
+                            final navigator = Navigator.of(context);
+                            final deleted = await confirmDeleteProject(context, project);
+                            // بعد الحذف لم يعد لهذه الصفحة مشروع تعرضه، فنعود
+                            // للخلف إن كانت مفتوحة فوق صفحة أخرى.
+                            if (deleted && navigator.canPop()) navigator.pop();
+                          },
+                        ),
                     ],
                   ),
                   const SizedBox(height: 12),

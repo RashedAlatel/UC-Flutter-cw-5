@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
 import '../widgets/custom_widget_view.dart';
+import '../widgets/focused_project_card.dart';
 import '../widgets/kpi_card.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
@@ -112,6 +113,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (store.isAdmin && store.projects.isEmpty) ...[
             const SizedBox(height: 16),
             const _DemoDataBanner(),
+          ],
+          // المشاريع تحت التركيز أعلى اللوحة: أول ما يراه القيادي عند الدخول،
+          // قبل الفلاتر والمؤشرات العامة.
+          if (store.focusedProjects.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            const Text('مشاريع تحت التركيز',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+            const SizedBox(height: 10),
+            LayoutBuilder(builder: (context, constraints) {
+              final cols = constraints.maxWidth > 1000 ? 3 : (constraints.maxWidth > 640 ? 2 : 1);
+              return GridView.count(
+                crossAxisCount: cols,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisSpacing: 14,
+                mainAxisSpacing: 14,
+                childAspectRatio: (constraints.maxWidth - 14 * (cols - 1)) / cols / 220,
+                children: store.focusedProjects.map((p) => FocusedProjectCard(project: p)).toList(),
+              );
+            }),
           ],
           const SizedBox(height: 18),
           _FilterBar(
@@ -337,13 +358,20 @@ class _KpiGrid extends StatelessWidget {
           color: AppColors.info,
         ),
       ];
+      // ارتفاع البطاقة يُثبَّت بقيمة تكفي محتواها بالضبط، وتُشتق منه النسبة
+      // حسب العرض الفعلي. النسبة الثابتة السابقة (1.55) كانت تعني على عمود
+      // واحد (الهاتف) بطاقة بارتفاع ~٢٢٠ بكسل لمحتوى يحتاج ٩٠ — خمس بطاقات
+      // بفراغ داخلي هائل تُقرأ كصفحة بيضاء عند التمرير.
+      const spacing = 14.0;
+      const itemHeight = 92.0;
+      final itemWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
       return GridView.count(
         crossAxisCount: cols,
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        crossAxisSpacing: 14,
-        mainAxisSpacing: 14,
-        childAspectRatio: 1.55,
+        crossAxisSpacing: spacing,
+        mainAxisSpacing: spacing,
+        childAspectRatio: itemWidth / itemHeight,
         children: items,
       );
     });
@@ -503,13 +531,27 @@ class _TopProjectsCard extends StatelessWidget {
 }
 
 /// جدول تفصيلي بالمشاريع (بحسب النطاق المفلتَر)، بنفس أسلوب جداول أدوات BI.
+/// جدول تفاصيل المشاريع.
+///
+/// **مهم:** ارتفاع هذه البطاقة مُقيَّد عمداً. قبل ذلك كانت ترسم صفاً لكل مشروع
+/// بلا سقف، فمع بيانات الوزارة (٦٥ مشروعاً) كان ارتفاعها وحده ~٢٩٠٠ بكسل ويجعل
+/// لوحة القيادة ~٥٨٠٠ بكسل (نحو سبع شاشات هاتف). وبما أن الجدول عريض ويُمرَّر
+/// أفقياً، كانت الشريحة المرئية منه على الهاتف فارغة بصرياً في معظم ارتفاعها —
+/// وهو ما ظهر للمستخدم كـ"صفحة فارغة إلى ما لا نهاية"، وحجب أي ودجت مضاف بعده.
 class _ProjectsTableCard extends StatelessWidget {
   final AppStore store;
   final List<Project> projects;
   const _ProjectsTableCard({required this.store, required this.projects});
 
+  /// أقصى عدد صفوف تُعرض داخل البطاقة؛ الباقي عبر "عرض كل المشاريع".
+  static const int _maxRows = 25;
+
   @override
   Widget build(BuildContext context) {
+    final shown = projects.take(_maxRows).toList();
+    final hidden = projects.length - shown.length;
+    final narrow = MediaQuery.of(context).size.width < 720;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -523,10 +565,24 @@ class _ProjectsTableCard extends StatelessWidget {
                 padding: EdgeInsets.symmetric(vertical: 20),
                 child: Center(child: Text('لا توجد مشاريع مطابقة', style: TextStyle(color: AppColors.textSecondary))),
               )
+            // على الشاشات الضيقة الجدول العريض يُقصّ ويظهر فراغاً؛ نعرض بدله
+            // قائمة بطاقات رأسية مقروءة بالكامل بلا تمرير أفقي.
+            else if (narrow)
+              SizedBox(
+                height: 420,
+                child: ListView.separated(
+                  itemCount: shown.length,
+                  separatorBuilder: (_, _) => const Divider(height: 18),
+                  itemBuilder: (context, i) => _CompactProjectRow(store: store, project: shown[i]),
+                ),
+              )
             else
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
+              SizedBox(
+                height: 420,
+                child: SingleChildScrollView(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: DataTable(
                   headingRowHeight: 38,
                   dataRowMinHeight: 40,
                   dataRowMaxHeight: 44,
@@ -539,7 +595,7 @@ class _ProjectsTableCard extends StatelessWidget {
                     DataColumn(label: Text('الاستحقاق', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5))),
                     DataColumn(label: Text('المنفذ', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5))),
                   ],
-                  rows: projects.map((p) {
+                  rows: shown.map((p) {
                     final dept = store.departmentById(p.departmentId);
                     return DataRow(
                       onSelectChanged: (_) => Navigator.of(context).push(MaterialPageRoute(
@@ -555,10 +611,60 @@ class _ProjectsTableCard extends StatelessWidget {
                       ],
                     );
                   }).toList(),
+                    ),
+                  ),
                 ),
               ),
+            if (hidden > 0) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  'يُعرض $_maxRows مشروعاً من ${projects.length} — افتح صفحة "المشاريع" لعرضها كلها مع البحث والتصفية.',
+                  style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                ),
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// صف مشروع مضغوط للشاشات الضيقة — بديل الجدول العريض الذي كان يُقصّ أفقياً.
+class _CompactProjectRow extends StatelessWidget {
+  final AppStore store;
+  final Project project;
+  const _CompactProjectRow({required this.store, required this.project});
+
+  @override
+  Widget build(BuildContext context) {
+    final dept = store.departmentById(project.departmentId);
+    return InkWell(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => Scaffold(appBar: AppBar(title: Text(project.name)), body: ProjectDetailScreen(projectId: project.id)),
+      )),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(project.name,
+                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700), maxLines: 2, overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 8),
+              StatusChip(status: project.status),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${dept?.name ?? 'بدون إدارة'} · ${Formatters.percent(project.progressPercent)} · ${Formatters.shortDate(project.dueDate)}',
+            style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+          ),
+        ],
       ),
     );
   }

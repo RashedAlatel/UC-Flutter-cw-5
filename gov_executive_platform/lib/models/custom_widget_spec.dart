@@ -1,6 +1,6 @@
 /// مصدر بيانات الودجت المخصص الذي يبنيه مسؤول النظام (أو من يملك صلاحية
 /// "تخصيص اللوحة") بنفسه، بدل الاختيار من قائمة ثابتة فقط.
-enum CustomWidgetSource { projects, tasks, risks, blockers }
+enum CustomWidgetSource { projects, tasks, risks, blockers, works }
 
 extension CustomWidgetSourceX on CustomWidgetSource {
   String get label {
@@ -13,6 +13,8 @@ extension CustomWidgetSourceX on CustomWidgetSource {
         return 'المخاطر';
       case CustomWidgetSource.blockers:
         return 'العوائق';
+      case CustomWidgetSource.works:
+        return 'الأعمال';
     }
   }
 
@@ -28,6 +30,8 @@ extension CustomWidgetSourceX on CustomWidgetSource {
         return const {'level': 'مستوى الخطورة', 'status': 'الحالة'};
       case CustomWidgetSource.blockers:
         return const {'status': 'الحالة'};
+      case CustomWidgetSource.works:
+        return const {'status': 'الحالة', 'priority': 'الأولوية', 'department': 'الإدارة', 'assignee': 'المسؤول عن التنفيذ'};
     }
   }
 

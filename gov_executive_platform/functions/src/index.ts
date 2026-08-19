@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import {HttpsError, onCall, CallableRequest} from "firebase-functions/v2/https";
 import {setGlobalOptions} from "firebase-functions/v2";
+import * as logger from "firebase-functions/logger";
 
 import {notifyUser} from "./notify";
 import {notificationSecrets} from "./secrets";
@@ -39,26 +40,58 @@ async function logAudit(userName: string, action: string, details: string): Prom
 
 // "val" (الاطلاع على سجل التدقيق) أُزيلت عمداً من الصلاحيات القابلة للتفويض:
 // سجل التدقيق يبقى حصراً لمسؤول النظام، لا يملك أي دور مخصص الوصول إليه.
-const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd"] as const;
+// مفاتيح الصلاحيات القابلة للتفويض. لا تتضمن — ولن تتضمن — بوابات الاعتماد
+// الثلاث (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي)؛ تلك تبقى محصورة
+// بـ systemAdmin عبر requireAdmin وقواعد Firestore معاً.
+const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del"] as const;
+
+/** الأدوار الأساسية التي يضبط مسؤول النظام صلاحياتها من شاشة "صلاحيات الأدوار". */
+const CONFIGURABLE_ROLES = ["executiveViewer", "departmentManager", "projectOfficer", "employee"] as const;
+
+/** الإعداد المبدئي إن لم يُنشأ مستند settings/rolePermissions بعد — مطابق لسلوك المنصة السابق. */
+const DEFAULT_ROLE_PERMS: Record<string, string[]> = {
+  executiveViewer: ["vad", "mr", "agd"],
+  departmentManager: ["mw"],
+  projectOfficer: [],
+  employee: [],
+};
+
+function emptyPerms(): Record<string, boolean> {
+  const perms: Record<string, boolean> = {};
+  for (const key of CUSTOM_ROLE_PERM_KEYS) perms[key] = false;
+  return perms;
+}
 
 /**
- * يُحمّل مجموعة الصلاحيات المضغوطة (لتضمينها في Custom Claims) لدور مخصص.
- * يرجع undefined للأدوار الأساسية الأربعة الثابتة (لا تحتاج أعلام إضافية).
+ * يُحمّل مجموعة الصلاحيات المضغوطة لتضمينها في Custom Claims.
+ *
+ * - `custom`: تُقرأ من مستند الدور المخصص في مجموعة roles.
+ * - الأدوار الأساسية القابلة للضبط: تُقرأ من settings/rolePermissions.
+ * - `systemAdmin`: undefined — صلاحياته كاملة عبر isAdmin() لا عبر الأعلام.
  */
 async function loadCustomRolePerms(role: string, customRoleId?: string | null): Promise<Record<string, boolean> | undefined> {
-  if (role !== "custom") return undefined;
-  if (!customRoleId) throw new HttpsError("invalid-argument", "الرجاء اختيار الدور المخصص");
-  const doc = await db().collection("roles").doc(customRoleId).get();
-  if (!doc.exists) throw new HttpsError("not-found", "الدور المخصص غير موجود");
-  const data = doc.data()!;
-  const perms: Record<string, boolean> = {};
-  for (const key of CUSTOM_ROLE_PERM_KEYS) {
-    perms[key] = false;
+  if (role === "custom") {
+    if (!customRoleId) throw new HttpsError("invalid-argument", "الرجاء اختيار الدور المخصص");
+    const doc = await db().collection("roles").doc(customRoleId).get();
+    if (!doc.exists) throw new HttpsError("not-found", "الدور المخصص غير موجود");
+    const data = doc.data()!;
+    const perms = emptyPerms();
+    perms.vad = data.viewAllDepartments === true;
+    perms.mr = data.manageReports === true;
+    perms.md = data.manageDashboard === true;
+    perms.agd = data.approveGeneralDecisions === true;
+    return perms;
   }
-  perms.vad = data.viewAllDepartments === true;
-  perms.mr = data.manageReports === true;
-  perms.md = data.manageDashboard === true;
-  perms.agd = data.approveGeneralDecisions === true;
+
+  if (!(CONFIGURABLE_ROLES as readonly string[]).includes(role)) return undefined;
+
+  const doc = await db().collection("settings").doc("rolePermissions").get();
+  const data = doc.exists ? doc.data() ?? {} : {};
+  const granted: string[] = Array.isArray(data[role]) ? data[role] : DEFAULT_ROLE_PERMS[role] ?? [];
+  const perms = emptyPerms();
+  for (const key of granted) {
+    if (key in perms) perms[key] = true;
+  }
   return perms;
 }
 
@@ -334,6 +367,53 @@ export const setUserStatus = onCall(async (request) => {
   await logAudit(auth.token.name ?? "مسؤول النظام", "تحديث حالة مستخدم", `تم تغيير حالة المستخدم "${current.name}" إلى ${status}`);
 
   return {ok: true};
+});
+
+/**
+ * يعيد ختم بصمات الصلاحيات (Custom Claims) على كل مستخدمي دور أساسي معيّن،
+ * ليسري تعديل "صلاحيات الأدوار" فعلياً على الخادم لا في الواجهة وحدها.
+ *
+ * لا يُغيّر دور أي مستخدم ولا حالته — يعيد كتابة أعلام الصلاحيات فقط بحسب
+ * settings/rolePermissions الحالي. التغيير يسري على المستخدم عند تجديد رمزه
+ * (إعادة الدخول أو تحديث الرمز تلقائياً بعد ساعة).
+ */
+export const refreshRolePermissions = onCall(async (request) => {
+  const auth = requireAdmin(request);
+  const {role} = (request.data ?? {}) as {role?: string};
+  if (!role) throw new HttpsError("invalid-argument", "الرجاء تحديد الدور");
+  if (!(CONFIGURABLE_ROLES as readonly string[]).includes(role)) {
+    throw new HttpsError("invalid-argument", "هذا الدور لا تُضبط صلاحياته من هنا");
+  }
+
+  const perms = await loadCustomRolePerms(role, null);
+  const snap = await db().collection("users").where("role", "==", role).get();
+
+  let updated = 0;
+  for (const doc of snap.docs) {
+    const u = doc.data();
+    try {
+      await admin.auth().setCustomUserClaims(doc.id, {
+        role,
+        departmentId: u.departmentId ?? null,
+        departmentIds: u.departmentIds ?? [],
+        approved: u.status === "approved",
+        ...(perms ? {perms} : {}),
+      });
+      updated++;
+    } catch (err) {
+      // حساب محذوف من Authentication لكن سجله باقٍ في Firestore — نتخطاه بدل
+      // إفشال العملية كلها على بقية المستخدمين.
+      logger.warn(`تعذر تحديث صلاحيات المستخدم ${doc.id}`, err);
+    }
+  }
+
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "تطبيق صلاحيات دور",
+    `تم تحديث صلاحيات ${updated} حساباً بدور "${role}"`,
+  );
+
+  return {ok: true, updated};
 });
 
 export const sendUserNotification = onCall({secrets: notificationSecrets}, async (request) => {

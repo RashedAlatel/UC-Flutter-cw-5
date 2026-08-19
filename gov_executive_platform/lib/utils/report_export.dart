@@ -9,6 +9,7 @@ import 'package:printing/printing.dart';
 import '../models/department.dart';
 import '../models/project.dart';
 import '../models/report.dart';
+import '../models/work_item.dart';
 import '../theme/brand.dart';
 import 'formatters.dart';
 
@@ -26,6 +27,7 @@ class ReportExporter {
     required ReportSnapshot report,
     required List<Project> projects,
     required Department? Function(String id) departmentById,
+    List<WorkItem> works = const [],
   }) async {
     final workbook = xls.Excel.createExcel();
     final defaultSheetName = workbook.getDefaultSheet();
@@ -78,6 +80,30 @@ class ReportExporter {
       ]);
     }
 
+    if (works.isNotEmpty) {
+      final worksSheet = workbook['الأعمال التشغيلية'];
+      worksSheet.appendRow([
+        xls.TextCellValue('العمل'),
+        xls.TextCellValue('الإدارة'),
+        xls.TextCellValue('المسؤول'),
+        xls.TextCellValue('الحالة'),
+        xls.TextCellValue('نسبة الإنجاز'),
+        xls.TextCellValue('الموعد'),
+        xls.TextCellValue('تاريخ الإنجاز'),
+      ]);
+      for (final w in works) {
+        worksSheet.appendRow([
+          xls.TextCellValue(w.title),
+          xls.TextCellValue(departmentById(w.departmentId)?.name ?? ''),
+          xls.TextCellValue(w.assigneeName),
+          xls.TextCellValue(w.status.label),
+          xls.DoubleCellValue(w.progressPercent),
+          xls.TextCellValue(Formatters.shortDate(w.dueDate)),
+          xls.TextCellValue(w.completedDate == null ? '' : Formatters.shortDate(w.completedDate!)),
+        ]);
+      }
+    }
+
     if (defaultSheetName != null) workbook.delete(defaultSheetName);
     workbook.save(fileName: '${_fileBaseName(report)}.xlsx');
   }
@@ -88,8 +114,9 @@ class ReportExporter {
     required ReportSnapshot report,
     required List<Project> projects,
     required Department? Function(String id) departmentById,
+    List<WorkItem> works = const [],
   }) async {
-    final bytes = await buildPdfBytes(report: report, projects: projects, departmentById: departmentById);
+    final bytes = await buildPdfBytes(report: report, projects: projects, departmentById: departmentById, works: works);
     await Printing.sharePdf(bytes: bytes, filename: '${_fileBaseName(report)}.pdf');
   }
 
@@ -100,6 +127,7 @@ class ReportExporter {
     required ReportSnapshot report,
     required List<Project> projects,
     required Department? Function(String id) departmentById,
+    List<WorkItem> works = const [],
   }) async {
     final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Tajawal-Regular.ttf'));
     final medium = pw.Font.ttf(await rootBundle.load('assets/fonts/Tajawal-Medium.ttf'));
@@ -237,6 +265,29 @@ class ReportExporter {
                     ])
                 .toList(),
           ),
+          if (works.isNotEmpty) ...[
+            pw.SizedBox(height: 18),
+            pw.Text('الأعمال التشغيلية (${works.length})', style: pw.TextStyle(font: bold, fontSize: 13, color: navy)),
+            pw.SizedBox(height: 6),
+            pw.TableHelper.fromTextArray(
+              headerStyle: pw.TextStyle(font: bold, fontSize: 9, color: PdfColors.white),
+              headerDecoration: const pw.BoxDecoration(color: navy),
+              cellStyle: pw.TextStyle(font: regular, fontSize: 9),
+              cellAlignment: pw.Alignment.centerRight,
+              headerAlignment: pw.Alignment.center,
+              border: pw.TableBorder.all(color: border, width: 0.5),
+              headers: ['العمل', 'الإدارة', 'المسؤول', 'الحالة', 'الإنجاز'],
+              data: works
+                  .map((w) => [
+                        w.title,
+                        departmentById(w.departmentId)?.name ?? 'بدون إدارة',
+                        w.assigneeName.isEmpty ? '—' : w.assigneeName,
+                        w.status.label,
+                        '${w.progressPercent.toStringAsFixed(0)}٪',
+                      ])
+                  .toList(),
+            ),
+          ],
           if (report.manualComment.trim().isNotEmpty) ...[
             pw.SizedBox(height: 18),
             pw.Text('تعليق تنفيذي', style: pw.TextStyle(font: bold, fontSize: 13, color: navy)),

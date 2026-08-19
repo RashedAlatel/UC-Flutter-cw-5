@@ -70,6 +70,7 @@ class _CustomWidgetBuilderDialogState extends State<CustomWidgetBuilderDialog> {
     if (field == 'status') {
       switch (_source) {
         case CustomWidgetSource.tasks:
+        case CustomWidgetSource.works:
           return TaskStatus.values.map((e) => MapEntry(e.name, e.label)).toList();
         case CustomWidgetSource.projects:
           return ProjectStatus.values.map((e) => MapEntry(e.name, e.label)).toList();

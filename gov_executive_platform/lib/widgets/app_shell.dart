@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/enums.dart';
+import '../models/role_permissions.dart';
 import '../screens/appearance_settings_screen.dart';
 import '../screens/audit_log_screen.dart';
 import '../screens/dashboard_screen.dart';
@@ -12,8 +13,10 @@ import '../screens/departments_list_screen.dart';
 import '../screens/project_detail_screen.dart';
 import '../screens/projects_list_screen.dart';
 import '../screens/reports_screen.dart';
+import '../screens/role_permissions_screen.dart';
 import '../screens/roles_management_screen.dart';
 import '../screens/user_management_screen.dart';
+import '../screens/works_list_screen.dart';
 import '../theme/app_theme.dart';
 import '../theme/brand.dart';
 import '../utils/formatters.dart';
@@ -84,18 +87,19 @@ class _AppShellState extends State<AppShell> {
     }
 
     entries.add(const _NavEntry(label: 'المشاريع', icon: Icons.folder_copy_rounded, page: ProjectsListScreen()));
+    entries.add(const _NavEntry(label: 'الأعمال', icon: Icons.checklist_rounded, page: WorksListScreen()));
 
     // مركز القرارات مخصص لمن يملك فعلياً صلاحية اعتماد قرار فيه (مسؤول النظام،
     // المستخدم التنفيذي، أو دور مخصص بصلاحية اعتماد القرارات العامة) — مدير
     // الإدارة ومدير المشروع يقدّمان الطلبات فقط ولا يعتمدان شيئاً هناك.
-    if (store.isAdmin || store.isExecutive || (store.myCustomRole?.approveGeneralDecisions ?? false)) {
+    if (store.hasPermission(RolePermission.approveGeneralDecisions)) {
       entries.add(const _NavEntry(
         label: 'مركز القرارات',
         icon: Icons.gavel_rounded,
         page: DecisionCenterScreen(),
       ));
     }
-    if (store.currentUser?.role != UserRole.projectOfficer) {
+    if (store.currentUser?.role != UserRole.projectOfficer && store.currentUser?.role != UserRole.employee) {
       entries.add(const _NavEntry(
         label: 'التقارير',
         icon: Icons.assessment_rounded,
@@ -109,6 +113,7 @@ class _AppShellState extends State<AppShell> {
     if (store.canManageUsers) {
       entries.add(const _NavEntry(label: 'المستخدمون', icon: Icons.manage_accounts_rounded, page: UserManagementScreen()));
       entries.add(const _NavEntry(label: 'إدارة الأدوار', icon: Icons.badge_outlined, page: RolesManagementScreen()));
+      entries.add(const _NavEntry(label: 'صلاحيات الأدوار', icon: Icons.key_rounded, page: RolePermissionsScreen()));
     }
     if (store.isAdmin) {
       entries.add(const _NavEntry(label: 'إعدادات المظهر', icon: Icons.palette_outlined, page: AppearanceSettingsScreen()));

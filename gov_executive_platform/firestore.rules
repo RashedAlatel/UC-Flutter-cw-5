@@ -12,15 +12,22 @@ service cloud.firestore {
     function role() { return request.auth.token.role; }
     function isAdmin() { return isApproved() && role() == 'systemAdmin'; }
     function isExecutive() { return isApproved() && role() == 'executiveViewer'; }
-    // صلاحيات الأدوار المخصصة: مجموعة أعلام مضغوطة مضمّنة داخل Custom Claims
-    // وقت تعيين الدور (راجع setUserRole في Cloud Functions)، وليست بالإمكان
-    // منحها ذاتياً من جهة العميل بأي حال. لا تشمل أبداً بوابات الموافقة الثلاث.
-    function customPerm(key) {
-      return isApproved() && role() == 'custom'
+    // صلاحيات الأدوار: مجموعة أعلام مضغوطة مضمّنة داخل Custom Claims وقت تعيين
+    // الدور أو تحديث صلاحياته (راجع setUserRole و refreshRolePermissions في
+    // Cloud Functions)، وليست بالإمكان منحها ذاتياً من جهة العميل بأي حال.
+    //
+    // تسري على كل الأدوار (الأساسية والمخصصة) لا على "custom" وحده، لأن مسؤول
+    // النظام صار يضبط صلاحيات الأدوار الأساسية من شاشة "صلاحيات الأدوار".
+    // مسؤول النظام لا يمر من هنا إطلاقاً — يملك كل شيء عبر isAdmin().
+    //
+    // لا تشمل هذه الأعلام أبداً بوابات الموافقة الثلاث (تسجيل عضو / إضافة
+    // مشروع / تعديل موعد نهائي)؛ تلك تبقى محصورة بـ isAdmin() وحده.
+    function perm(key) {
+      return isApproved()
              && request.auth.token.perms != null
              && request.auth.token.perms[key] == true;
     }
-    function canViewAll() { return isAdmin() || isExecutive() || customPerm('vad'); }
+    function canViewAll() { return isAdmin() || isExecutive() || perm('vad'); }
     function myDept() { return request.auth.token.departmentId; }
     function isMyDept(deptId) { return isApproved() && deptId != null && myDept() == deptId; }
     function isDeptManager() { return isApproved() && role() == 'departmentManager'; }
@@ -110,7 +117,10 @@ service cloud.firestore {
       allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
       allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
-      allow update, delete: if false;
+      // السجل غير قابل للتعديل إطلاقاً. الحذف مسموح لمسؤول النظام فقط، وهو
+      // لازم لحذف مشروع أو إدارة حذفاً متسلسلاً دون ترك تحديثات يتيمة.
+      allow update: if false;
+      allow delete: if isAdmin();
     }
 
     // ------------------------- المخاطر والعوائق -------------------------
@@ -132,6 +142,29 @@ service cloud.firestore {
                     && !request.resource.data.diff(resource.data).affectedKeys()
                           .hasAny(['projectId', 'departmentId', 'managerUid']);
       allow delete: if isAdmin();
+    }
+
+    // ------------------------- الأعمال التشغيلية -------------------------
+    // بنود عمل مستقلة عن المشاريع، مُسنَدة لموظف داخل إدارة.
+    match /works/{id} {
+      // يقرأها من يرى كل الإدارات، أو مدير الإدارة صاحبة العمل، أو الموظف
+      // المُسنَد إليه العمل نفسه.
+      allow read: if isApproved()
+                  && (canViewAll()
+                      || isMyDeptAny(deptOf(resource.data))
+                      || resource.data.get('assigneeUid', '') == request.auth.uid);
+      // الإنشاء والإسناد لمن يملك صلاحية "إدارة الأعمال" ضمن نطاقه.
+      allow create: if isAdmin()
+                    || (perm('mw')
+                        && (canViewAll() || isMyDeptAny(deptOf(request.resource.data))));
+      // الموظف المُسنَد إليه يحدّث تقدّم عمله وحالته فقط، دون إعادة إسناده
+      // لنفسه أو نقله لإدارة أخرى.
+      allow update: if isAdmin()
+                    || (perm('mw') && (canViewAll() || isMyDeptAny(deptOf(resource.data))))
+                    || (resource.data.get('assigneeUid', '') == request.auth.uid
+                        && !request.resource.data.diff(resource.data).affectedKeys()
+                              .hasAny(['departmentId', 'assigneeUid', 'createdByUid']));
+      allow delete: if isAdmin() || perm('del');
     }
 
     // ------------------------- طلبات الموافقة (مركز القرارات التنفيذية) -------------------------
@@ -160,21 +193,21 @@ service cloud.firestore {
     // ------------------------- التقارير -------------------------
     match /reports/{id} {
       allow read: if isApproved();
-      allow create, update: if isAdmin() || isExecutive() || customPerm('mr');
+      allow create, update: if isAdmin() || isExecutive() || perm('mr');
       allow delete: if isAdmin();
     }
 
     // ------------------------- تخصيص لوحة القيادة -------------------------
     match /dashboardConfig/{id} {
       allow read: if isApproved();
-      allow write: if isAdmin() || customPerm('md');
+      allow write: if isAdmin() || perm('md');
     }
 
     // ودجات مخصصة لكل مشروع على حدة (صفحة المشروع) — نفس صلاحية تخصيص
     // لوحة القيادة، بمعرّف المستند هو معرّف المشروع نفسه.
     match /projectWidgets/{id} {
       allow read: if isApproved();
-      allow write: if isAdmin() || customPerm('md');
+      allow write: if isAdmin() || perm('md');
     }
 
     // إشعارات عامة تظهر لكل المستخدمين أعلى كل الصفحات — إنشاء وحذف حصراً

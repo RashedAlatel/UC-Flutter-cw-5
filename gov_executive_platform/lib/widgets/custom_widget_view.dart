@@ -6,6 +6,7 @@ import '../models/custom_widget_spec.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
 import '../models/risk.dart';
+import '../models/work_item.dart';
 import '../theme/app_theme.dart';
 import 'charts.dart';
 
@@ -25,6 +26,10 @@ class CustomWidgetEngine {
         return scopeProjectId == null ? store.risks : store.risks.where((r) => r.projectId == scopeProjectId).toList();
       case CustomWidgetSource.blockers:
         return scopeProjectId == null ? store.blockers : store.blockers.where((b) => b.projectId == scopeProjectId).toList();
+      case CustomWidgetSource.works:
+        // الأعمال مستقلة عن المشاريع، فلا معنى لتقييدها بمشروع: ودجت أعمال
+        // داخل صفحة مشروع يبقى فارغاً بدل عرض أعمال لا علاقة لها به.
+        return scopeProjectId == null ? store.visibleWorks : const [];
     }
   }
 
@@ -64,6 +69,18 @@ class CustomWidgetEngine {
       case CustomWidgetSource.blockers:
         final b = item as ProjectBlocker;
         if (field == 'status') return b.status.name;
+      case CustomWidgetSource.works:
+        final w = item as WorkItem;
+        switch (field) {
+          case 'status':
+            return w.status.name;
+          case 'priority':
+            return w.priority.name;
+          case 'department':
+            return w.departmentId;
+          case 'assignee':
+            return w.assigneeName.trim().toLowerCase();
+        }
     }
     return '';
   }
@@ -105,6 +122,18 @@ class CustomWidgetEngine {
       case CustomWidgetSource.blockers:
         final b = item as ProjectBlocker;
         if (field == 'status') return b.status.label;
+      case CustomWidgetSource.works:
+        final w = item as WorkItem;
+        switch (field) {
+          case 'status':
+            return w.status.label;
+          case 'priority':
+            return w.priority.label;
+          case 'department':
+            return store.departmentById(w.departmentId)?.name ?? 'غير محدد';
+          case 'assignee':
+            return w.assigneeName.isEmpty ? 'غير محدد' : w.assigneeName;
+        }
     }
     return '—';
   }

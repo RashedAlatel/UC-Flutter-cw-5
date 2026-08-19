@@ -6,6 +6,7 @@ enum UserRole {
   executiveViewer, // مستخدم تنفيذي - عرض فقط لكل الإدارات
   departmentManager, // مدير إدارة - تعديل مشاريع إدارته فقط
   projectOfficer, // مدير مشروع - يرى مشروعه المُسنَد إليه فقط
+  employee, // موظف - ينفّذ الأعمال التشغيلية المُسنَدة إليه ضمن إدارته
   custom; // دور مخصص مُعرَّف من مسؤول النظام (راجع CustomRole)
 
   String get label {
@@ -18,10 +19,22 @@ enum UserRole {
         return 'مدير إدارة';
       case UserRole.projectOfficer:
         return 'مدير مشروع';
+      case UserRole.employee:
+        return 'موظف';
       case UserRole.custom:
         return 'دور مخصص';
     }
   }
+
+  /// الأدوار التي يمكن لمسؤول النظام ضبط صلاحياتها من شاشة "صلاحيات الأدوار".
+  /// [systemAdmin] مستثنى عمداً (كامل الصلاحيات دائماً)، و[custom] له شاشته
+  /// الخاصة في "إدارة الأدوار".
+  static const List<UserRole> configurable = [
+    UserRole.executiveViewer,
+    UserRole.departmentManager,
+    UserRole.projectOfficer,
+    UserRole.employee,
+  ];
 
   static UserRole fromName(String name) =>
       UserRole.values.firstWhere((e) => e.name == name, orElse: () => UserRole.projectOfficer);

@@ -162,6 +162,7 @@ class _ReportCardState extends State<_ReportCard> {
         report: widget.report,
         projects: store.visibleProjects,
         departmentById: store.departmentById,
+        works: store.visibleWorks,
       );
     } finally {
       if (mounted) setState(() => _exportingExcel = false);
@@ -176,6 +177,7 @@ class _ReportCardState extends State<_ReportCard> {
         report: widget.report,
         projects: store.visibleProjects,
         departmentById: store.departmentById,
+        works: store.visibleWorks,
       );
     } finally {
       if (mounted) setState(() => _exportingPdf = false);

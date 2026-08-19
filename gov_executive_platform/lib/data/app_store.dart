@@ -19,7 +19,9 @@ import '../models/enums.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
 import '../models/report.dart';
+import '../models/role_permissions.dart';
 import '../models/risk.dart';
+import '../models/work_item.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import 'default_departments.dart';
@@ -125,6 +127,68 @@ class AppStore extends ChangeNotifier {
   Future<void> saveAlertRules(AlertRulesConfig config) async {
     await _db.collection('settings').doc('alertRules').set(config.toMap());
     await _log('تحديث التنبيهات الذكية', 'قام ${currentUser?.name} بتحديث إعدادات التنبيهات التلقائية');
+  }
+
+  // ------------------------- الأعمال التشغيلية -------------------------
+
+  /// بنود العمل التشغيلية المستقلة عن المشاريع (مجموعة `works`).
+  List<WorkItem> works = [];
+
+  /// الأعمال ضمن نطاق المستخدم الحالي:
+  /// - من يرى كل الإدارات: كل الأعمال.
+  /// - مدير الإدارة: أعمال إداراته.
+  /// - الموظف ومدير المشروع وغيرهما: الأعمال المُسنَدة إليه، إضافة إلى أعمال
+  ///   إدارته إن كان يملك صلاحية إدارة الأعمال.
+  List<WorkItem> get visibleWorks {
+    final user = currentUser;
+    if (user == null) return const [];
+    if (canViewAllDepartments) return works;
+    if (isManager) return works.where((w) => myDepartmentIds.contains(w.departmentId)).toList();
+    return works
+        .where((w) =>
+            w.assigneeUid == user.id ||
+            (canManageWorks && w.departmentId == user.departmentId))
+        .toList();
+  }
+
+  /// سجل الإنجاز: الأعمال المنجَزة مرتّبة بالأحدث إنجازاً.
+  List<WorkItem> get completedWorks {
+    final done = visibleWorks.where((w) => w.isDone).toList();
+    done.sort((a, b) => (b.completedDate ?? b.dueDate).compareTo(a.completedDate ?? a.dueDate));
+    return done;
+  }
+
+  /// هل يستطيع المستخدم الحالي تعديل هذا العمل؟ الموظف يحدّث تقدّم عمله
+  /// المُسنَد إليه، ومن يملك صلاحية إدارة الأعمال يعدّل أعمال نطاقه.
+  bool canEditWork(WorkItem work) {
+    final user = currentUser;
+    if (user == null) return false;
+    if (isAdmin) return true;
+    if (work.assigneeUid == user.id) return true;
+    if (!canManageWorks) return false;
+    if (canViewAllDepartments) return true;
+    if (isManager) return myDepartmentIds.contains(work.departmentId);
+    return user.departmentId == work.departmentId;
+  }
+
+  Future<void> addWork(WorkItem work) async {
+    final ref = _db.collection('works').doc();
+    await ref.set(work.toMap());
+    await _log('الأعمال التشغيلية', 'أضاف ${currentUser?.name} العمل "${work.title}"');
+  }
+
+  Future<void> updateWork(WorkItem work) async {
+    await _db.collection('works').doc(work.id).update(work.toMap());
+  }
+
+  Future<String?> deleteWork(WorkItem work) async {
+    try {
+      await _db.collection('works').doc(work.id).delete();
+      await _log('الأعمال التشغيلية', 'حذف ${currentUser?.name} العمل "${work.title}"');
+      return null;
+    } catch (e) {
+      return 'تعذر حذف العمل: $e';
+    }
   }
 
   // ------------------------- المشاريع تحت التركيز -------------------------
@@ -233,7 +297,9 @@ class AppStore extends ChangeNotifier {
     projectsPageWidgets = [];
     announcements = [];
     alertRules = const AlertRulesConfig();
+    works = [];
     focusedProjectIds = [];
+    rolePermissions = RolePermissionsConfig.defaults();
     customRoles = [];
     _projectWidgets.clear();
     _projectWidgetsSubscribed.clear();
@@ -355,6 +421,15 @@ class AppStore extends ChangeNotifier {
     }));
     _dataSubs.add(_db.collection('settings').doc('alertRules').snapshots().listen((doc) {
       alertRules = AlertRulesConfig.fromMap(doc.data());
+      notifyListeners();
+    }));
+    _dataSubs.add(_db.collection('works').snapshots().listen((snap) {
+      works = snap.docs.map(WorkItem.fromDoc).toList()
+        ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+      notifyListeners();
+    }));
+    _dataSubs.add(_db.collection('settings').doc('rolePermissions').snapshots().listen((doc) {
+      rolePermissions = RolePermissionsConfig.fromMap(doc.data());
       notifyListeners();
     }));
     _dataSubs.add(_db.collection('settings').doc('focus').snapshots().listen((doc) {
@@ -486,20 +561,72 @@ class AppStore extends ChangeNotifier {
     return match.isEmpty ? null : match.first;
   }
 
-  bool get canViewAllDepartments => isAdmin || isExecutive || (myCustomRole?.viewAllDepartments ?? false);
+  /// صلاحيات الأدوار الأساسية كما ضبطها مسؤول النظام (settings/rolePermissions).
+  RolePermissionsConfig rolePermissions = RolePermissionsConfig.defaults();
+
+  /// هل يملك المستخدم الحالي صلاحية معيّنة؟
+  ///
+  /// مسؤول النظام يملك كل شيء دائماً. الدور المخصص يقرأ من مستند دوره، وبقية
+  /// الأدوار الأساسية تقرأ من خريطة [rolePermissions] القابلة للضبط.
+  /// هذه الدالة **لا تشمل** بوابات الاعتماد الثلاث — راجع [canApprove].
+  bool hasPermission(RolePermission permission) {
+    if (isAdmin) return true;
+    final role = currentUser?.role;
+    if (role == null) return false;
+    if (role == UserRole.custom) {
+      final r = myCustomRole;
+      if (r == null) return false;
+      switch (permission) {
+        case RolePermission.viewAllDepartments:
+          return r.viewAllDepartments;
+        case RolePermission.manageReports:
+          return r.manageReports;
+        case RolePermission.manageDashboard:
+          return r.manageDashboard;
+        case RolePermission.approveGeneralDecisions:
+          return r.approveGeneralDecisions;
+        case RolePermission.manageWorks:
+        case RolePermission.deleteRecords:
+          return false;
+      }
+    }
+    return rolePermissions.has(role, permission);
+  }
+
+  Future<void> saveRolePermissions(RolePermissionsConfig config) async {
+    await _db.collection('settings').doc('rolePermissions').set(config.toMap());
+    await _log('صلاحيات الأدوار', 'قام ${currentUser?.name} بتحديث صلاحيات الأدوار الأساسية');
+  }
+
+  /// يعيد ختم بصمات الصلاحيات (Custom Claims) على كل مستخدمي دور معيّن حتى
+  /// يسري التعديل فعلياً على الخادم لا في الواجهة وحدها. يُعيد عدد الحسابات
+  /// المُحدَّثة، أو رسالة خطأ.
+  Future<({int updated, String? error})> applyRolePermissions(UserRole role) async {
+    try {
+      final res = await _functions.httpsCallable('refreshRolePermissions').call({'role': role.name});
+      final data = Map<String, dynamic>.from(res.data as Map);
+      return (updated: (data['updated'] as num?)?.toInt() ?? 0, error: null);
+    } on FirebaseFunctionsException catch (e) {
+      return (updated: 0, error: e.message ?? 'تعذر تطبيق الصلاحيات');
+    }
+  }
+
+  bool get canViewAllDepartments => isAdmin || hasPermission(RolePermission.viewAllDepartments);
   bool get canManageUsers => isAdmin;
   // سجل التدقيق، الموافقة على تسجيل الأعضاء/المشاريع/المواعيد النهائية، وإضافة
-  // المستخدمين تبقى دائماً حصراً لمسؤول النظام — لا يملك أي دور مخصص تجاوزها.
+  // المستخدمين تبقى دائماً حصراً لمسؤول النظام — لا يملك أي دور تجاوزها.
   bool get canViewAuditLog => isAdmin;
-  bool get canManageReports => isAdmin || isExecutive || (myCustomRole?.manageReports ?? false);
-  bool get canManageDashboard => isAdmin || (myCustomRole?.manageDashboard ?? false);
+  bool get canManageReports => hasPermission(RolePermission.manageReports);
+  bool get canManageDashboard => hasPermission(RolePermission.manageDashboard);
+  bool get canManageWorks => hasPermission(RolePermission.manageWorks);
+  bool get canDeleteRecords => hasPermission(RolePermission.deleteRecords);
 
   /// اعتماد "قرار تنفيذي" عام يجوز للمسؤول أو المستخدم التنفيذي أو دور مخصص
   /// يملك صلاحية "اعتماد القرارات التنفيذية العامة" صراحة.
   /// أما تسجيل عضو / إضافة مشروع / تعديل موعد نهائي فلا يعتمدها إلا مسؤول النظام حصرياً،
   /// ولا يمكن لأي دور مخصص تجاوز هذا القيد مهما كانت صلاحياته.
   bool canApprove(ApprovalRequest r) {
-    if (r.type == ApprovalType.decision) return isAdmin || isExecutive || (myCustomRole?.approveGeneralDecisions ?? false);
+    if (r.type == ApprovalType.decision) return hasPermission(RolePermission.approveGeneralDecisions);
     return isAdmin;
   }
 

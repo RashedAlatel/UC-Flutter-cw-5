@@ -332,17 +332,36 @@
     // إن لم تظهر واجهة خلال ١٢ ثانية نعرض سبباً مفهوماً بدل الانتظار الصامت،
     // مع مخرج يدوي حتى لا يُحبس المستخدم خلف الشاشة لو كان التطبيق يعمل فعلاً.
     var bootTimer = setTimeout(function () {
-      bootFailed = true;
       clearInterval(bootTick);
-      document.getElementById('boot-spinner').style.display = 'none';
-      document.getElementById('boot-elapsed').textContent = '';
-      document.getElementById('boot-title').textContent = 'يستغرق التحميل وقتاً أطول من المعتاد';
-      document.getElementById('boot-msg').innerHTML =
-        'إن استمر ذلك فتأكد من اتصال الشبكة، وإن كنت داخل شبكة الوزارة فقد يكون ' +
-        'الوصول إلى النطاق <strong>www.gstatic.com</strong> محجوباً — يلزم السماح ' +
-        'به لتشغيل المنصة.';
-      document.getElementById('boot-retry').style.display = 'inline-block';
-      document.getElementById('boot-skip').style.display = 'inline-block';
+      // خطأ صريح من التطبيق أثمن من تخمين عام عن الشبكة. فإن كان قد وصلنا
+      // سببٌ حقيقي، لا نمسحه برسالة «تأكد من اتصال الشبكة».
+      if (bootFatal) return;
+      bootFailed = true;
+
+      // كل عنصر يُفحص قبل لمسه. سبب ذلك عطل وقع فعلاً: حين يُبلّغ التطبيق عن
+      // خطأ Dart تُعاد بناء بطاقة الإقلاع برسالة الخطأ، فتختفي عناصر الدوّار
+      // والعنوان والعدّاد. ثم تحين هذه المهلة فتصطدم بعنصر غير موجود:
+      //   TypeError: null is not an object
+      //     (evaluating "document.getElementById('boot-elapsed').textContent")
+      // فيموت ما تبقّى من هذه الدالة، ويُضاف خطأ زائف يُربك التشخيص. ولا
+      // يجوز أن يتعطّل حارسُ العطل بعطلٍ من صنعه.
+      var el = document.getElementById('boot-spinner');
+      if (el) el.style.display = 'none';
+      el = document.getElementById('boot-elapsed');
+      if (el) el.textContent = '';
+      el = document.getElementById('boot-title');
+      if (el) el.textContent = 'يستغرق التحميل وقتاً أطول من المعتاد';
+      el = document.getElementById('boot-msg');
+      if (el) {
+        el.innerHTML =
+          'إن استمر ذلك فتأكد من اتصال الشبكة، وإن كنت داخل شبكة الوزارة فقد يكون ' +
+          'الوصول إلى النطاق <strong>www.gstatic.com</strong> محجوباً — يلزم السماح ' +
+          'به لتشغيل المنصة.';
+      }
+      el = document.getElementById('boot-retry');
+      if (el) el.style.display = 'inline-block';
+      el = document.getElementById('boot-skip');
+      if (el) el.style.display = 'inline-block';
     }, 12000);
   </script>
 

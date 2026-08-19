@@ -103,14 +103,30 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildBrandPanel({required bool compact}) {
     return Container(
       decoration: BoxDecoration(gradient: AppColors.sidebarGradient),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // الإطار الزخرفي الرسمي على الحافة الخارجية للوحة، بالذهبي المخفّف
-          // ليقرأ كزخرفة رصينة فوق الأخضر الداكن لا كشريط صاخب.
-          OrnamentBorder(width: 30, color: AppColors.accent.withValues(alpha: 0.55)),
-          Expanded(child: _buildBrandContent(compact: compact)),
-        ],
+      // IntrinsicHeight ضروري لا تجميلي، وغيابه هو ما منع فتح المنصة على
+      // الجوال شهراً كاملاً:
+      //
+      // `CrossAxisAlignment.stretch` في صفٍّ يفرض على أبنائه ارتفاع الصف
+      // نفسه. وفي مسار الشاشة الضيّقة توضع هذه اللوحة داخل عمود داخل
+      // SingleChildScrollView، أي في سياق **ارتفاعه غير محدود** — فيصير
+      // المطلوب من الشريط الزخرفي ارتفاعاً لا نهائياً، فينهار التخطيط:
+      //   BoxConstraints forces an infinite height (h=Infinity)
+      // وفي بناء الإصدار لا تظهر رسالة الانهيار بل يُرسم فراغ، فيرى
+      // المستخدم صفحة خضراء صمّاء ولا يعرف أحد لماذا.
+      //
+      // ولم يظهر العطل على الكمبيوتر لأن المسار العريض يلفّ الصف بـ
+      // IntrinsicHeight أصلاً فيحدّ ارتفاعه. فاللفّ هنا يجعل اللوحة
+      // مكتفيةً بذاتها في المسارين، ولا تعتمد على من يستدعيها.
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // الإطار الزخرفي الرسمي على الحافة الخارجية للوحة، بالذهبي المخفّف
+            // ليقرأ كزخرفة رصينة فوق الأخضر الداكن لا كشريط صاخب.
+            OrnamentBorder(width: 30, color: AppColors.accent.withValues(alpha: 0.55)),
+            Expanded(child: _buildBrandContent(compact: compact)),
+          ],
+        ),
       ),
     );
   }

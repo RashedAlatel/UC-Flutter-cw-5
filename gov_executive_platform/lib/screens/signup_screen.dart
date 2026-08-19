@@ -106,7 +106,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   children: [
                     Column(
                       children: [
-                        const MinistryLogo(size: 52),
+                        const MinistryLogo(size: 66),
                         const SizedBox(height: 10),
                         const Text(Brand.state,
                             style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w600)),

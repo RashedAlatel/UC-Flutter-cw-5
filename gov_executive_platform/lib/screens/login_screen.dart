@@ -121,7 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
         crossAxisAlignment: compact ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const MinistryLogo(size: 68, onDark: true),
+          const MinistryLogo(size: 86, onDark: true),
           const SizedBox(height: 20),
           Text(
             Brand.state,

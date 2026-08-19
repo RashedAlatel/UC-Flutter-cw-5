@@ -242,7 +242,7 @@ class _TopBar extends StatelessWidget {
             ),
             const SizedBox(width: 12),
           ],
-          const MinistryLogo(size: 34),
+          const MinistryLogo(size: 42),
         ],
       ),
     );
@@ -274,7 +274,7 @@ class _Sidebar extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(18, 22, 18, 18),
               child: Column(
                 children: [
-                  const MinistryLogo(size: 54, onDark: true),
+                  const MinistryLogo(size: 68, onDark: true),
                   const SizedBox(height: 12),
                   const Text(
                     Brand.ministry,

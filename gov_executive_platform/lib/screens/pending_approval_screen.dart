@@ -100,7 +100,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const MinistryLogo(size: 46),
+                    const MinistryLogo(size: 58),
                     const SizedBox(height: 8),
                     const Text(Brand.ministry,
                         style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),

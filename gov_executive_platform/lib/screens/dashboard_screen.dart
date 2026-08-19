@@ -11,6 +11,7 @@ import '../utils/formatters.dart';
 import '../widgets/charts.dart';
 import '../widgets/custom_widget_view.dart';
 import '../widgets/focused_project_card.dart';
+import '../widgets/pinned_work_card.dart';
 import '../widgets/kpi_card.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
@@ -113,6 +114,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (store.isAdmin && store.projects.isEmpty) ...[
             const SizedBox(height: 16),
             const _DemoDataBanner(),
+          ],
+          // "مثبّت لك": ما خصّه مسؤول النظام بهذا المستخدم تحديداً — يسبق
+          // القسم العام لأنه شخصي وأوثق صلة به.
+          if (store.myFocusProjects.isNotEmpty || store.myFocusWorks.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Icon(Icons.push_pin_rounded, size: 16, color: AppColors.primary),
+                const SizedBox(width: 6),
+                const Text('مثبّت لك',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            LayoutBuilder(builder: (context, constraints) {
+              final cols = constraints.maxWidth > 1000 ? 3 : (constraints.maxWidth > 640 ? 2 : 1);
+              return GridView.count(
+                crossAxisCount: cols,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisSpacing: 14,
+                mainAxisSpacing: 14,
+                childAspectRatio: (constraints.maxWidth - 14 * (cols - 1)) / cols / 220,
+                children: [
+                  ...store.myFocusProjects.map((p) => FocusedProjectCard(project: p)),
+                  ...store.myFocusWorks.map((w) => PinnedWorkCard(work: w)),
+                ],
+              );
+            }),
           ],
           // المشاريع تحت التركيز أعلى اللوحة: أول ما يراه القيادي عند الدخول،
           // قبل الفلاتر والمؤشرات العامة.

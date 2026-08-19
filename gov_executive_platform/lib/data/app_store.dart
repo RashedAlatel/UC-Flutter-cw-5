@@ -191,6 +191,108 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  // ------------------------- متابعة الأشخاص -------------------------
+
+  /// مؤشرات أداء شخص واحد، محسوبة من الأعمال والمشاريع مباشرة بلا مجموعة
+  /// إضافية. يستخدمها جدول المقارنة وملف الشخص معاً فلا يتكرر الحساب.
+  ({
+    int works,
+    int worksDone,
+    int worksOverdue,
+    double avgWorkProgress,
+    int projects,
+    int projectsOverdue,
+  }) personStats(AppUser user) {
+    final myWorks = worksOf(user);
+    final myProjects = projectsOf(user);
+    return (
+      works: myWorks.length,
+      worksDone: myWorks.where((w) => w.isDone).length,
+      worksOverdue: myWorks.where((w) => w.delayDays > 0).length,
+      avgWorkProgress: myWorks.isEmpty
+          ? 0
+          : myWorks.map((w) => w.progressPercent).reduce((a, b) => a + b) / myWorks.length,
+      projects: myProjects.length,
+      projectsOverdue: myProjects.where((p) => p.delayDays > 0).length,
+    );
+  }
+
+  /// أعمال الشخص (المُسنَدة إليه بمعرّفه).
+  List<WorkItem> worksOf(AppUser user) => works.where((w) => w.assigneeUid == user.id).toList();
+
+  /// مشاريع الشخص: ما يديره (managerUid) وما هو منفّذ فيه (مطابقة بالاسم،
+  /// لأن المشروع يخزّن أسماء المنفذين لا معرّفاتهم).
+  List<Project> projectsOf(AppUser user) {
+    final name = user.name.trim();
+    return projects
+        .where((p) => p.managerUid == user.id || p.executorNames.any((e) => e.trim() == name))
+        .toList();
+  }
+
+  /// الأشخاص الذين يستطيع المستخدم الحالي متابعتهم: الكل لمن يرى كل
+  /// الإدارات، وموظفو إداراته لمدير الإدارة.
+  List<AppUser> get trackablePeople {
+    final approved = users.where((u) => u.status == UserStatus.approved && u.role != UserRole.systemAdmin).toList();
+    if (canViewAllDepartments) return approved;
+    if (isManager) {
+      return approved
+          .where((u) => myDepartmentIds.contains(u.departmentId) || u.departmentIds.any(myDepartmentIds.contains))
+          .toList();
+    }
+    return const [];
+  }
+
+  bool get canTrackPeople => trackablePeople.isNotEmpty;
+
+  // ------------------------- لوحة مخصّصة لكل مستخدم -------------------------
+
+  /// ما ثبّته مسؤول النظام في لوحة قيادة **المستخدم الحالي** تحديداً
+  /// (مجموعة `userFocus/{uid}`)، بخلاف [focusedProjectIds] العامة التي يراها
+  /// الجميع.
+  List<String> myFocusProjectIds = [];
+  List<String> myFocusWorkIds = [];
+
+  List<Project> get myFocusProjects {
+    final visible = visibleProjects;
+    return myFocusProjectIds.map((id) => visible.where((p) => p.id == id)).expand((e) => e).toList();
+  }
+
+  List<WorkItem> get myFocusWorks {
+    final visible = visibleWorks;
+    return myFocusWorkIds.map((id) => visible.where((w) => w.id == id)).expand((e) => e).toList();
+  }
+
+  /// يقرأ تثبيتات مستخدم آخر (لتحرير لوحته). يُحمَّل عند الطلب لا اشتراكاً
+  /// دائماً بكل المستندات — قد يكون عدد المستخدمين بالمئات.
+  Future<({List<String> projectIds, List<String> workIds})> focusFor(String uid) async {
+    final doc = await _db.collection('userFocus').doc(uid).get();
+    final data = doc.data() ?? {};
+    return (
+      projectIds: ((data['projectIds'] as List?) ?? []).map((e) => e.toString()).toList(),
+      workIds: ((data['workIds'] as List?) ?? []).map((e) => e.toString()).toList(),
+    );
+  }
+
+  Future<void> setUserFocus(String uid, {required List<String> projectIds, required List<String> workIds}) async {
+    await _db.collection('userFocus').doc(uid).set({'projectIds': projectIds, 'workIds': workIds});
+    final target = users.where((u) => u.id == uid);
+    await _log(
+      'تخصيص لوحة مستخدم',
+      'حدّث ${currentUser?.name} ما يظهر في لوحة قيادة "${target.isEmpty ? uid : target.first.name}"',
+    );
+  }
+
+  /// يضيف أو يزيل عنصراً واحداً من لوحة مستخدم بعينه — يُستخدم من نموذج
+  /// التثبيت المفتوح من صفحة المشروع أو العمل.
+  Future<void> toggleFocusForUser(String uid, {String? projectId, String? workId}) async {
+    final current = await focusFor(uid);
+    final projectIds = List<String>.of(current.projectIds);
+    final workIds = List<String>.of(current.workIds);
+    if (projectId != null && !projectIds.remove(projectId)) projectIds.add(projectId);
+    if (workId != null && !workIds.remove(workId)) workIds.add(workId);
+    await setUserFocus(uid, projectIds: projectIds, workIds: workIds);
+  }
+
   // ------------------------- المشاريع تحت التركيز -------------------------
 
   /// مشاريع اختار مسؤول النظام إبرازها منفردة بجانب الإدارات وأعلى لوحة
@@ -298,6 +400,8 @@ class AppStore extends ChangeNotifier {
     announcements = [];
     alertRules = const AlertRulesConfig();
     works = [];
+    myFocusProjectIds = [];
+    myFocusWorkIds = [];
     focusedProjectIds = [];
     rolePermissions = RolePermissionsConfig.defaults();
     customRoles = [];
@@ -432,6 +536,15 @@ class AppStore extends ChangeNotifier {
       rolePermissions = RolePermissionsConfig.fromMap(doc.data());
       notifyListeners();
     }));
+    final myUid = currentUser?.id;
+    if (myUid != null) {
+      _dataSubs.add(_db.collection('userFocus').doc(myUid).snapshots().listen((doc) {
+        final data = doc.data() ?? {};
+        myFocusProjectIds = ((data['projectIds'] as List?) ?? []).map((e) => e.toString()).toList();
+        myFocusWorkIds = ((data['workIds'] as List?) ?? []).map((e) => e.toString()).toList();
+        notifyListeners();
+      }));
+    }
     _dataSubs.add(_db.collection('settings').doc('focus').snapshots().listen((doc) {
       final ids = doc.data()?['projectIds'] as List?;
       focusedProjectIds = ids == null ? [] : ids.map((e) => e.toString()).toList();
@@ -587,6 +700,7 @@ class AppStore extends ChangeNotifier {
           return r.approveGeneralDecisions;
         case RolePermission.manageWorks:
         case RolePermission.deleteRecords:
+        case RolePermission.sendNotifications:
           return false;
       }
     }
@@ -619,6 +733,21 @@ class AppStore extends ChangeNotifier {
   bool get canManageReports => hasPermission(RolePermission.manageReports);
   bool get canManageDashboard => hasPermission(RolePermission.manageDashboard);
   bool get canManageWorks => hasPermission(RolePermission.manageWorks);
+  bool get canSendNotifications => hasPermission(RolePermission.sendNotifications);
+
+  /// حسابات المستخدمين المرتبطة بمشروع: مديره المُسنَد إليه، إضافة إلى
+  /// المنفذين المطابَقين بالاسم. المشروع يخزّن أسماء المنفذين لا معرّفاتهم،
+  /// فالمطابقة بالاسم أفضل المتاح؛ من لا يُطابَق يبقى للاختيار اليدوي.
+  List<AppUser> recipientsForProject(Project project) {
+    final names = project.executorNames.map((e) => e.trim()).toSet();
+    return users
+        .where((u) => u.id == project.managerUid || names.contains(u.name.trim()))
+        .toList();
+  }
+
+  /// حساب الموظف المُسنَد إليه العمل (مطابقة بالمعرّف لا بالاسم).
+  List<AppUser> recipientsForWork(WorkItem work) =>
+      users.where((u) => u.id == work.assigneeUid).toList();
   bool get canDeleteRecords => hasPermission(RolePermission.deleteRecords);
 
   /// اعتماد "قرار تنفيذي" عام يجوز للمسؤول أو المستخدم التنفيذي أو دور مخصص

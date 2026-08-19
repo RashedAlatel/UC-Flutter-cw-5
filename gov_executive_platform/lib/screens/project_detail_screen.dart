@@ -11,6 +11,9 @@ import '../widgets/charts.dart';
 import '../widgets/custom_widgets_section.dart';
 import '../widgets/executors_field.dart';
 import '../widgets/progress_bar.dart';
+import '../models/notify_templates.dart';
+import '../widgets/focus_assignment_dialog.dart';
+import '../widgets/notify_dialog.dart';
 import '../widgets/project_actions.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
@@ -58,6 +61,18 @@ class ProjectDetailScreen extends StatelessWidget {
                         ),
                       ),
                       StatusChip(status: project.status),
+                      if (store.canSendNotifications)
+                        IconButton(
+                          icon: Icon(Icons.forward_to_inbox_rounded, size: 20, color: AppColors.primary),
+                          tooltip: 'مراسلة فريق المشروع',
+                          onPressed: () => showDialog(
+                            context: context,
+                            builder: (_) => NotifyDialog(
+                              initialUsers: store.recipientsForProject(project),
+                              context: NotifyContext.fromProject(project),
+                            ),
+                          ),
+                        ),
                       if (store.isAdmin)
                         IconButton(
                           icon: Icon(
@@ -67,6 +82,15 @@ class ProjectDetailScreen extends StatelessWidget {
                           ),
                           tooltip: store.isFocused(project.id) ? 'إزالة من التركيز' : 'وضع تحت التركيز',
                           onPressed: () => store.toggleFocusedProject(project),
+                        ),
+                      if (store.isAdmin)
+                        IconButton(
+                          icon: const Icon(Icons.push_pin_outlined, size: 20, color: AppColors.textSecondary),
+                          tooltip: 'عرض في لوحة قيادة مستخدم',
+                          onPressed: () => showDialog(
+                            context: context,
+                            builder: (_) => FocusAssignmentDialog(projectId: project.id, title: project.name),
+                          ),
                         ),
                       if (store.isAdmin)
                         IconButton(

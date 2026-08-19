@@ -11,6 +11,7 @@ import '../screens/decision_center_screen.dart';
 import '../screens/department_detail_screen.dart';
 import '../screens/departments_list_screen.dart';
 import '../screens/project_detail_screen.dart';
+import '../screens/people_tracking_screen.dart';
 import '../screens/projects_list_screen.dart';
 import '../screens/reports_screen.dart';
 import '../screens/role_permissions_screen.dart';
@@ -107,6 +108,9 @@ class _AppShellState extends State<AppShell> {
       ));
     }
 
+    if (store.canTrackPeople) {
+      entries.add(const _NavEntry(label: 'متابعة الأشخاص', icon: Icons.groups_rounded, page: PeopleTrackingScreen()));
+    }
     if (store.canViewAuditLog) {
       entries.add(const _NavEntry(label: 'سجل التدقيق', icon: Icons.history_rounded, page: AuditLogScreen()));
     }

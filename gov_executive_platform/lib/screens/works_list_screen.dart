@@ -7,7 +7,10 @@ import '../models/enums.dart';
 import '../models/work_item.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
+import '../models/notify_templates.dart';
+import '../widgets/focus_assignment_dialog.dart';
 import '../widgets/kpi_card.dart';
+import '../widgets/notify_dialog.dart';
 import '../widgets/progress_bar.dart';
 
 /// شاشة "الأعمال": بنود العمل التشغيلية المستقلة عن المشاريع.
@@ -255,6 +258,27 @@ class _WorkRow extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                             color: AppColors.taskStatusColor(work.status.name))),
                   ),
+                  if (store.canSendNotifications && work.assigneeUid.isNotEmpty)
+                    IconButton(
+                      icon: Icon(Icons.forward_to_inbox_rounded, size: 18, color: AppColors.primary),
+                      tooltip: 'مراسلة المسؤول عن العمل',
+                      onPressed: () => showDialog(
+                        context: context,
+                        builder: (_) => NotifyDialog(
+                          initialUsers: store.recipientsForWork(work),
+                          context: NotifyContext.fromWork(work),
+                        ),
+                      ),
+                    ),
+                  if (store.isAdmin)
+                    IconButton(
+                      icon: const Icon(Icons.push_pin_outlined, size: 18, color: AppColors.textSecondary),
+                      tooltip: 'عرض في لوحة قيادة مستخدم',
+                      onPressed: () => showDialog(
+                        context: context,
+                        builder: (_) => FocusAssignmentDialog(workId: work.id, title: work.title),
+                      ),
+                    ),
                   if (store.isAdmin || store.canDeleteRecords)
                     IconButton(
                       icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),

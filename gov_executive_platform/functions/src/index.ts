@@ -34,6 +34,46 @@ function requireAdmin(request: CallableRequest) {
   return auth;
 }
 
+/**
+ * يتحقق أن المتصل يملك صلاحية مراسلة **هؤلاء المستلمين تحديداً**، لا مجرد
+ * صلاحية الإرسال. النطاق يُفحص على الخادم بقراءة مستندات المستلمين، لا
+ * بالاعتماد على ما يرسله العميل الذي قد يكون منتحلاً.
+ *
+ * - مسؤول النظام: أي مستلم.
+ * - يملك ntf مع vad (يرى كل الإدارات): أي مستلم.
+ * - مدير إدارة يملك ntf: مستلمون داخل إداراته.
+ * - أي دور آخر يملك ntf: مستلمون داخل إدارته نفسها.
+ */
+async function requireNotifyAccess(request: CallableRequest, targetUids: string[]) {
+  const auth = requireAuth(request);
+  const role = auth.token.role as string | undefined;
+  if (role === "systemAdmin") return auth;
+
+  const perms = auth.token.perms as Record<string, boolean> | undefined;
+  if (perms?.ntf !== true) {
+    throw new HttpsError("permission-denied", "لا تملك صلاحية إرسال الإشعارات");
+  }
+  if (perms.vad === true) return auth;
+
+  const myDepts: string[] = role === "departmentManager" ?
+    ((auth.token.departmentIds as string[] | undefined) ?? []) :
+    [(auth.token.departmentId as string | undefined) ?? ""].filter(Boolean);
+
+  if (!myDepts.length) {
+    throw new HttpsError("permission-denied", "لا توجد إدارة مرتبطة بحسابك لتحديد نطاق المراسلة");
+  }
+
+  const docs = await Promise.all(targetUids.map((uid) => db().collection("users").doc(uid).get()));
+  const outside = docs.filter((d) => {
+    const dept = (d.data()?.departmentId as string | undefined) ?? "";
+    return !myDepts.includes(dept);
+  });
+  if (outside.length) {
+    throw new HttpsError("permission-denied", "بعض المستلمين خارج نطاق إدارتك");
+  }
+  return auth;
+}
+
 async function logAudit(userName: string, action: string, details: string): Promise<void> {
   await db().collection("auditLog").add({userName, action, details, timestamp: now()});
 }
@@ -43,7 +83,7 @@ async function logAudit(userName: string, action: string, details: string): Prom
 // مفاتيح الصلاحيات القابلة للتفويض. لا تتضمن — ولن تتضمن — بوابات الاعتماد
 // الثلاث (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي)؛ تلك تبقى محصورة
 // بـ systemAdmin عبر requireAdmin وقواعد Firestore معاً.
-const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del"] as const;
+const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf"] as const;
 
 /** الأدوار الأساسية التي يضبط مسؤول النظام صلاحياتها من شاشة "صلاحيات الأدوار". */
 const CONFIGURABLE_ROLES = ["executiveViewer", "departmentManager", "projectOfficer", "employee"] as const;
@@ -417,7 +457,6 @@ export const refreshRolePermissions = onCall(async (request) => {
 });
 
 export const sendUserNotification = onCall({secrets: notificationSecrets}, async (request) => {
-  const auth = requireAdmin(request);
   const {uids, uid, channel, subject, message} = (request.data ?? {}) as {
     uids?: string[];
     uid?: string;
@@ -427,6 +466,7 @@ export const sendUserNotification = onCall({secrets: notificationSecrets}, async
   };
   const targets = uids && uids.length ? uids : uid ? [uid] : [];
   if (!targets.length || !message) throw new HttpsError("invalid-argument", "بيانات ناقصة");
+  const auth = await requireNotifyAccess(request, targets);
 
   const channels = {
     email: channel === "email" || channel === "both",
@@ -441,9 +481,9 @@ export const sendUserNotification = onCall({secrets: notificationSecrets}, async
   );
 
   await logAudit(
-    auth.token.name ?? "مسؤول النظام",
+    auth.token.name ?? "مستخدم",
     "إرسال إشعار",
-    `أرسل مسؤول النظام إشعاراً (${channel}) إلى ${targets.length} مستخدم(ين)`,
+    `أُرسل إشعار (${channel}) إلى ${targets.length} مستخدم(ين)`,
   );
 
   // لا نُخفي فشل الإرسال الفعلي (بيانات بريد خاطئة، رقم واتساب غير صالح...):

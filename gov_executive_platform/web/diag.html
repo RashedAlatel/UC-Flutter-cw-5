@@ -29,6 +29,10 @@
     .row:last-child { border-bottom: 0; }
     .row .k { flex: 1; font-size: 13px; word-break: break-word; }
     .row .v { font-size: 12.5px; color: rgba(255,255,255,.75); white-space: nowrap; }
+    /* صف لنصّ طويل: العنوان سطر والقيمة سطر بعرض البطاقة. بدونه يُضغط عمود
+       العنوان حتى يصير حرفاً في كل سطر ولا يُقرأ. */
+    .row.stack { display: block; }
+    .row.stack .v { white-space: normal; margin-top: 4px; }
     .big { font-size: 22px; font-weight: 800; color: #C9A227; word-break: break-all; }
     .hint { font-size: 12px; color: rgba(255,255,255,.55); margin-top: 12px; }
     button {
@@ -67,9 +71,30 @@
     <div id="external"></div>
   </div>
 
+  <!--
+    الفحص الحاسم: تشغيل المنصة نفسها داخل إطار مخفي على هذه الصفحة، ومراقبة
+    ما يجري لها لحظةً بلحظة. صفحة الفحص تفتح على جهاز المستخدم بينما المنصة
+    لا تفتح، فهذا الإطار ينقل الفحص إلى داخل العطل بدل الدوران حوله: هل ظهرت
+    شاشة الإقلاع؟ هل أنشأ المحرك عنصره؟ هل رُسمت لوحة بمقاس حقيقي؟ وأي خطأ
+    جافاسكربت وقع؟ لقطة واحدة تحمل الجواب.
+  -->
+  <div class="card">
+    <h2>تشغيل المنصة داخل هذه الصفحة</h2>
+    <div class="row"><div class="k">مضى على المحاولة</div><div class="v" id="app-elapsed">…</div></div>
+    <div class="row stack"><div class="k">شاشة الإقلاع (نص ثابت)</div><div class="v" id="app-boot">…</div></div>
+    <div class="row stack"><div class="k">نص شاشة الإقلاع</div><div class="v" id="app-boottext">…</div></div>
+    <div class="row"><div class="k">عنصر المحرك (flutter-view)</div><div class="v" id="app-view">…</div></div>
+    <div class="row"><div class="k">لوحة الرسم المرسومة</div><div class="v" id="app-canvas">…</div></div>
+    <div class="row"><div class="k">العنصر في منتصف الشاشة</div><div class="v" id="app-centre">…</div></div>
+    <div class="row stack"><div class="k">أخطاء جافاسكربت</div><div class="v" id="app-errors">…</div></div>
+    <iframe id="app-frame" title="تشغيل المنصة للفحص"
+            style="width:100%;height:220px;border:1px solid rgba(255,255,255,.14);border-radius:8px;margin-top:10px;background:#072E24"></iframe>
+    <div class="hint">الإطار أعلاه يعرض المنصة فعلياً — إن ظهرت فيه ولم تظهر في تبويب مستقل فالسبب في التبويب لا في المنصة.</div>
+  </div>
+
   <div class="card">
     <h2>المتصفح</h2>
-    <div class="row"><div class="k">المعرّف</div><div class="v" id="ua" style="white-space:normal"></div></div>
+    <div class="row stack"><div class="k">المعرّف</div><div class="v" id="ua"></div></div>
     <div class="row"><div class="k">قياس الشاشة</div><div class="v" id="screen"></div></div>
     <div class="row"><div class="k">وضع خاص/تخزين</div><div class="v" id="storage"></div></div>
   </div>
@@ -166,6 +191,10 @@
     probe('files', 'محرّك الرسم (canvaskit.js)', 'canvaskit/canvaskit.js' + bust);
     probe('files', 'محرّك الرسم (canvaskit.wasm)', 'canvaskit/canvaskit.wasm' + bust);
     probe('files', 'حزم Firebase المحلية', 'firebase_sdk/firebase-app.js' + bust);
+    // الخطوط ليست تفصيلاً تجميلياً: بدونها قد يرسم المحرك خلفيةً بلا حرف
+    // واحد، فتظهر صفحة خضراء صمّاء تُشبه العطل تماماً.
+    probe('files', 'خط المنصة (Tajawal)', 'assets/assets/fonts/Tajawal-Regular.ttf' + bust);
+    probe('files', 'فهرس الأصول (AssetManifest)', 'assets/AssetManifest.bin' + bust);
 
     // ــــ النطاقات الخارجية ــــ
     // no-cors لأن هذه النطاقات لا تسمح بقراءة الرد من صفحتنا؛ يكفينا أن نعرف
@@ -189,6 +218,88 @@
       catch (e) { out.push('التخزين ❌'); }
       out.push('IndexedDB ' + (window.indexedDB ? '✅' : '❌'));
       set('storage', out.join(' · '));
+    })();
+
+    // ــــ تشغيل المنصة داخل إطار ــــ
+    //
+    // الإطار من الأصل نفسه، فنقرأ مستنده مباشرةً بلا وسيط. ونعلّق مستمعي
+    // الأخطاء على نافذته فور تحميلها، لأن أثمن ما نبحث عنه — خطأ جافاسكربت
+    // يقتل الإقلاع — لا يظهر في أي مكان آخر على الجوال، إذ لا طرفية هناك.
+    (function () {
+      var frame = document.getElementById('app-frame');
+      if (!frame) return;
+      var errors = [];
+      var started = Date.now();
+
+      function note(msg) {
+        var text = String(msg).slice(0, 220);
+        if (errors.indexOf(text) === -1) errors.push(text);
+      }
+
+      // لوحة الرسم تسكن داخل جذور ظل، والبحث العادي لا يعبرها — فيبدو أن لا
+      // لوحة على إقلاع سليم تماماً. هذا البحث يخترقها.
+      function paintedCanvas(root) {
+        var nodes = root.querySelectorAll('*');
+        for (var i = 0; i < nodes.length; i++) {
+          var n = nodes[i];
+          if (n.tagName === 'CANVAS') {
+            var r = n.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) return Math.round(r.width) + '×' + Math.round(r.height);
+          }
+          if (n.shadowRoot) { var deep = paintedCanvas(n.shadowRoot); if (deep) return deep; }
+        }
+        return null;
+      }
+
+      frame.addEventListener('load', function () {
+        try {
+          var w = frame.contentWindow;
+          w.addEventListener('error', function (e) {
+            note((e && e.message ? e.message : 'خطأ') + (e && e.filename ? ' @ ' + String(e.filename).split('/').pop() : ''));
+          });
+          w.addEventListener('unhandledrejection', function (e) {
+            note('وعد مرفوض: ' + (e && e.reason ? e.reason : '—'));
+          });
+        } catch (e) { note('تعذّر مراقبة الإطار: ' + e); }
+      });
+
+      function inspect() {
+        set('app-elapsed', Math.round((Date.now() - started) / 1000) + ' ث');
+        var doc = null;
+        try { doc = frame.contentDocument; } catch (e) { doc = null; }
+        if (!doc) { set('app-boot', '❌ تعذّر قراءة الإطار'); return; }
+
+        var boot = doc.getElementById('boot');
+        set('app-boot', boot ? '✅ موجودة' : '— أُزيلت (أشار التطبيق أن واجهته ظهرت)');
+        var title = boot ? boot.querySelector('h1') : null;
+        set('app-boottext', title ? title.textContent.trim().slice(0, 90) : '—');
+
+        var view = doc.querySelector('flutter-view');
+        if (view) {
+          var vb = view.getBoundingClientRect();
+          set('app-view', '✅ ' + Math.round(vb.width) + '×' + Math.round(vb.height));
+        } else {
+          set('app-view', '❌ لم يُنشأ');
+        }
+
+        var canvas = paintedCanvas(doc);
+        set('app-canvas', canvas ? '✅ ' + canvas : '❌ لا توجد لوحة مرسومة');
+
+        var centre = null;
+        try {
+          var el = doc.elementFromPoint(frame.clientWidth / 2, frame.clientHeight / 2);
+          centre = el ? (el.id ? '#' + el.id : el.tagName.toLowerCase()) : null;
+        } catch (e) { centre = null; }
+        set('app-centre', centre || '—');
+
+        set('app-errors', errors.length ? errors.join(' ⏎ ') : 'لا شيء حتى الآن');
+      }
+
+      // مسار الصفحة الجذر بلا اسم ملف: يعمل سواء نُشرت المنصة في الجذر أو في
+      // مجلد فرعي. ومُبطِّل التخزين يمنع نسخة قديمة من التلبيس علينا.
+      frame.src = './?diag=' + Date.now();
+      setInterval(inspect, 1000);
+      inspect();
     })();
   </script>
 </body>

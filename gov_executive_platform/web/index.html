@@ -129,6 +129,36 @@
       if (el) el.remove();
     }
 
+    // أخطاء جافاسكربت تُكتب على شاشة الإقلاع نفسها.
+    //
+    // على الجوال لا توجد طرفية يفتحها المستخدم، فخطأ يقتل الإقلاع يبقى سرّاً
+    // بينه وبين المتصفح — وكل ما يصلنا "صفحة لا تفتح". هذه الأسطر تُخرج الخطأ
+    // إلى الشاشة، فتحمله أي لقطة يرسلها. ولا نكتب شيئاً بعد ظهور الواجهة:
+    // خطأ متأخر في تطبيق يعمل ليس عطل إقلاع، وإظهاره يُقلق بلا سبب.
+    var bootErrors = [];
+    function noteBootError(text) {
+      var msg = String(text).slice(0, 160);
+      if (bootErrors.indexOf(msg) !== -1) return;
+      bootErrors.push(msg);
+      var el = document.getElementById('boot-msg');
+      if (!el) return;
+      // يُهرَّب نص كل خطأ **قبل** الوصل لا بعده: الوصل بعد التهريب يُهرِّب
+      // فواصل الأسطر التي أضفناها نحن، فتظهر للمستخدم كنصّ خام.
+      var safe = bootErrors.map(function (m) {
+        return m.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      });
+      el.innerHTML = 'تعذّر تشغيل المنصة على هذا المتصفح:<br>' +
+        '<span style="font-size:11.5px;color:rgba(255,255,255,.6);word-break:break-word">' +
+        safe.join('<br>') + '</span>';
+    }
+    window.addEventListener('error', function (e) {
+      noteBootError((e && e.message ? e.message : 'خطأ غير معروف') +
+        (e && e.filename ? ' @ ' + String(e.filename).split('/').pop() : ''));
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      noteBootError('وعد مرفوض: ' + (e && e.reason ? e.reason : '—'));
+    });
+
     // بصمة البناء داخل شاشة الإقلاع. تُحفظ في متغيّر أيضاً لا في العنصر وحده،
     // لأن الشاشة قد تُزال ثم يُعيد الحارس بناءها — وقتها يجب أن يبقى رقم
     // الإصدار معنا، فهو أهم معلومة في أي بلاغ عطل.

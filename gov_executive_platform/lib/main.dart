@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
+import 'boot_signal.dart';
 import 'data/app_store.dart';
 import 'firebase_options.dart';
 import 'models/enums.dart';
@@ -27,15 +28,18 @@ Future<void> main() async {
   // استثناءً بل **تتعلّق بلا نهاية** (وعد JavaScript لا يُحسم)، فينتظر
   // التطبيق للأبد ولا يُرسم شيء إطلاقاً.
   //
-  // المهلة اثنتا عشرة ثانية: كانت عشرين، وقياس الإقلاع على متصفح جوال أظهر
-  // أن أول إطار لا يُرسم قبل الثانية الخامسة والثلاثين عند تعذّر الوصول إلى
-  // www.gstatic.com — انتظار طويل جداً يظن معه المستخدم أن المنصة معطّلة.
-  // اثنتا عشرة ثانية تكفي لشبكة جوال بطيئة وتُظهر سبب العطل مبكراً.
+  // المهلة ثماني ثوانٍ: كانت عشرين ثم اثنتي عشرة. تسجيل شاشة من جوال المستخدم
+  // أظهر أنه يغلق الصفحة قبل الثانية الثلاثين، فأي مهلة أطول من صبره لا قيمة
+  // لها — الأفضل أن يرى سبب العطل مبكراً على أن ينتظر ما لا يراه.
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
-        .timeout(const Duration(seconds: 12));
+        .timeout(const Duration(seconds: 8));
   } catch (e) {
     runApp(StartupErrorApp(details: e.toString()));
+    // شاشة الخطأ واجهة حقيقية أيضاً، فترفع شاشة الإقلاع عنها. بدون هذا السطر
+    // تبقى شاشة الإقلاع فوقها (صارت في أعلى طبقة) فيُحجب الخطأ عن المستخدم —
+    // وهو أسوأ من العطل نفسه.
+    WidgetsBinding.instance.addPostFrameCallback((_) => signalUiReady());
     return;
   }
   runApp(const GovExecutivePlatformApp());
@@ -156,8 +160,23 @@ class GovExecutivePlatformApp extends StatelessWidget {
   }
 }
 
-class _RootGate extends StatelessWidget {
+class _RootGate extends StatefulWidget {
   const _RootGate();
+
+  @override
+  State<_RootGate> createState() => _RootGateState();
+}
+
+class _RootGateState extends State<_RootGate> {
+  @override
+  void initState() {
+    super.initState();
+    // إخفاء شاشة الإقلاع HTML بعد أول إطار **مرسوم فعلاً** من التطبيق.
+    // نُرسل الإشارة من هنا لا من حدث المحرك، لأن هذا الموضع يعني أن شجرة
+    // الودجات بُنيت وأن المستخدم يرى شيئاً — سواء كانت شاشة الانتظار أو
+    // الدخول أو المنصة نفسها.
+    WidgetsBinding.instance.addPostFrameCallback((_) => signalUiReady());
+  }
 
   @override
   Widget build(BuildContext context) {

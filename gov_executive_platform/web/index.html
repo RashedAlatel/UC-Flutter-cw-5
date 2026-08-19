@@ -67,6 +67,14 @@
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
       font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; text-align: center;
       padding: 24px; box-sizing: border-box;
+      /* أعلى قيمة ممكنة — وهذا سطر جوهري لا تجميلي:
+         محرك Flutter يُلحق عنصره <flutter-view> بـ body وقت التشغيل، أي بعد
+         هذه الشاشة في ترتيب المستند. وعنصران موضوعان بلا z-index يفوز آخرهما
+         ترتيباً، فكان المحرك يغطّي شاشة الإقلاع بلوحة رسم شفافة فارغة قبل أن
+         يرسم التطبيق شيئاً — فيرى المستخدم خلفية body الخضراء وحدها ويظن أن
+         المنصة لا تفتح. قِيس ذلك على الجوال: العنصر في منتصف الشاشة كان
+         flutter-view بينما #boot ما زال موجوداً وظاهراً خلفه. */
+      z-index: 2147483647;
     }
     #boot .card { max-width: 460px; }
     #boot h1 { font-size: 17px; margin: 0 0 10px; font-weight: 800; }
@@ -86,7 +94,7 @@
   <div id="boot">
     <div class="card">
       <div class="spinner" id="boot-spinner"></div>
-      <h1 id="boot-title">جارٍ تحميل المنصة…</h1>
+      <h1 id="boot-title">جارٍ تحميل المنصة… <span id="boot-elapsed" style="opacity:.6;font-weight:600"></span></h1>
       <p id="boot-msg">وزارة العدل — دولة الكويت</p>
       <button id="boot-retry" style="display:none" onclick="location.reload()">إعادة المحاولة</button>
       <button id="boot-skip" style="display:none;background:transparent;color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.3);margin-inline-start:8px" onclick="hideBoot()">المتابعة على أي حال</button>
@@ -109,37 +117,49 @@
 
     function hideBoot() {
       clearTimeout(bootTimer);
+      clearInterval(bootTick);
       if (bootObserver) bootObserver.disconnect();
       var el = document.getElementById('boot');
       if (el) el.remove();
     }
 
-    // إشارة واحدة تُخفي الشاشة: flutter-first-frame، أي **بعد رسم أول إطار
-    // فعلاً**.
+    // من يُخفي هذه الشاشة؟ **التطبيق نفسه** عبر هذه الدالة، لا حدث من المحرك.
     //
-    // كانت هنا إشارة ثانية تُخفيها بمجرد ظهور عنصر flutter-view، وكان ذلك
-    // عيباً حقيقياً: المحرك يُنشئ flutter-view مبكراً جداً، قبل أن يُكمل
-    // main() تهيئة Firebase وقبل رسم أي شيء. فتختفي شاشة التحميل ويبقى
-    // المستخدم أمام خلفية خضراء صمّاء — بلا دوّار ولا رسالة — طوال مدة
-    // انتظار Firebase (١٥ ثانية أو أكثر على شبكات الجوال). قِيس ذلك فعلياً
-    // على متصفح جوال: الشاشة تفرغ عند الثانية ١٥ ولا يُرسم أول إطار قبل
-    // الثانية ٣٥. المستخدم يظن أن المنصة "لا تفتح" فيغلقها.
-    window.addEventListener('flutter-first-frame', hideBoot);
+    // كان الإخفاء مربوطاً بـ flutter-first-frame، وهو حدث يُطلقه المحرك عند
+    // أول إطار **ولو كان المشهد فارغاً تماماً**. فكان يُخفي الشاشة قبل أن
+    // يرسم التطبيق أي واجهة حقيقية. الآن يستدعي Dart هذه الدالة بعد أول بناء
+    // فعلي لجذر التطبيق (راجع lib/boot_signal.dart)، فالإخفاء يعني حرفياً
+    // "ظهرت واجهة يراها المستخدم".
+    window.platformUiReady = hideBoot;
 
-    // ظهور flutter-view لم يعد يُخفي الشاشة، بل يُحدّث نصّها فقط ليعرف
-    // المستخدم أن التقدّم مستمر ولم يتوقف.
+    // ظهور flutter-view يُحدّث النص فقط ليعرف المستخدم أن التقدّم مستمر.
+    // ولا يفعل ذلك بعد انقضاء المهلة: المحرك قد يُنشئ عنصره متأخراً فيمسح
+    // رسالة الحارس التي تشرح سبب العطل، ويبقى المستخدم بلا تفسير.
+    var bootFailed = false;
     var bootObserver = new MutationObserver(function () {
       if (!document.querySelector('flutter-view')) return;
       bootObserver.disconnect();
+      if (bootFailed) return;
       var msg = document.getElementById('boot-msg');
       if (msg) msg.textContent = 'جارٍ الاتصال بخدمات المنصة…';
     });
     bootObserver.observe(document.documentElement, { childList: true, subtree: true });
 
-    // إن لم يُرسم شيء خلال ٢٥ ثانية نعرض سبباً مفهوماً بدل الفراغ، مع مخرج
-    // يدوي حتى لا يُحبس المستخدم خلف الشاشة لو كان التطبيق يعمل فعلاً.
+    // عدّاد ثوانٍ حيّ: شاشة ساكنة تبدو متجمّدة، ورقم يتحرّك يطمئن المستخدم أن
+    // العمل جارٍ ويعطينا رقماً يذكره عند الإبلاغ عن أي عطل.
+    var bootStarted = Date.now();
+    var bootTick = setInterval(function () {
+      var el = document.getElementById('boot-elapsed');
+      if (el) el.textContent = '(' + Math.round((Date.now() - bootStarted) / 1000) + ' ث)';
+    }, 1000);
+
+    // إن لم تظهر واجهة خلال ١٢ ثانية نعرض سبباً مفهوماً بدل الانتظار الصامت،
+    // مع مخرج يدوي حتى لا يُحبس المستخدم خلف الشاشة لو كان التطبيق يعمل فعلاً.
     var bootTimer = setTimeout(function () {
+      bootFailed = true;
+      clearInterval(bootTick);
       document.getElementById('boot-spinner').style.display = 'none';
+      document.getElementById('boot-elapsed').textContent = '';
       document.getElementById('boot-title').textContent = 'يستغرق التحميل وقتاً أطول من المعتاد';
       document.getElementById('boot-msg').innerHTML =
         'إن استمر ذلك فتأكد من اتصال الشبكة، وإن كنت داخل شبكة الوزارة فقد يكون ' +
@@ -147,7 +167,7 @@
         'به لتشغيل المنصة.';
       document.getElementById('boot-retry').style.display = 'inline-block';
       document.getElementById('boot-skip').style.display = 'inline-block';
-    }, 25000);
+    }, 12000);
   </script>
 
   <!--

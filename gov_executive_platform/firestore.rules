@@ -83,6 +83,22 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // ------------------- أقسام الإدارات وأقسامها الفرعية -------------------
+    // تنظيم داخلي للإدارة (إدارة ← قسم ← قسم فرعي) يُسنَد إليه المشروع عبر
+    // sectionId. أسماء أقسام مجرّدة لا تحمل بيانات مشاريع، فتُقرأ كما تُقرأ
+    // الإدارات نفسها. الكتابة لمسؤول النظام أو مدير الإدارة صاحبة القسم —
+    // ولا علاقة لهذا ببوابات الاعتماد الثلاث.
+    match /sections/{id} {
+      allow read: if true;
+      allow create: if isAdmin() || isMyDeptAny(deptOf(request.resource.data));
+      // يمنع نقل قسم من إدارة إلى أخرى تحايلاً على الصلاحية: من يملك القسم
+      // في إدارته لا يملك إدارة غيرها.
+      allow update: if isAdmin()
+                    || (isMyDeptAny(deptOf(resource.data))
+                        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['departmentId']));
+      allow delete: if isAdmin() || isMyDeptAny(deptOf(resource.data));
+    }
+
     // ------------------------- المشاريع -------------------------
     match /projects/{id} {
       allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));

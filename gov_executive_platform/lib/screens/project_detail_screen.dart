@@ -56,7 +56,15 @@ class ProjectDetailScreen extends StatelessWidget {
                           children: [
                             Text(project.name, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
                             const SizedBox(height: 4),
-                            Text(dept?.name ?? 'بدون إدارة', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+                            // مسار المشروع كاملاً: الإدارة ثم القسم فالقسم
+                            // الفرعي إن وُجدا، ليعرف القارئ موقعه في الهيكل
+                            // دون العودة لصفحة الإدارة.
+                            Text(
+                              [dept?.name ?? 'بدون إدارة', store.sectionPathLabel(project.sectionId)]
+                                  .where((e) => e.isNotEmpty)
+                                  .join(' ← '),
+                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+                            ),
                           ],
                         ),
                       ),

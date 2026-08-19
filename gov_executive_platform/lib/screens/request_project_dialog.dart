@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
 import '../widgets/executors_field.dart';
+import '../widgets/section_picker.dart';
 
 /// نموذج إضافة مشروع: لمسؤول النظام يُنشئ المشروع مباشرة (موافقته الذاتية
 /// كافية)، ولأي دور آخر يُرسل "طلب إضافة مشروع" ينتظر اعتماد مسؤول النظام
@@ -28,6 +29,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
   DateTime _dueDate = DateTime.now().add(const Duration(days: 60));
   String? _managerUid;
   late String? _selectedDepartmentId = widget.departmentId;
+  String? _sectionId;
   bool _busy = false;
   String? _error;
 
@@ -65,6 +67,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
     if (isAdmin) {
       await store.createProjectDirect(
         departmentId: departmentId,
+        sectionId: _sectionId,
         name: _nameCtrl.text.trim(),
         description: _descCtrl.text.trim(),
         startDate: _startDate,
@@ -95,6 +98,7 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final isAdmin = store.isAdmin;
+    final departmentId = _selectedDepartmentId;
     final officers = store.users.where((u) => u.role == UserRole.projectOfficer).toList();
     return AlertDialog(
       title: Text(isAdmin ? 'إضافة مشروع جديد' : 'طلب إضافة مشروع جديد'),
@@ -123,6 +127,16 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
                   onChanged: (v) => setState(() => _selectedDepartmentId = v),
                 ),
                 const SizedBox(height: 12),
+              ],
+              // القسم داخل الإدارة — لا يظهر إلا للإدارات التي أنشأت أقساماً،
+              // فلا يُزحم النموذج على من لا يستخدمها.
+              if (departmentId != null && departmentId.isNotEmpty) ...[
+                SectionPicker(
+                  departmentId: departmentId,
+                  initialSectionId: _sectionId,
+                  onChanged: (v) => _sectionId = v,
+                ),
+                if (store.sectionsOf(departmentId).isNotEmpty) const SizedBox(height: 12),
               ],
               if (isAdmin) ...[
                 DropdownButtonFormField<String?>(

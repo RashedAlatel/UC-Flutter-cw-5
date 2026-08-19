@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/department_section.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import '../widgets/kpi_card.dart';
+import '../widgets/section_picker.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
@@ -82,17 +84,202 @@ class DepartmentDetailScreen extends StatelessWidget {
             );
           }),
           const SizedBox(height: 24),
-          const Text('المشاريع', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('الأقسام والمشاريع', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+              ),
+              if (store.canManageSections(departmentId))
+                OutlinedButton.icon(
+                  onPressed: () => _showSectionNameDialog(
+                    context,
+                    title: 'إضافة قسم',
+                    onSubmit: (name) => store.addSection(departmentId: departmentId, name: name),
+                  ),
+                  icon: const Icon(Icons.create_new_folder_outlined, size: 17),
+                  label: const Text('إضافة قسم'),
+                ),
+            ],
+          ),
           const SizedBox(height: 12),
-          if (projects.isEmpty)
+          if (projects.isEmpty && store.sectionsOf(departmentId).isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
               child: Text('لا توجد مشاريع لهذه الإدارة بعد', style: TextStyle(color: AppColors.textSecondary)),
             )
-          else
-            ...projects.map((p) => _ProjectCard(project: p, dept: dept)),
+          else ...[
+            ...store.sectionsOf(departmentId).map((s) => _SectionBlock(section: s, dept: dept)),
+            _LooseProjects(departmentId: departmentId, dept: dept),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// نافذة صغيرة لإدخال اسم قسم (إضافة أو إعادة تسمية).
+Future<void> _showSectionNameDialog(
+  BuildContext context, {
+  required String title,
+  String initial = '',
+  required Future<void> Function(String name) onSubmit,
+}) async {
+  final ctrl = TextEditingController(text: initial);
+  final name = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: ctrl,
+        autofocus: true,
+        decoration: const InputDecoration(labelText: 'اسم القسم'),
+        onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+        ElevatedButton(onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()), child: const Text('حفظ')),
+      ],
+    ),
+  );
+  if (name == null || name.isEmpty) return;
+  await onSubmit(name);
+}
+
+/// قسم واحد في الشجرة: عنوانه وعدّاده وأدوات إدارته، ثم مشاريعه المباشرة،
+/// ثم أقسامه الفرعية بإزاحة بصرية تُظهر أنها تحته.
+class _SectionBlock extends StatelessWidget {
+  final DepartmentSection section;
+  final dynamic dept;
+  final bool nested;
+  const _SectionBlock({required this.section, required this.dept, this.nested = false});
+
+  Future<void> _confirmDelete(BuildContext context, AppStore store) async {
+    final direct = store.projectsInSection(section.id, includeDescendants: true).length;
+    final children = store.sectionsOf(section.departmentId, parentId: section.id).length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('حذف قسم "${section.name}"'),
+        content: Text(
+          children == 0 && direct == 0
+              ? 'القسم فارغ وسيُحذف نهائياً.'
+              : 'سيُحذف القسم فقط. ما بداخله لن يُحذف: '
+                  '${direct > 0 ? '$direct مشروعاً' : ''}'
+                  '${direct > 0 && children > 0 ? ' و' : ''}'
+                  '${children > 0 ? '$children قسماً فرعياً' : ''}'
+                  ' سيُنقل إلى المستوى الأعلى.',
+          style: const TextStyle(height: 1.7),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('حذف القسم'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await store.deleteSection(section);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final canManage = store.canManageSections(section.departmentId);
+    final own = store.projectsInSection(section.id, includeDescendants: false);
+    final total = store.projectsInSection(section.id).length;
+    final children = store.sectionsOf(section.departmentId, parentId: section.id);
+
+    return Padding(
+      padding: EdgeInsetsDirectional.only(start: nested ? 18 : 0, bottom: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: nested ? 0.04 : 0.07),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                Icon(nested ? Icons.subdirectory_arrow_left_rounded : Icons.folder_rounded,
+                    size: nested ? 16 : 18, color: AppColors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(section.name,
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: nested ? 13 : 14.5)),
+                ),
+                Text('$total مشروعاً',
+                    style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                if (canManage)
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_horiz_rounded, size: 18),
+                    onSelected: (v) {
+                      switch (v) {
+                        case 'rename':
+                          _showSectionNameDialog(context,
+                              title: 'إعادة تسمية القسم',
+                              initial: section.name,
+                              onSubmit: (n) => store.renameSection(section, n));
+                        case 'child':
+                          _showSectionNameDialog(context,
+                              title: 'إضافة قسم فرعي تحت "${section.name}"',
+                              onSubmit: (n) => store.addSection(
+                                  departmentId: section.departmentId, parentId: section.id, name: n));
+                        case 'delete':
+                          _confirmDelete(context, store);
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'rename', child: Text('إعادة التسمية')),
+                      if (store.canAddChildSection(section))
+                        const PopupMenuItem(value: 'child', child: Text('إضافة قسم فرعي')),
+                      const PopupMenuItem(
+                          value: 'delete', child: Text('حذف القسم', style: TextStyle(color: AppColors.danger))),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          ...own.map((p) => Padding(
+                padding: const EdgeInsetsDirectional.only(start: 10),
+                child: _ProjectCard(project: p, dept: dept),
+              )),
+          ...children.map((c) => _SectionBlock(section: c, dept: dept, nested: true)),
+        ],
+      ),
+    );
+  }
+}
+
+/// مشاريع الإدارة غير المُسنَدة لأي قسم. لا يظهر العنوان إلا حين توجد أقسام
+/// فعلاً — على الإدارات التي لا تستخدم الأقسام تبقى الشاشة كما كانت.
+class _LooseProjects extends StatelessWidget {
+  final String departmentId;
+  final dynamic dept;
+  const _LooseProjects({required this.departmentId, required this.dept});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final loose = store.projectsWithoutSection(departmentId);
+    if (loose.isEmpty) return const SizedBox.shrink();
+    final hasSections = store.sectionsOf(departmentId).isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (hasSections)
+          const Padding(
+            padding: EdgeInsets.only(top: 6, bottom: 10),
+            child: Text('مشاريع بلا قسم',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: AppColors.textSecondary)),
+          ),
+        ...loose.map((p) => _ProjectCard(project: p, dept: dept)),
+      ],
     );
   }
 }
@@ -140,6 +327,12 @@ class _ProjectCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   StatusChip(status: project.status),
+                  if (store.canManageSections(project.departmentId))
+                    IconButton(
+                      tooltip: 'نقل المشروع إلى قسم',
+                      icon: const Icon(Icons.drive_file_move_outline, size: 18),
+                      onPressed: () => _showMoveToSectionDialog(context, project),
+                    ),
                 ],
               ),
               const SizedBox(height: 14),
@@ -212,4 +405,45 @@ class _InfoBit extends StatelessWidget {
       ],
     );
   }
+}
+
+
+/// نقل مشروع بين أقسام إدارته (أو رفعه ليصبح تحت الإدارة مباشرةً).
+Future<void> _showMoveToSectionDialog(BuildContext context, Project project) async {
+  final store = context.read<AppStore>();
+  var target = project.sectionId;
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('نقل "${project.name}"'),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              store.sectionsOf(project.departmentId).isEmpty
+                  ? 'لا توجد أقسام في هذه الإدارة بعد. أضف قسماً أولاً من زر "إضافة قسم".'
+                  : 'اختر القسم الذي سيظهر تحته هذا المشروع.',
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.6),
+            ),
+            const SizedBox(height: 14),
+            SectionPicker(
+              departmentId: project.departmentId,
+              initialSectionId: project.sectionId,
+              label: 'نقل إلى',
+              onChanged: (v) => target = v,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+        ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('نقل')),
+      ],
+    ),
+  );
+  if (confirmed != true || target == project.sectionId) return;
+  await store.assignProjectSection(project, target);
 }

@@ -16,6 +16,10 @@ class Project {
   final String createdByUid;
   final String? managerUid; // حساب "مدير المشروع" المُسنَد إليه (يرى هذا المشروع فقط)
 
+  /// القسم (أو القسم الفرعي) داخل الإدارة — راجع [DepartmentSection].
+  /// null يعني مشروعاً تحت الإدارة مباشرةً بلا قسم.
+  final String? sectionId;
+
   const Project({
     required this.id,
     required this.departmentId,
@@ -29,6 +33,7 @@ class Project {
     this.executorNames = const [],
     this.createdByUid = '',
     this.managerUid,
+    this.sectionId,
   });
 
   /// نص واحد يجمع كل أسماء المنفذين مفصولة بفاصلة، للاستخدام في الأماكن
@@ -56,6 +61,8 @@ class Project {
     double? progressPercent,
     List<String>? executorNames,
     String? managerUid,
+    String? sectionId,
+    bool clearSection = false,
   }) {
     return Project(
       id: id,
@@ -70,6 +77,7 @@ class Project {
       executorNames: executorNames ?? this.executorNames,
       createdByUid: createdByUid,
       managerUid: managerUid ?? this.managerUid,
+      sectionId: clearSection ? null : (sectionId ?? this.sectionId),
     );
   }
 
@@ -85,6 +93,7 @@ class Project {
         'executorNames': executorNames,
         'createdByUid': createdByUid,
         'managerUid': managerUid,
+        'sectionId': sectionId,
       };
 
   factory Project.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -107,6 +116,7 @@ class Project {
           : (legacyName != null && legacyName.isNotEmpty ? [legacyName] : const []),
       createdByUid: json['createdByUid'] as String? ?? '',
       managerUid: json['managerUid'] as String?,
+      sectionId: (json['sectionId'] as String?)?.isEmpty ?? true ? null : json['sectionId'] as String?,
     );
   }
 }

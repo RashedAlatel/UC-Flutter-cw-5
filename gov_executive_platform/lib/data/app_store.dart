@@ -15,6 +15,7 @@ import '../models/daily_update.dart';
 import '../models/custom_role.dart';
 import '../models/dashboard_widget_config.dart';
 import '../models/department.dart';
+import '../models/department_section.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
@@ -465,6 +466,7 @@ class AppStore extends ChangeNotifier {
     }
     _dataSubs.clear();
     departments = [];
+    sections = [];
     projects = [];
     tasks = [];
     risks = [];
@@ -530,6 +532,12 @@ class AppStore extends ChangeNotifier {
     final manager = isManager;
     final scopedDept = (canViewAllDepartments || officer || manager) ? null : currentUser?.departmentId;
 
+    // أقسام الإدارات: مجموعة صغيرة تُقرأ كاملةً — الفلترة بالإدارة تتم في
+    // الذاكرة لأن الشجرة تُعرض كاملةً على أي حال.
+    _dataSubs.add(_db.collection('sections').snapshots().listen((snap) {
+      sections = snap.docs.map(DepartmentSection.fromDoc).toList();
+      notifyListeners();
+    }));
     _dataSubs.add(_db.collection('departments').orderBy('name').snapshots().listen((snap) {
       departments = snap.docs.map(Department.fromDoc).toList();
       notifyListeners();
@@ -901,6 +909,120 @@ class AppStore extends ChangeNotifier {
   List<Project> projectsForDepartment(String departmentId) =>
       projects.where((p) => p.departmentId == departmentId).toList();
 
+  // ------------------------- أقسام الإدارات -------------------------
+
+  /// أقسام كل الإدارات (بمستوييها) — راجع [DepartmentSection].
+  List<DepartmentSection> sections = [];
+
+  DepartmentSection? sectionById(String? id) {
+    if (id == null) return null;
+    final match = sections.where((s) => s.id == id);
+    return match.isEmpty ? null : match.first;
+  }
+
+  /// أقسام إدارة على مستوى واحد: [parentId] فارغ يعطي الأقسام المباشرة تحت
+  /// الإدارة، وغير فارغ يعطي الأقسام الفرعية تحت قسم بعينه.
+  List<DepartmentSection> sectionsOf(String departmentId, {String? parentId}) {
+    final list = sections.where((s) => s.departmentId == departmentId && s.parentId == parentId).toList()
+      ..sort((a, b) => a.order != b.order ? a.order.compareTo(b.order) : a.name.compareTo(b.name));
+    return list;
+  }
+
+  /// معرّفات القسم وكل ما تحته — يُستخدم لعدّ مشاريع فرع كامل من الشجرة.
+  Set<String> sectionWithDescendants(String sectionId) {
+    final result = {sectionId};
+    var frontier = {sectionId};
+    // العمق محدود بـ maxDepth، والحلقة محروسة بأن كل جولة تضيف معرّفات جديدة
+    // فقط، فلا تدور إلى ما لا نهاية لو حوت البيانات مرجعاً دائرياً.
+    while (frontier.isNotEmpty) {
+      final next = sections
+          .where((s) => s.parentId != null && frontier.contains(s.parentId) && !result.contains(s.id))
+          .map((s) => s.id)
+          .toSet();
+      result.addAll(next);
+      frontier = next;
+    }
+    return result;
+  }
+
+  /// مشاريع قسم. [includeDescendants] يضم مشاريع الأقسام الفرعية تحته أيضاً،
+  /// وهو المطلوب عند عرض عدّاد على القسم الأب.
+  List<Project> projectsInSection(String sectionId, {bool includeDescendants = true}) {
+    final ids = includeDescendants ? sectionWithDescendants(sectionId) : {sectionId};
+    return visibleProjects.where((p) => p.sectionId != null && ids.contains(p.sectionId)).toList();
+  }
+
+  /// مشاريع إدارة غير المُسنَدة لأي قسم (تظهر تحت الإدارة مباشرةً). المشروع
+  /// المُسنَد لقسم محذوف يُعامَل كأنه بلا قسم فلا يختفي من الشاشة.
+  List<Project> projectsWithoutSection(String departmentId) => visibleProjects
+      .where((p) => p.departmentId == departmentId && (p.sectionId == null || sectionById(p.sectionId) == null))
+      .toList();
+
+  /// مسار القسم مقروءاً: «قسم ← قسم فرعي»، أو نص فارغ إن لم يكن للمشروع قسم.
+  String sectionPathLabel(String? sectionId) {
+    final parts = <String>[];
+    var current = sectionById(sectionId);
+    final seen = <String>{};
+    while (current != null && seen.add(current.id)) {
+      parts.insert(0, current.name);
+      current = sectionById(current.parentId);
+    }
+    return parts.join(' ← ');
+  }
+
+  /// هل يستطيع المستخدم إنشاء/تعديل/حذف أقسام هذه الإدارة؟
+  /// مسؤول النظام دائماً، ومدير الإدارة لإدارته. تنظيم داخلي لا يمسّ بوابات
+  /// الاعتماد الثلاث.
+  bool canManageSections(String departmentId) {
+    if (currentUser == null) return false;
+    if (isAdmin) return true;
+    return isManager && myDepartmentIds.contains(departmentId);
+  }
+
+  /// هل يمكن إضافة قسم فرعي تحت هذا القسم؟ يمنع تجاوز العمق المسموح.
+  bool canAddChildSection(DepartmentSection section) => section.levelIn(sections) < DepartmentSection.maxDepth;
+
+  Future<void> addSection({required String departmentId, String? parentId, required String name}) async {
+    final siblings = sectionsOf(departmentId, parentId: parentId);
+    final ref = _db.collection('sections').doc();
+    await ref.set(DepartmentSection(
+      id: ref.id,
+      departmentId: departmentId,
+      parentId: parentId,
+      name: name,
+      order: siblings.isEmpty ? 0 : siblings.last.order + 1,
+    ).toMap());
+    await _log('أقسام الإدارات', 'أضاف ${currentUser?.name} قسم "$name"');
+  }
+
+  Future<void> renameSection(DepartmentSection section, String name) async {
+    await _db.collection('sections').doc(section.id).update({'name': name});
+    await _log('أقسام الإدارات', 'أعاد ${currentUser?.name} تسمية قسم "${section.name}" إلى "$name"');
+  }
+
+  /// حذف قسم دون فقد شيء: أقسامه الفرعية ومشاريعه تُرفع مستوىً واحداً إلى
+  /// أبيه (أو إلى الإدارة مباشرةً إن لم يكن له أب). لا يُحذف مشروع أبداً
+  /// بحذف قسم — التنظيم شيء والبيانات شيء آخر.
+  Future<void> deleteSection(DepartmentSection section) async {
+    final batch = _db.batch();
+    for (final child in sections.where((s) => s.parentId == section.id)) {
+      batch.update(_db.collection('sections').doc(child.id), {'parentId': section.parentId});
+    }
+    for (final p in projects.where((p) => p.sectionId == section.id)) {
+      batch.update(_db.collection('projects').doc(p.id), {'sectionId': section.parentId});
+    }
+    batch.delete(_db.collection('sections').doc(section.id));
+    await batch.commit();
+    await _log('أقسام الإدارات', 'حذف ${currentUser?.name} قسم "${section.name}" ونُقل محتواه للمستوى الأعلى');
+  }
+
+  /// إسناد مشروع لقسم (أو رفعه للإدارة مباشرةً بتمرير null).
+  Future<void> assignProjectSection(Project project, String? sectionId) async {
+    await _db.collection('projects').doc(project.id).update({'sectionId': sectionId});
+    final where = sectionId == null ? 'الإدارة مباشرةً' : sectionPathLabel(sectionId);
+    await _log('أقسام الإدارات', 'نُقل مشروع "${project.name}" إلى $where');
+  }
+
   // ------------------------- دوال مساعدة -------------------------
 
   Department? departmentById(String id) {
@@ -1159,6 +1281,7 @@ class AppStore extends ChangeNotifier {
     required PriorityLevel priority,
     List<String> executorNames = const [],
     String? managerUid,
+    String? sectionId,
   }) async {
     final ref = _db.collection('projects').doc();
     await ref.set(Project(
@@ -1174,6 +1297,7 @@ class AppStore extends ChangeNotifier {
       executorNames: executorNames,
       createdByUid: currentUser?.id ?? '',
       managerUid: managerUid,
+      sectionId: sectionId,
     ).toMap());
     await _log('إضافة مشروع', 'أضاف ${currentUser?.name} مشروعاً جديداً "$name" مباشرة');
   }
@@ -1376,10 +1500,22 @@ class AppStore extends ChangeNotifier {
         for (var i = 0; i < owned.length; i += 400) {
           final batch = _db.batch();
           for (final p in owned.skip(i).take(400)) {
-            batch.update(_db.collection('projects').doc(p.id), {'departmentId': ''});
+            // إزالة القسم أيضاً: أقسام الإدارة تُحذف معها بعد قليل، فلو بقي
+            // sectionId مشيراً لقسم محذوف لظهر المشروع بمسار قسم لا وجود له.
+            batch.update(_db.collection('projects').doc(p.id), {'departmentId': '', 'sectionId': null});
           }
           await batch.commit();
         }
+      }
+      // أقسام الإدارة تذهب معها في الحالتين — فهي تنظيم داخلي لها لا معنى له
+      // بعد حذفها.
+      final deptSections = sections.where((s) => s.departmentId == dept.id).toList();
+      for (var i = 0; i < deptSections.length; i += 400) {
+        final batch = _db.batch();
+        for (final sec in deptSections.skip(i).take(400)) {
+          batch.delete(_db.collection('sections').doc(sec.id));
+        }
+        await batch.commit();
       }
       await _db.collection('departments').doc(dept.id).delete();
       await _log(

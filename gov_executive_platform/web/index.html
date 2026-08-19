@@ -94,18 +94,17 @@
   </div>
 
   <script>
-    {{flutter_js}}
-    {{flutter_build_config}}
-
-    // canvasKitBaseUrl يشير إلى نسخة المنصة المحلية لا إلى www.gstatic.com،
-    // فلا يُجلب محرك الرسم (نحو ٧ ميغابايت) من الإنترنت عند كل فتح.
-    // canvasKitBaseUrl يشير إلى نسخة المنصة المحلية لا إلى www.gstatic.com،
-    // فلا يُجلب محرك الرسم (نحو ٧ ميغابايت) من الإنترنت عند كل فتح.
-    // نترك بقية الإقلاع للسلوك الافتراضي: تمرير onEntrypointLoaded مخصص يمنع
-    // وصول هذا الإعداد إلى مُهيّئ المحرك فيعود لجلب CanvasKit من الشبكة.
-    _flutter.loader.load({
-      config: { canvasKitBaseUrl: "canvaskit/" }
-    });
+    // مقصود: يُحمَّل المُقلِع كملف خارجي ولا يُدرَج محتواه هنا.
+    //
+    // إدراج محتواه عبر رموز القوالب (flutter_js / flutter_build_config)
+    // يضع بصمة إصدار
+    // التطبيق (engineRevision) داخل هذا الملف، فتُجمَّد النسخة كاملةً في أي
+    // متصفح يخزّن index.html — وهو ما جعل سفاري يعرض النسخة القديمة بعد
+    // النشر. إبقاؤه ملفاً خارجياً (وهو no-cache في firebase.json) يضمن جلب
+    // أحدث إصدار دائماً حتى لو كانت نسخة index.html مخزّنة.
+    //
+    // مسار CanvasKit المحلي يُضبط عبر راية البناء --no-web-resources-cdn،
+    // انظر tool/build_web.sh.
 
     function hideBoot() {
       clearTimeout(bootTimer);
@@ -137,5 +136,6 @@
       document.getElementById('boot-skip').style.display = 'inline-block';
     }, 25000);
   </script>
+  <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

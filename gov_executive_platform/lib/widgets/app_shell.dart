@@ -24,6 +24,7 @@ import '../utils/formatters.dart';
 import 'announcements_banner.dart';
 import 'ministry_logo.dart';
 import 'smart_alerts_banner.dart';
+import 'update_banner.dart';
 
 class _NavEntry {
   final String label;
@@ -152,6 +153,10 @@ class _AppShellState extends State<AppShell> {
     Widget content({required bool showMenuButton}) => Column(
           children: [
             _TopBar(title: entries[selected].label, showMenuButton: showMenuButton),
+            // شريط التحديث يسبق بقية الأشرطة: إن كان المستخدم على نسخة قديمة
+            // فقد يكون كل ما يراه قديماً، فالأولى أن ينتبه له أولاً. يُخفي
+            // نفسه ويحمل هوامشه بنفسه، فلا يترك فراغاً حين لا يوجد تحديث.
+            UpdateBanner(horizontalPadding: wide ? 24 : 16),
             if (hasBanners)
               Padding(
                 padding: EdgeInsets.fromLTRB(wide ? 24 : 16, 14, wide ? 24 : 16, 0),
@@ -401,7 +406,13 @@ class _Sidebar extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
+                  // بصمة البناء: تجعل سؤال "هل النسخة محدّثة؟" قابلاً للإجابة
+                  // بنظرة واحدة بدل التخمين.
+                  Text('إصدار $kBuildStamp',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.40), fontSize: 9.5)),
+                  const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(

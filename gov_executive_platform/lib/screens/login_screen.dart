@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../theme/app_theme.dart';
 import '../theme/brand.dart';
 import '../widgets/ministry_logo.dart';
+import '../widgets/ornament_border.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -100,8 +101,22 @@ class _LoginScreenState extends State<LoginScreen> {
   /// المنصة ووصفها — بترتيب هرمي رسمي يقرأ من الأعلى للأسفل.
   Widget _buildBrandPanel({required bool compact}) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 36, vertical: compact ? 32 : 44),
       decoration: BoxDecoration(gradient: AppColors.sidebarGradient),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // الإطار الزخرفي الرسمي على الحافة الخارجية للوحة، بالذهبي المخفّف
+          // ليقرأ كزخرفة رصينة فوق الأخضر الداكن لا كشريط صاخب.
+          OrnamentBorder(width: 30, color: AppColors.accent.withValues(alpha: 0.55)),
+          Expanded(child: _buildBrandContent(compact: compact)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBrandContent({required bool compact}) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 32, vertical: compact ? 32 : 44),
       child: Column(
         crossAxisAlignment: compact ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:excel/excel.dart' as xls;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
@@ -87,9 +89,23 @@ class ReportExporter {
     required List<Project> projects,
     required Department? Function(String id) departmentById,
   }) async {
+    final bytes = await buildPdfBytes(report: report, projects: projects, departmentById: departmentById);
+    await Printing.sharePdf(bytes: bytes, filename: '${_fileBaseName(report)}.pdf');
+  }
+
+  /// يبني ملف التقرير ويعيد بايتاته دون مشاركته. مفصول عن [exportPdf] حتى
+  /// يمكن توليد التقرير والتحقق من شكله في الاختبارات (مشاركة الملف تحتاج
+  /// منصة فعلية ولا تعمل داخل بيئة الاختبار).
+  static Future<Uint8List> buildPdfBytes({
+    required ReportSnapshot report,
+    required List<Project> projects,
+    required Department? Function(String id) departmentById,
+  }) async {
     final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Tajawal-Regular.ttf'));
     final medium = pw.Font.ttf(await rootBundle.load('assets/fonts/Tajawal-Medium.ttf'));
     final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Tajawal-Bold.ttf'));
+    final emblem = await _loadImage('assets/images/logo.png');
+    final ornament = await _loadImage('assets/images/frame_border.png');
 
     final doc = pw.Document();
     // ألوان الهوية الرسمية للمنصة (أخضر كويتي + ذهبي). يبقى الاسم navy
@@ -101,10 +117,16 @@ class ReportExporter {
 
     doc.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        textDirection: pw.TextDirection.rtl,
-        theme: pw.ThemeData.withFont(base: regular, bold: bold),
-        margin: const pw.EdgeInsets.fromLTRB(28, 32, 28, 32),
+        // buildBackground متاح عبر PageTheme فقط، لذا تُجمَّع إعدادات الصفحة
+        // كلها هنا بدل تمريرها مفردة إلى MultiPage.
+        pageTheme: pw.PageTheme(
+          pageFormat: PdfPageFormat.a4,
+          textDirection: pw.TextDirection.rtl,
+          theme: pw.ThemeData.withFont(base: regular, bold: bold),
+          // الهوامش الجانبية موسّعة لإفساح مكان الإطار الزخرفي الرسمي.
+          margin: const pw.EdgeInsets.fromLTRB(46, 32, 46, 32),
+          buildBackground: (context) => _ornamentFrame(ornament),
+        ),
         header: (context) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
@@ -112,12 +134,21 @@ class ReportExporter {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Column(
+                pw.Row(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text(Brand.state, style: pw.TextStyle(font: medium, fontSize: 9, color: grey)),
-                    pw.Text(Brand.ministry, style: pw.TextStyle(font: bold, fontSize: 12, color: navy)),
-                    pw.Text(Brand.platformShort, style: pw.TextStyle(font: regular, fontSize: 8.5, color: grey)),
+                    if (emblem != null) ...[
+                      pw.Image(emblem, width: 34, height: 34),
+                      pw.SizedBox(width: 8),
+                    ],
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(Brand.state, style: pw.TextStyle(font: medium, fontSize: 9, color: grey)),
+                        pw.Text(Brand.ministry, style: pw.TextStyle(font: bold, fontSize: 12, color: navy)),
+                        pw.Text(Brand.platformShort, style: pw.TextStyle(font: regular, fontSize: 8.5, color: grey)),
+                      ],
+                    ),
                   ],
                 ),
                 pw.Text('تقرير ${report.period.label}', style: pw.TextStyle(font: medium, fontSize: 11, color: grey)),
@@ -216,7 +247,54 @@ class ReportExporter {
       ),
     );
 
-    final bytes = await doc.save();
-    await Printing.sharePdf(bytes: bytes, filename: '${_fileBaseName(report)}.pdf');
+    return doc.save();
+  }
+
+  /// يحمّل صورة من الأصول، ويعيد null إن لم تكن موجودة — حتى يبقى تصدير
+  /// التقرير عاملاً بشكل سليم لو حُذف ملف الشعار أو الزخرفة لاحقاً.
+  static Future<pw.MemoryImage?> _loadImage(String path) async {
+    try {
+      final data = await rootBundle.load(path);
+      return pw.MemoryImage(data.buffer.asUint8List());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// الإطار الزخرفي الرسمي على حافتَي كل صفحة، مطابق للإطار المعتمد في
+  /// وثائق الوزارة. تُكرَّر البلاطة رأسياً بعدد كافٍ لتغطية ارتفاع A4 بدل
+  /// تمديد صورة واحدة (التمديد يشوّه الزخرفة).
+  ///
+  /// يُلَف بـ FullPage(ignoreMargins: true) لأن خلفية الصفحة تُخطَّط افتراضياً
+  /// داخل الهوامش، فكانت الزخرفة تنزل فوق النص والجداول بدل أن تلتصق بحافة
+  /// الورقة.
+  static pw.Widget _ornamentFrame(pw.MemoryImage? ornament) {
+    if (ornament == null) return pw.SizedBox();
+    const stripWidth = 24.0;
+    const edgeInset = 9.0;
+    // البلاطة الأصلية ٥٣×١٩٤ بكسل؛ ارتفاعها المعروض يحفظ نفس النسبة.
+    const tileHeight = stripWidth * 194 / 53;
+    final tileCount = (PdfPageFormat.a4.height / tileHeight).ceil();
+
+    pw.Widget strip() => pw.SizedBox(
+          width: stripWidth,
+          child: pw.Column(
+            mainAxisSize: pw.MainAxisSize.min,
+            children: List.generate(
+              tileCount,
+              (_) => pw.Image(ornament, width: stripWidth, height: tileHeight),
+            ),
+          ),
+        );
+
+    return pw.FullPage(
+      ignoreMargins: true,
+      child: pw.Stack(
+        children: [
+          pw.Positioned(left: edgeInset, top: 0, child: strip()),
+          pw.Positioned(right: edgeInset, top: 0, child: strip()),
+        ],
+      ),
+    );
   }
 }

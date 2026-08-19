@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
+import '../theme/brand.dart';
+import '../widgets/ministry_logo.dart';
 
 class PendingApprovalScreen extends StatefulWidget {
   const PendingApprovalScreen({super.key});
@@ -86,7 +88,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
     };
 
     return Scaffold(
-      backgroundColor: AppColors.primary,
+      backgroundColor: AppColors.primaryDark,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -98,6 +100,11 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    const MinistryLogo(size: 46),
+                    const SizedBox(height: 8),
+                    const Text(Brand.ministry,
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                    const SizedBox(height: 22),
                     Container(
                       padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(color: color.withValues(alpha: 0.12), shape: BoxShape.circle),

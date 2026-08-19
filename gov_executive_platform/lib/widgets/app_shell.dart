@@ -15,7 +15,10 @@ import '../screens/reports_screen.dart';
 import '../screens/roles_management_screen.dart';
 import '../screens/user_management_screen.dart';
 import '../theme/app_theme.dart';
+import '../theme/brand.dart';
+import '../utils/formatters.dart';
 import 'announcements_banner.dart';
+import 'ministry_logo.dart';
 import 'smart_alerts_banner.dart';
 
 class _NavEntry {
@@ -121,6 +124,7 @@ class _AppShellState extends State<AppShell> {
     final wide = MediaQuery.of(context).size.width >= 980;
     final liveAlerts = store.liveProjectAlerts;
     final hasBanners = store.announcements.isNotEmpty || liveAlerts.isNotEmpty;
+
     final banners = Column(
       children: [
         AnnouncementsBanner(announcements: store.announcements),
@@ -132,169 +136,217 @@ class _AppShellState extends State<AppShell> {
       entries: entries,
       selected: selected,
       onSelect: (i) => setState(() => _selected = i),
-      floating: wide,
     );
+
+    // منطقة المحتوى مشتركة بين التخطيطين: شريط علوي رسمي يحمل عنوان الصفحة
+    // والتاريخ، ثم التنبيهات، ثم الصفحة نفسها.
+    Widget content({required bool showMenuButton}) => Column(
+          children: [
+            _TopBar(title: entries[selected].label, showMenuButton: showMenuButton),
+            if (hasBanners)
+              Padding(
+                padding: EdgeInsets.fromLTRB(wide ? 24 : 16, 14, wide ? 24 : 16, 0),
+                child: banners,
+              ),
+            Expanded(
+              child: wide
+                  ? IndexedStack(index: selected, children: entries.map((e) => e.page).toList())
+                  : entries[selected].page,
+            ),
+          ],
+        );
 
     if (wide) {
       return Scaffold(
-        body: Container(
-          decoration: BoxDecoration(gradient: AppColors.pageGradient),
-          child: Row(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 0, 16),
-                child: sidebar,
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      color: AppColors.background,
-                      child: Column(
-                        children: [
-                          if (hasBanners)
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                              child: banners,
-                            ),
-                          Expanded(
-                            child: IndexedStack(
-                              index: selected,
-                              children: entries.map((e) => e.page).toList(),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+        backgroundColor: AppColors.background,
+        body: Row(
+          children: [
+            sidebar,
+            Expanded(child: content(showMenuButton: false)),
+          ],
         ),
       );
     }
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: Text(entries[selected].label),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+      backgroundColor: AppColors.background,
+      drawer: Drawer(
+        backgroundColor: AppColors.primary,
+        child: sidebar,
       ),
-      drawer: Drawer(child: sidebar),
-      body: Container(
-        decoration: BoxDecoration(gradient: AppColors.pageGradient),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: Container(
-                color: AppColors.background,
-                child: Column(
-                  children: [
-                    if (hasBanners)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                        child: banners,
-                      ),
-                    Expanded(child: entries[selected].page),
-                  ],
-                ),
+      body: SafeArea(child: content(showMenuButton: true)),
+    );
+  }
+}
+
+/// الشريط العلوي الرسمي: عنوان الصفحة الحالية على اليمين، وهوية الوزارة
+/// والتاريخ الهجري/الميلادي على اليسار — يمنح كل صفحة إطاراً رسمياً ثابتاً
+/// بدل ظهور المحتوى مباشرة بلا ترويسة.
+class _TopBar extends StatelessWidget {
+  final String title;
+  final bool showMenuButton;
+
+  const _TopBar({required this.title, required this.showMenuButton});
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = MediaQuery.of(context).size.width < 720;
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      padding: EdgeInsets.fromLTRB(compact ? 8 : 24, 12, compact ? 12 : 24, 12),
+      child: Row(
+        children: [
+          if (showMenuButton)
+            Builder(
+              builder: (context) => IconButton(
+                icon: const Icon(Icons.menu_rounded, color: AppColors.textPrimary),
+                tooltip: 'القائمة',
+                onPressed: () => Scaffold.of(context).openDrawer(),
+              ),
+            ),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
               ),
             ),
           ),
-        ),
+          if (!compact) ...[
+            Text(
+              Formatters.date(DateTime.now()),
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(width: 16),
+            Container(width: 1, height: 26, color: AppColors.border),
+            const SizedBox(width: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: const [
+                Text(
+                  Brand.ministry,
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: AppColors.textPrimary, height: 1.2),
+                ),
+                Text(
+                  Brand.state,
+                  style: TextStyle(fontSize: 10.5, color: AppColors.textSecondary, height: 1.3),
+                ),
+              ],
+            ),
+            const SizedBox(width: 12),
+          ],
+          const MinistryLogo(size: 34),
+        ],
       ),
     );
   }
 }
 
-/// بطاقة بيضاء عائمة (بدل شريط جانبي داكن ملتصق بالحافة)، بحسب التصميم
-/// المرجعي المعتمد: شعار المنصة أعلاها، عناصر التنقل بأيقونات، العنصر
-/// المُحدَّد بخلفية داكنة صلبة بلون الهوية، وزر تسجيل الخروج أسفلها.
+/// الشريط الجانبي الرسمي: خلفية خضراء داكنة صلبة تحمل شعار الوزارة أعلاها،
+/// عناصر التنقل بأيقونات، والعنصر المُحدَّد مميَّز بشريط ذهبي وخلفية فاتحة
+/// شفافة — الطابع المعتمد في البوابات الحكومية.
 class _Sidebar extends StatelessWidget {
   final List<_NavEntry> entries;
   final int selected;
   final ValueChanged<int> onSelect;
-  final bool floating;
 
-  const _Sidebar({required this.entries, required this.selected, required this.onSelect, required this.floating});
+  const _Sidebar({required this.entries, required this.selected, required this.onSelect});
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final user = store.currentUser;
     return Container(
-      width: 240,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: floating ? BorderRadius.circular(22) : null,
-        boxShadow: floating
-            ? [BoxShadow(color: AppColors.primaryDark.withValues(alpha: 0.22), blurRadius: 24, offset: const Offset(0, 8))]
-            : null,
-      ),
+      width: 252,
+      decoration: BoxDecoration(gradient: AppColors.sidebarGradient),
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 22, 18, 6),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(18, 22, 18, 18),
+              child: Column(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(gradient: AppColors.pageGradient, shape: BoxShape.circle),
-                    child: const Icon(Icons.account_balance_rounded, color: Colors.white, size: 20),
+                  const MinistryLogo(size: 54, onDark: true),
+                  const SizedBox(height: 12),
+                  const Text(
+                    Brand.ministry,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14.5, height: 1.3),
                   ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'المنصة التنفيذية',
-                      style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 14, height: 1.3),
-                    ),
+                  const SizedBox(height: 2),
+                  Text(
+                    Brand.state,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.62), fontSize: 11, height: 1.4),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(height: 2, width: 44, color: AppColors.accent),
+                  const SizedBox(height: 10),
+                  Text(
+                    Brand.platformShort,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.80), fontSize: 11.5, fontWeight: FontWeight.w600, height: 1.4),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
+            Divider(color: Colors.white.withValues(alpha: 0.12), height: 1),
+            const SizedBox(height: 10),
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 itemCount: entries.length,
                 itemBuilder: (context, i) {
                   final e = entries[i];
                   final isSelected = i == selected;
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
+                    padding: const EdgeInsets.only(bottom: 3),
                     child: Material(
-                      color: isSelected ? AppColors.primary : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
+                      color: isSelected ? Colors.white.withValues(alpha: 0.14) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
                       child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(8),
                         onTap: () {
                           onSelect(i);
                           if (Scaffold.of(context).isDrawerOpen) Navigator.of(context).pop();
                         },
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
                           child: Row(
                             children: [
-                              Icon(e.icon, color: isSelected ? Colors.white : AppColors.textSecondary, size: 19),
-                              const SizedBox(width: 12),
+                              // شريط ذهبي رفيع يميّز العنصر النشط.
+                              Container(
+                                width: 3,
+                                height: 18,
+                                decoration: BoxDecoration(
+                                  color: isSelected ? AppColors.accent : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Icon(
+                                e.icon,
+                                color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.66),
+                                size: 18,
+                              ),
+                              const SizedBox(width: 11),
                               Expanded(
                                 child: Text(
                                   e.label,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: isSelected ? Colors.white : AppColors.textPrimary,
+                                    color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.80),
                                     fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                                    fontSize: 13,
+                                    fontSize: 12.5,
                                   ),
                                 ),
                               ),
@@ -307,8 +359,9 @@ class _Sidebar extends StatelessWidget {
                 },
               ),
             ),
+            Divider(color: Colors.white.withValues(alpha: 0.12), height: 1),
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 14),
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
               child: Column(
                 children: [
                   Row(
@@ -317,8 +370,8 @@ class _Sidebar extends StatelessWidget {
                         backgroundColor: AppColors.accent,
                         radius: 16,
                         child: Text(
-                          user != null && user.name.isNotEmpty ? user.name.substring(0, 1) : '?',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12.5),
+                          user != null && user.name.isNotEmpty ? user.name.substring(0, 1) : '؟',
+                          style: TextStyle(color: AppColors.primaryDark, fontWeight: FontWeight.w800, fontSize: 12.5),
                         ),
                       ),
                       const SizedBox(width: 9),
@@ -326,10 +379,14 @@ class _Sidebar extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(user?.name ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 12.5)),
+                            Text(user?.name ?? '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12.5)),
                             Text(user?.role.label ?? '',
-                                style: const TextStyle(color: AppColors.textSecondary, fontSize: 10.5)),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: Colors.white.withValues(alpha: 0.62), fontSize: 10.5)),
                           ],
                         ),
                       ),
@@ -343,6 +400,9 @@ class _Sidebar extends StatelessWidget {
                       icon: const Icon(Icons.logout_rounded, size: 15),
                       label: const Text('تسجيل الخروج'),
                       style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.white.withValues(alpha: 0.08),
+                        side: BorderSide(color: Colors.white.withValues(alpha: 0.22)),
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         textStyle: const TextStyle(fontSize: 12),
                       ),

@@ -21,14 +21,30 @@ class ProjectsListScreen extends StatefulWidget {
 }
 
 class _ProjectsListScreenState extends State<ProjectsListScreen> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
   String? _departmentFilter;
   String? _executorFilter;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     var projects = store.visibleProjects;
 
+    final q = _query.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      projects = projects
+          .where((p) =>
+              p.name.toLowerCase().contains(q) ||
+              p.executorNames.any((e) => e.toLowerCase().contains(q)))
+          .toList();
+    }
     if (_departmentFilter != null) {
       projects = projects.where((p) => p.departmentId == _departmentFilter).toList();
     }
@@ -72,6 +88,28 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
             runSpacing: 12,
             children: [
               SizedBox(
+                width: 280,
+                child: TextField(
+                  controller: _searchCtrl,
+                  onChanged: (v) => setState(() => _query = v),
+                  decoration: InputDecoration(
+                    hintText: 'ابحث باسم المشروع أو المنفذ',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                    isDense: true,
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            tooltip: 'مسح البحث',
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _query = '');
+                            },
+                          ),
+                  ),
+                ),
+              ),
+              SizedBox(
                 width: 220,
                 child: DropdownButtonFormField<String?>(
                   initialValue: _departmentFilter,
@@ -97,11 +135,13 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                   onChanged: (v) => setState(() => _executorFilter = v),
                 ),
               ),
-              if (_departmentFilter != null || _executorFilter != null)
+              if (_departmentFilter != null || _executorFilter != null || _query.isNotEmpty)
                 TextButton.icon(
                   onPressed: () => setState(() {
                     _departmentFilter = null;
                     _executorFilter = null;
+                    _searchCtrl.clear();
+                    _query = '';
                   }),
                   icon: const Icon(Icons.close_rounded, size: 16),
                   label: const Text('مسح الفلاتر'),

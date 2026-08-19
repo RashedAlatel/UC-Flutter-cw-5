@@ -6,32 +6,40 @@ import 'package:flutter/material.dart';
 /// خلافاً لبقية الألوان الدلالية (نجاح/تحذير/خطر...) التي تبقى ثابتة عمداً
 /// لأنها تحمل معنى وظيفياً لا يجوز تخصيصه. راجع [AppColors.applyBrand].
 class AppColors {
-  static Color primary = const Color(0xFF4B3585); // بنفسجي عميق (افتراضي)
-  static Color primaryLight = const Color(0xFF7A5FC4);
-  static Color primaryDark = const Color(0xFF2E2058);
-  static Color accent = const Color(0xFFB1479E); // أوركيدي دافئ (افتراضي)
+  static Color primary = const Color(0xFF0E4D3C); // أخضر كويتي عميق (افتراضي)
+  static Color primaryLight = const Color(0xFF1A7A5E);
+  static Color primaryDark = const Color(0xFF072E24);
+  static Color accent = const Color(0xFFC9A227); // ذهبي رسمي (افتراضي)
 
-  static const Color defaultPrimary = Color(0xFF4B3585);
-  static const Color defaultAccent = Color(0xFFB1479E);
+  static const Color defaultPrimary = Color(0xFF0E4D3C);
+  static const Color defaultAccent = Color(0xFFC9A227);
 
-  static const Color background = Color(0xFFF3F5F9);
+  static const Color background = Color(0xFFF5F7FA);
   static const Color surface = Colors.white;
 
-  static const Color success = Color(0xFF2E8B57);
-  static const Color warning = Color(0xFFE0982E);
-  static const Color danger = Color(0xFFD1453B);
-  static const Color info = Color(0xFF2874A6);
+  static const Color success = Color(0xFF1E7A4D);
+  static const Color warning = Color(0xFFC98A15);
+  static const Color danger = Color(0xFFC0392B);
+  static const Color info = Color(0xFF1F6FA8);
 
-  static const Color textPrimary = Color(0xFF1A2531);
-  static const Color textSecondary = Color(0xFF64707E);
-  static const Color border = Color(0xFFE6EAF0);
+  static const Color textPrimary = Color(0xFF15202B);
+  static const Color textSecondary = Color(0xFF5F6B7A);
+  static const Color border = Color(0xFFE3E8EF);
 
-  /// خلفية اللوحة المتدرّجة (الشريط الجانبي العائم + خلفية الشاشة الرئيسية)،
+  /// خلفية اللوحة المتدرّجة — تُستخدم في شاشة الدخول والرموز الدائرية.
   /// مُشتقّة من لوني الهوية الحاليين حتى تواكب أي تخصيص من مسؤول النظام.
   static LinearGradient get pageGradient => LinearGradient(
         begin: Alignment.topRight,
         end: Alignment.bottomLeft,
-        colors: [primaryDark, primary, Color.lerp(primary, accent, 0.55)!],
+        colors: [primaryDark, primary, primaryLight],
+      );
+
+  /// تدرّج الشريط الجانبي الرسمي: أخضر داكن صلب مع انحدار خفيف جداً يمنحه
+  /// عمقاً دون أن يبدو زخرفياً — الطابع المعتمد في البوابات الحكومية.
+  static LinearGradient get sidebarGradient => LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [primary, primaryDark],
       );
 
   static Color statusColor(String status) {
@@ -88,7 +96,9 @@ class AppColors {
     AppColors.accent = accent;
     final hsl = HSLColor.fromColor(primary);
     AppColors.primaryLight = hsl.withLightness((hsl.lightness + 0.22).clamp(0.0, 1.0)).toColor();
-    AppColors.primaryDark = hsl.withLightness((hsl.lightness - 0.14).clamp(0.0, 1.0)).toColor();
+    // الدرجة الداكنة تُشتق بنسبة مئوية لا بطرح ثابت: مع الألوان الداكنة أصلاً
+    // (كالأخضر الرسمي) كان الطرح الثابت يُنتج أسود شبه صافٍ يفقد لون الهوية.
+    AppColors.primaryDark = hsl.withLightness((hsl.lightness * 0.6).clamp(0.0, 1.0)).toColor();
   }
 
   static void resetBrand() => applyBrand(primary: defaultPrimary, accent: defaultAccent);
@@ -137,32 +147,36 @@ class AppTheme {
           color: Colors.white,
         ),
       ),
-      // بطاقات "عائمة" بظل ناعم بدل الحدود المسطّحة، لتقرأ كبطاقات بيضاء
-      // طافية فوق خلفية اللوحة المتدرّجة (بحسب التصميم المرجعي المعتمد).
+      // بطاقات رسمية: حدّ رفيع واضح وظل خفيف جداً بدل الظل العائم الكبير.
+      // البطاقة "الطافية" بظل قوي تُقرأ كتطبيق تجاري؛ الحدّ الدقيق مع ظل شبه
+      // معدوم هو الطابع المعتمد في المنصات الحكومية والتقارير الرسمية.
       cardTheme: CardThemeData(
         color: AppColors.surface,
-        elevation: 6,
-        shadowColor: AppColors.primaryDark.withValues(alpha: 0.18),
+        elevation: 0,
+        shadowColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: AppColors.border),
+        ),
         margin: EdgeInsets.zero,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.background,
+        fillColor: AppColors.surface,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: AppColors.primary, width: 1.6),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         labelStyle: const TextStyle(fontFamily: fontFamily, color: AppColors.textSecondary, fontSize: 13.5),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
@@ -170,7 +184,7 @@ class AppTheme {
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           textStyle: const TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w700, fontSize: 13.5),
           elevation: 0,
         ),
@@ -178,9 +192,10 @@ class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.primary,
+          backgroundColor: AppColors.surface,
           side: const BorderSide(color: AppColors.border, width: 1.2),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           textStyle: const TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w700, fontSize: 13.5),
         ),
       ),
@@ -198,7 +213,7 @@ class AppTheme {
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         titleTextStyle: const TextStyle(
           fontFamily: fontFamily,
           fontSize: 16.5,

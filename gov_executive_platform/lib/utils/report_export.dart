@@ -7,6 +7,7 @@ import 'package:printing/printing.dart';
 import '../models/department.dart';
 import '../models/project.dart';
 import '../models/report.dart';
+import '../theme/brand.dart';
 import 'formatters.dart';
 
 /// تصدير التقارير التنفيذية إلى ملفات Excel أو PDF قابلة للتنزيل مباشرة من
@@ -91,10 +92,12 @@ class ReportExporter {
     final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Tajawal-Bold.ttf'));
 
     final doc = pw.Document();
-    const navy = PdfColor.fromInt(0xFF0A3358);
-    const gold = PdfColor.fromInt(0xFFCB9B3C);
-    const grey = PdfColor.fromInt(0xFF64707E);
-    const border = PdfColor.fromInt(0xFFE6EAF0);
+    // ألوان الهوية الرسمية للمنصة (أخضر كويتي + ذهبي). يبقى الاسم navy
+    // للتوافق مع مواضع الاستخدام أدناه دون تغييرها جميعاً.
+    const navy = PdfColor.fromInt(0xFF0E4D3C);
+    const gold = PdfColor.fromInt(0xFFC9A227);
+    const grey = PdfColor.fromInt(0xFF5F6B7A);
+    const border = PdfColor.fromInt(0xFFE3E8EF);
 
     doc.addPage(
       pw.MultiPage(
@@ -106,9 +109,17 @@ class ReportExporter {
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text('المنصة التنفيذية الحكومية', style: pw.TextStyle(font: bold, fontSize: 11, color: navy)),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(Brand.state, style: pw.TextStyle(font: medium, fontSize: 9, color: grey)),
+                    pw.Text(Brand.ministry, style: pw.TextStyle(font: bold, fontSize: 12, color: navy)),
+                    pw.Text(Brand.platformShort, style: pw.TextStyle(font: regular, fontSize: 8.5, color: grey)),
+                  ],
+                ),
                 pw.Text('تقرير ${report.period.label}', style: pw.TextStyle(font: medium, fontSize: 11, color: grey)),
               ],
             ),
@@ -118,9 +129,15 @@ class ReportExporter {
           ],
         ),
         footer: (context) => pw.Container(
-          alignment: pw.Alignment.center,
           margin: const pw.EdgeInsets.only(top: 10),
-          child: pw.Text('صفحة ${context.pageNumber} من ${context.pagesCount}', style: pw.TextStyle(font: regular, fontSize: 9, color: grey)),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text('${Brand.ministry} — ${Brand.state}', style: pw.TextStyle(font: regular, fontSize: 8.5, color: grey)),
+              pw.Text('صفحة ${context.pageNumber} من ${context.pagesCount}',
+                  style: pw.TextStyle(font: regular, fontSize: 9, color: grey)),
+            ],
+          ),
         ),
         build: (context) => [
           pw.Text('تقرير ${report.period.label} — ${Formatters.date(report.generatedDate)}',

@@ -29,7 +29,7 @@ class GovExecutivePlatformApp extends StatelessWidget {
       // (راجع AppColors.applyBrand)، فيجب إعادة بناء الثيم عند أي تغيير.
       child: Consumer<AppStore>(
         builder: (context, store, _) => MaterialApp(
-          title: 'المنصة التنفيذية الحكومية',
+          title: 'وزارة العدل — المنصة التنفيذية',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.theme,
           locale: const Locale('ar'),
@@ -55,7 +55,7 @@ class _RootGate extends StatelessWidget {
     final store = context.watch<AppStore>();
     if (!store.ready) {
       return Scaffold(
-        backgroundColor: AppColors.primary,
+        backgroundColor: AppColors.primaryDark,
         body: const Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }

@@ -6,13 +6,42 @@ import '../models/app_user.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
 
-class UserManagementScreen extends StatelessWidget {
+class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
+
+  @override
+  State<UserManagementScreen> createState() => _UserManagementScreenState();
+}
+
+class _UserManagementScreenState extends State<UserManagementScreen> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+  UserRole? _roleFilter;
+  UserStatus? _statusFilter;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final users = store.users;
+
+    // على مستوى الوزارة (مئات الحسابات) لا تكفي قائمة مسطّحة: البحث يشمل
+    // الاسم والبريد ورقم الجوال معاً، مع تصفية بالدور وبحالة الحساب.
+    final q = _query.trim().toLowerCase();
+    final users = store.users.where((u) {
+      if (_roleFilter != null && u.role != _roleFilter) return false;
+      if (_statusFilter != null && u.status != _statusFilter) return false;
+      if (q.isEmpty) return true;
+      return u.name.toLowerCase().contains(q) ||
+          u.email.toLowerCase().contains(q) ||
+          u.phone.toLowerCase().contains(q);
+    }).toList();
+
+    final pending = store.users.where((u) => u.status == UserStatus.pending).length;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
@@ -22,13 +51,17 @@ class UserManagementScreen extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('إدارة المستخدمين', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    SizedBox(height: 4),
-                    Text('إدارة حسابات المستخدمين وأدوارهم، وإرسال إشعارات عبر البريد وواتساب', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+                    const Text('إدارة المستخدمين', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                    const SizedBox(height: 4),
+                    Text(
+                      'إجمالي ${store.users.length} حساب'
+                      '${pending > 0 ? ' · $pending بانتظار الاعتماد' : ''}',
+                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+                    ),
                   ],
                 ),
               ),
@@ -45,15 +78,87 @@ class UserManagementScreen extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
           Card(
-            child: ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: users.length,
-              separatorBuilder: (_, _) => const Divider(height: 1),
-              itemBuilder: (context, i) => _UserRow(user: users[i]),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 300,
+                    child: TextField(
+                      controller: _searchCtrl,
+                      onChanged: (v) => setState(() => _query = v),
+                      decoration: InputDecoration(
+                        hintText: 'ابحث بالاسم أو البريد أو رقم الجوال',
+                        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                        isDense: true,
+                        suffixIcon: _query.isEmpty
+                            ? null
+                            : IconButton(
+                                icon: const Icon(Icons.close_rounded, size: 18),
+                                tooltip: 'مسح البحث',
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() => _query = '');
+                                },
+                              ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 210,
+                    child: DropdownButtonFormField<UserRole?>(
+                      initialValue: _roleFilter,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'الدور', isDense: true),
+                      items: [
+                        const DropdownMenuItem<UserRole?>(value: null, child: Text('كل الأدوار')),
+                        ...UserRole.values.map((r) => DropdownMenuItem<UserRole?>(value: r, child: Text(r.label))),
+                      ],
+                      onChanged: (v) => setState(() => _roleFilter = v),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 210,
+                    child: DropdownButtonFormField<UserStatus?>(
+                      initialValue: _statusFilter,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'حالة الحساب', isDense: true),
+                      items: [
+                        const DropdownMenuItem<UserStatus?>(value: null, child: Text('كل الحالات')),
+                        ...UserStatus.values.map((s) => DropdownMenuItem<UserStatus?>(value: s, child: Text(s.label))),
+                      ],
+                      onChanged: (v) => setState(() => _statusFilter = v),
+                    ),
+                  ),
+                  Text(
+                    'النتائج: ${users.length}',
+                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                  ),
+                ],
+              ),
             ),
+          ),
+          const SizedBox(height: 14),
+          Card(
+            child: users.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(28),
+                    child: Center(
+                      child: Text('لا توجد حسابات مطابقة للبحث', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                    ),
+                  )
+                : ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: users.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, i) => _UserRow(user: users[i]),
+                  ),
           ),
         ],
       ),
@@ -560,7 +665,7 @@ class _UserFormDialogState extends State<_UserFormDialog> {
               const SizedBox(height: 12),
               TextField(controller: _emailCtrl, decoration: const InputDecoration(labelText: 'البريد الإلكتروني')),
               const SizedBox(height: 12),
-              TextField(controller: _phoneCtrl, decoration: const InputDecoration(labelText: 'رقم الجوال (لواتساب)', hintText: '+9715xxxxxxxx')),
+              TextField(controller: _phoneCtrl, decoration: const InputDecoration(labelText: 'رقم الجوال (لواتساب)', hintText: '+9655xxxxxxx')),
               const SizedBox(height: 12),
               TextField(controller: _passwordCtrl, decoration: const InputDecoration(labelText: 'كلمة المرور المبدئية')),
               const SizedBox(height: 12),

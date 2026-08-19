@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../theme/app_theme.dart';
+import '../theme/brand.dart';
+import '../widgets/ministry_logo.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -46,35 +48,47 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.primary,
+      backgroundColor: AppColors.primaryDark,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 20),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 940),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 40, offset: const Offset(0, 20))],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: LayoutBuilder(builder: (context, constraints) {
-                final wide = constraints.maxWidth > 640;
-                final form = _buildForm();
-                final brand = _buildBrandPanel();
-                if (!wide) {
-                  return Column(mainAxisSize: MainAxisSize.min, children: [brand, form]);
-                }
-                return IntrinsicHeight(
-                  child: Row(
-                    children: [
-                      Expanded(flex: 5, child: brand),
-                      Expanded(flex: 6, child: form),
-                    ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.30), blurRadius: 48, offset: const Offset(0, 18))],
                   ),
-                );
-              }),
+                  clipBehavior: Clip.antiAlias,
+                  child: LayoutBuilder(builder: (context, constraints) {
+                    final wide = constraints.maxWidth > 640;
+                    final form = _buildForm();
+                    final brand = _buildBrandPanel(compact: !wide);
+                    if (!wide) {
+                      return Column(mainAxisSize: MainAxisSize.min, children: [brand, form]);
+                    }
+                    return IntrinsicHeight(
+                      child: Row(
+                        children: [
+                          Expanded(flex: 5, child: brand),
+                          Expanded(flex: 6, child: form),
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'جميع الحقوق محفوظة © ${DateTime.now().year} — ${Brand.ministry}، ${Brand.state}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 11.5),
+                ),
+              ],
             ),
           ),
         ),
@@ -82,30 +96,42 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildBrandPanel() {
+  /// اللوحة التعريفية الرسمية: شعار الوزارة، اسم الدولة والجهة، ثم اسم
+  /// المنصة ووصفها — بترتيب هرمي رسمي يقرأ من الأعلى للأسفل.
+  Widget _buildBrandPanel({required bool compact}) {
     return Container(
-      padding: const EdgeInsets.all(36),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primary, AppColors.primaryLight],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-      ),
+      padding: EdgeInsets.symmetric(horizontal: 36, vertical: compact ? 32 : 44),
+      decoration: BoxDecoration(gradient: AppColors.sidebarGradient),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: compact ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
-        children: const [
-          Icon(Icons.account_balance_rounded, color: Colors.white, size: 44),
-          SizedBox(height: 18),
+        children: [
+          const MinistryLogo(size: 68, onDark: true),
+          const SizedBox(height: 20),
           Text(
-            'المنصة التنفيذية الحكومية',
-            style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, height: 1.4),
+            Brand.state,
+            textAlign: compact ? TextAlign.center : TextAlign.start,
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.70), fontSize: 13, fontWeight: FontWeight.w600, height: 1.4),
           ),
-          SizedBox(height: 10),
+          const SizedBox(height: 2),
           Text(
-            'إدارة ومتابعة الخطة الاستراتيجية ومشاريع الوزارة على مستوى القيادة التنفيذية، بمؤشرات فورية وقرارات أسرع.',
-            style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.7),
+            Brand.ministry,
+            textAlign: compact ? TextAlign.center : TextAlign.start,
+            style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          Container(height: 2, width: 52, color: AppColors.accent),
+          const SizedBox(height: 14),
+          Text(
+            Brand.platform,
+            textAlign: compact ? TextAlign.center : TextAlign.start,
+            style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700, height: 1.6),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            Brand.tagline,
+            textAlign: compact ? TextAlign.center : TextAlign.start,
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.72), fontSize: 12.5, height: 1.9),
           ),
         ],
       ),

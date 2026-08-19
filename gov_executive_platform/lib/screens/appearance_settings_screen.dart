@@ -18,7 +18,7 @@ class AppearanceSettingsScreen extends StatefulWidget {
 
 class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
   static const List<Color> _primaryPresets = [
-    Color(0xFF4B3585), // الافتراضي: بنفسجي عميق
+    Color(0xFF0E4D3C), // الافتراضي: أخضر كويتي عميق
     Color(0xFF0A3358), // أزرق حكومي عميق
     Color(0xFF163A2E), // أخضر غابي داكن
     Color(0xFF5A1F1F), // عنّابي
@@ -31,7 +31,7 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
   ];
 
   static const List<Color> _accentPresets = [
-    Color(0xFFB1479E), // الافتراضي: أوركيدي دافئ
+    Color(0xFFC9A227), // الافتراضي: ذهبي رسمي
     Color(0xFFCB9B3C), // ذهبي دافئ
     Color(0xFFB5732E), // نحاسي
     Color(0xFF3E7CB1), // أزرق سماوي

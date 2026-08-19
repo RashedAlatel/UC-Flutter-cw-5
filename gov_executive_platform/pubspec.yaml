@@ -70,6 +70,11 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # مجلد شعار الوزارة. يُعلَن كمجلد (لا كملف مفرد) حتى لا يفشل البناء قبل أن
+  # يضع مسؤول النظام ملف logo.png فيه — راجع assets/images/README.md.
+  assets:
+    - assets/images/
+
   fonts:
     - family: Tajawal
       fonts:

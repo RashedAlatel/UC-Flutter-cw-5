@@ -6,6 +6,8 @@ import '../data/app_store.dart';
 import '../models/department.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
+import '../theme/brand.dart';
+import '../widgets/ministry_logo.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -26,6 +28,11 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _busy = false;
 
   static const _selectableRoles = [UserRole.executiveViewer, UserRole.departmentManager, UserRole.projectOfficer];
+
+  /// يُنشأ مرة واحدة فقط. لو تُرِك داخل build() لأعاد FutureBuilder إطلاق
+  /// استعلام Firestore مع كل setState (تغيير الدور، ظهور رسالة خطأ...) —
+  /// وهو استهلاك بلا داعٍ يتضاعف مع مئات الموظفين أثناء فترة التسجيل.
+  late final Future<List<Department>> _departmentsFuture = _loadDepartments();
 
   @override
   void dispose() {
@@ -83,7 +90,7 @@ class _SignupScreenState extends State<SignupScreen> {
   Widget build(BuildContext context) {
     final needsDept = _requestedRole != UserRole.executiveViewer;
     return Scaffold(
-      backgroundColor: AppColors.primary,
+      backgroundColor: AppColors.primaryDark,
       appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0, foregroundColor: Colors.white),
       body: Center(
         child: SingleChildScrollView(
@@ -97,6 +104,19 @@ class _SignupScreenState extends State<SignupScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    Column(
+                      children: [
+                        const MinistryLogo(size: 52),
+                        const SizedBox(height: 10),
+                        const Text(Brand.state,
+                            style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w600)),
+                        const Text(Brand.ministry,
+                            style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: AppColors.textPrimary, height: 1.4)),
+                        const SizedBox(height: 8),
+                        Container(height: 2, width: 40, color: AppColors.accent),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
                     const Text('إنشاء حساب جديد', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 4),
                     const Text(
@@ -115,7 +135,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     TextField(
                       controller: _phoneCtrl,
                       keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(labelText: 'رقم الجوال (لواتساب)', hintText: '+9715xxxxxxxx'),
+                      decoration: const InputDecoration(labelText: 'رقم الجوال (لواتساب)', hintText: '+9655xxxxxxx'),
                     ),
                     const SizedBox(height: 12),
                     TextField(controller: _passwordCtrl, obscureText: true, decoration: const InputDecoration(labelText: 'كلمة المرور')),
@@ -135,7 +155,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     if (needsDept) ...[
                       const SizedBox(height: 12),
                       FutureBuilder<List<Department>>(
-                        future: _loadDepartments(),
+                        future: _departmentsFuture,
                         builder: (context, snapshot) {
                           final depts = snapshot.data ?? const [];
                           return DropdownButtonFormField<String>(

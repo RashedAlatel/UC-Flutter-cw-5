@@ -6,7 +6,7 @@ class AppUser {
   final String id; // Firebase Auth UID
   final String name;
   final String email;
-  final String phone; // بصيغة دولية E.164 مثل ‎+9715xxxxxxxx لإرسال واتساب
+  final String phone; // بصيغة دولية E.164 مثل ‎+9655xxxxxxx لإرسال واتساب
   final UserRole role;
   final String? customRoleId; // مرجع لمستند بمجموعة roles عند role == custom
   final String? departmentId; // null لمسؤول النظام والمستخدم التنفيذي

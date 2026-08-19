@@ -19,13 +19,33 @@ String _normalizeArabic(String s) => s
     .replaceAll('ى', 'ي')
     .replaceAll('ة', 'ه');
 
-class DepartmentsListScreen extends StatelessWidget {
+class DepartmentsListScreen extends StatefulWidget {
   const DepartmentsListScreen({super.key});
+
+  @override
+  State<DepartmentsListScreen> createState() => _DepartmentsListScreenState();
+}
+
+class _DepartmentsListScreenState extends State<DepartmentsListScreen> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final departments = store.visibleDepartments;
+    final all = store.visibleDepartments;
+    // البحث يقارن بعد توحيد الفروقات الإملائية، فيجد "إدارة التشغيل" سواء
+    // كُتبت في البحث بهمزة أو بدونها.
+    final q = _normalizeArabic(_query);
+    final departments = q.isEmpty
+        ? all
+        : all.where((d) => _normalizeArabic(d.name).contains(q) || _normalizeArabic(d.headName).contains(q)).toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
@@ -35,13 +55,14 @@ class DepartmentsListScreen extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('الإدارات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    SizedBox(height: 4),
-                    Text('عرض جميع الإدارات ومؤشرات أداء مشاريعها', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+                    const Text('الإدارات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                    const SizedBox(height: 4),
+                    Text('${all.length} إدارة · مؤشرات أداء مشاريع كل إدارة',
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
                   ],
                 ),
               ),
@@ -53,7 +74,34 @@ class DepartmentsListScreen extends StatelessWidget {
                 ),
             ],
           ),
-          if (store.canManageUsers && departments.isEmpty) ...[
+          if (all.length > 6) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: 320,
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: (v) => setState(() => _query = v),
+                decoration: InputDecoration(
+                  hintText: 'ابحث باسم الإدارة أو مسؤولها',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  isDense: true,
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          tooltip: 'مسح البحث',
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _query = '');
+                          },
+                        ),
+                ),
+              ),
+            ),
+          ],
+          // بطاقة الاستيراد تعتمد على الإدارات كلها لا على نتيجة البحث، حتى لا
+          // تظهر "لا توجد إدارات بعد" لمجرد أن البحث الحالي بلا نتائج.
+          if (store.canManageUsers && all.isEmpty) ...[
             const SizedBox(height: 14),
             Card(
               child: Padding(
@@ -77,6 +125,11 @@ class DepartmentsListScreen extends StatelessWidget {
             const _MinistryImportCard(),
           ],
           const SizedBox(height: 20),
+          if (departments.isEmpty && all.isNotEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 30),
+              child: Center(child: Text('لا توجد إدارات مطابقة للبحث', style: TextStyle(color: AppColors.textSecondary))),
+            ),
           LayoutBuilder(builder: (context, constraints) {
             final cols = constraints.maxWidth > 1150 ? 3 : (constraints.maxWidth > 720 ? 2 : 1);
             return GridView.count(

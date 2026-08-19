@@ -1,11 +1,11 @@
 {
-    "name": "المنصة التنفيذية الحكومية",
+    "name": "وزارة العدل — المنصة التنفيذية",
     "short_name": "المنصة التنفيذية",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0B3D66",
-    "theme_color": "#0B3D66",
-    "description": "منصة تنفيذية حكومية لإدارة ومتابعة الخطة الاستراتيجية ومشاريع الوزارة",
+    "background_color": "#0E4D3C",
+    "theme_color": "#0E4D3C",
+    "description": "المنصة التنفيذية لمتابعة مشاريع وزارة العدل — دولة الكويت",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

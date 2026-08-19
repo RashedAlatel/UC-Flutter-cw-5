@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../build_stamp.dart';
 import '../data/app_store.dart';
 import '../theme/app_theme.dart';
 import '../theme/brand.dart';
@@ -203,6 +204,15 @@ class _LoginScreenState extends State<LoginScreen> {
             child: TextButton(
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SignupScreen())),
               child: const Text('ليس لديك حساب؟ إنشاء حساب جديد'),
+            ),
+          ),
+          // بصمة البناء على شاشة الدخول أيضاً: يراها المستخدم قبل الدخول، فيمكنه
+          // إخبار مسؤول النظام أي نسخة تعمل على جهازه عند الإبلاغ عن أي عطل.
+          const SizedBox(height: 6),
+          Center(
+            child: Text(
+              'إصدار $kBuildStamp',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 10.5),
             ),
           ),
         ],

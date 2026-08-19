@@ -198,10 +198,30 @@ class _DepartmentsListScreenState extends State<DepartmentsListScreen> {
                                 ),
                               ),
                               if (store.canManageUsers)
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline_rounded, size: 19, color: AppColors.danger),
-                                  tooltip: 'حذف الإدارة',
-                                  onPressed: () => _confirmDelete(context, dept),
+                                PopupMenuButton<String>(
+                                  icon: const Icon(Icons.more_horiz_rounded, size: 19),
+                                  tooltip: 'إجراءات الإدارة',
+                                  onSelected: (v) {
+                                    switch (v) {
+                                      case 'convert':
+                                        _confirmConvert(context, dept);
+                                      case 'delete':
+                                        _confirmDelete(context, dept);
+                                    }
+                                  },
+                                  itemBuilder: (_) => [
+                                    // ضمّ إدارة تحت إدارة أخرى كقسم — الهيكل
+                                    // الفعلي في الوزارة: الإدارة تضم أقساماً.
+                                    if (store.canMoveSectionAcrossDepartments)
+                                      const PopupMenuItem(
+                                        value: 'convert',
+                                        child: Text('تحويل إلى قسم داخل إدارة أخرى'),
+                                      ),
+                                    const PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('حذف الإدارة', style: TextStyle(color: AppColors.danger)),
+                                    ),
+                                  ],
                                 ),
                             ],
                           ),
@@ -496,4 +516,71 @@ class _MiniStat extends StatelessWidget {
       ),
     );
   }
+}
+
+/// تحويل إدارة إلى قسم داخل إدارة أخرى.
+///
+/// الأقسام المستوردة من ملفات المتابعة تأتي كإدارات مستقلة، بينما هي في الواقع
+/// أقسام تحت إدارتها الأم. هذه النافذة تضمّها لمكانها الصحيح: تنتقل مشاريعها
+/// وأقسامها معها، ثم تُحذف الإدارة الفارغة — بلا فقد أي سجل.
+Future<void> _confirmConvert(BuildContext context, Department dept) async {
+  final store = context.read<AppStore>();
+  final targets = store.departments.where((d) => d.id != dept.id).toList();
+  final messenger = ScaffoldMessenger.of(context);
+
+  if (targets.isEmpty) {
+    messenger.showSnackBar(const SnackBar(content: Text('لا توجد إدارة أخرى لضمّ هذه الإدارة إليها')));
+    return;
+  }
+
+  final projectCount = store.projectsForDepartment(dept.id).length;
+  final sectionCount = store.sections.where((s) => s.departmentId == dept.id).length;
+  String? targetId;
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setLocal) => AlertDialog(
+        title: Text('تحويل "${dept.name}" إلى قسم'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'ستصبح هذه الإدارة قسماً داخل الإدارة التي تختارها، وينتقل معها '
+                '$projectCount مشروعاً'
+                '${sectionCount > 0 ? ' و$sectionCount قسماً' : ''}. '
+                'لا يُحذف أي مشروع، ويبقى اسم المسؤول "${dept.headName}" مسجّلاً على القسم.',
+                style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.8),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: targetId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'الإدارة الأم'),
+                items: targets.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
+                onChanged: (v) => setLocal(() => targetId = v),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: targetId == null ? null : () => Navigator.pop(ctx, true),
+            child: const Text('تحويل'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (confirmed != true || targetId == null) return;
+
+  final error = await store.convertDepartmentToSection(dept, targetId!);
+  messenger.showSnackBar(SnackBar(
+    content: Text(error ?? 'تم تحويل "${dept.name}" إلى قسم'),
+    backgroundColor: error == null ? null : AppColors.danger,
+  ));
 }

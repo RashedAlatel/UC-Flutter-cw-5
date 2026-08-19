@@ -53,3 +53,7 @@ functions/node_modules/
 functions/lib/
 functions/.env
 functions/.env.*
+
+# حزم Firebase JS المستضافة محلياً — يجلبها tool/fetch_firebase_sdk.sh وقت البناء
+# ولا تُلتزم في المستودع (ملفات طرف ثالث تُجلب بإصدارها المثبَّت في pubspec.lock).
+web/firebase_sdk/

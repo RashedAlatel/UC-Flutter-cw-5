@@ -13,6 +13,7 @@ import 'screens/login_screen.dart';
 import 'screens/pending_approval_screen.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_shell.dart';
+import 'screens/preparing_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -161,12 +162,7 @@ class _RootGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    if (!store.ready) {
-      return Scaffold(
-        backgroundColor: AppColors.primaryDark,
-        body: const Center(child: CircularProgressIndicator(color: Colors.white)),
-      );
-    }
+    if (!store.ready) return const PreparingScreen(onRetry: _reload);
     final user = store.currentUser;
     if (user == null) {
       return const LoginScreen();

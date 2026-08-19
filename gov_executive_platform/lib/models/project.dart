@@ -52,6 +52,7 @@ class Project {
   }
 
   Project copyWith({
+    String? departmentId,
     String? name,
     String? description,
     DateTime? startDate,
@@ -66,7 +67,7 @@ class Project {
   }) {
     return Project(
       id: id,
-      departmentId: departmentId,
+      departmentId: departmentId ?? this.departmentId,
       name: name ?? this.name,
       description: description ?? this.description,
       startDate: startDate ?? this.startDate,

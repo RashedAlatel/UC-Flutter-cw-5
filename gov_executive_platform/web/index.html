@@ -93,6 +93,7 @@
     </div>
   </div>
 
+
   <script>
     // مقصود: يُحمَّل المُقلِع كملف خارجي ولا يُدرَج محتواه هنا.
     //
@@ -148,6 +149,52 @@
       document.getElementById('boot-skip').style.display = 'inline-block';
     }, 25000);
   </script>
-  <script src="flutter_bootstrap.js" async></script>
+
+  <!--
+    تحميل حزم Firebase من المنصة نفسها بدل www.gstatic.com.
+
+    إضافة firebase_core_web تحقن أربعة سكربتات من ذلك النطاق وقت التشغيل وقبل
+    أن يُرسم أي شيء، فإن حجبته الشبكة أو أبطأته تعلّقت المنصة قبل ظهورها. لكن
+    الإضافة تتخطّى الحقن كاملاً إن وجدت window.firebase_core مضبوطاً مسبقاً
+    (راجع firebase_core_web/lib/src/firebase_core_web.dart: إن لم يكن
+    firebase_core فارغاً عادت الدالة فوراً). فنضبطه هنا من ملفات محلية.
+
+    الملفات يجلبها tool/fetch_firebase_sdk.sh وقت البناء. وإن غابت — أو فشل
+    استيرادها لأي سبب — لا يحدث شيء وتعمل المنصة بمسارها الحالي تماماً. أي
+    أن أسوأ الاحتمالات هو سلوك اليوم نفسه، لا انحدار.
+  -->
+  <script type="module">
+    // إقلاع Flutter يبدأ من هنا **بعد** محاولة ضبط الحزم المحلية، لا بوسم
+    // مستقل: لو تُرك وسماً مستقلاً لتسابق التحميلان، وقد يسأل التطبيق عن
+    // window.firebase_core قبل أن يُضبط فيعود لجلبه من الشبكة أحياناً وأحياناً
+    // لا — وهو أسوأ من عطل ثابت لأنه يظهر ويختفي.
+    (async () => {
+      try {
+        const [core, auth, firestore, functions] = await Promise.all([
+          import('./firebase_sdk/firebase-app.js'),
+          import('./firebase_sdk/firebase-auth.js'),
+          import('./firebase_sdk/firebase-firestore.js'),
+          import('./firebase_sdk/firebase-functions.js'),
+        ]);
+        // الأسماء الأربعة مطلوبة كلها: الفحص يقع على firebase_core وحده، فلو
+        // ضبطناه دون البقية لتخطّت الإضافة حقن الثلاثة الأخرى وفشل التطبيق.
+        window.firebase_core = core;
+        window.firebase_auth = auth;
+        window.firebase_firestore = firestore;
+        window.firebase_functions = functions;
+      } catch (e) {
+        // لا شيء: تعود الإضافة لجلب الحزم من الشبكة كما كانت.
+        console.info('حزم Firebase المحلية غير متوفرة، سيُعتمد على المصدر الافتراضي.', e);
+      } finally {
+        // في finally لا في try: مهما فشل ما سبق يجب أن يُقلع التطبيق.
+        var s = document.createElement('script');
+        s.src = 'flutter_bootstrap.js';
+        s.async = true;
+        document.body.appendChild(s);
+      }
+    })();
+  </script>
+  <!-- متصفح لا يفهم الوحدات (module) يتخطّى ما سبق، فيُقلع من هنا. -->
+  <script nomodule src="flutter_bootstrap.js" async></script>
 </body>
 </html>

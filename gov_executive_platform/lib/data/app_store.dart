@@ -454,6 +454,7 @@ class AppStore extends ChangeNotifier {
   @override
   void dispose() {
     _authSub?.cancel();
+    _readyFallbackTimer?.cancel();
     _userDocSub?.cancel();
     _themeSub?.cancel();
     _cancelDataSubs();
@@ -492,8 +493,19 @@ class AppStore extends ChangeNotifier {
     _projectWidgetsSubscribed.clear();
   }
 
+  /// أقصى انتظار لأول لقطة من مستند المستخدم قبل رسم الواجهة على أي حال.
+  ///
+  /// بدونه يبقى `ready` كاذباً إلى الأبد إن تعذّر الوصول إلى Firestore (شبكة
+  /// تحجب نطاقات Google مثلاً)، فلا تُرمى أخطاء ولا تُرسم شاشة — دوّار صامت
+  /// يظنه المستخدم عطلاً تاماً. الاشتراك يبقى قائماً بعد انقضاء المهلة، فإن
+  /// وصلت البيانات لاحقاً ظهرت الشاشة الصحيحة تلقائياً.
+  static const Duration _firstSnapshotPatience = Duration(seconds: 15);
+
+  Timer? _readyFallbackTimer;
+
   Future<void> _onAuthChanged(fb_auth.User? user) async {
     await _userDocSub?.cancel();
+    _readyFallbackTimer?.cancel();
     _cancelDataSubs();
     if (user == null) {
       currentUser = null;
@@ -501,7 +513,13 @@ class AppStore extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    _readyFallbackTimer = Timer(_firstSnapshotPatience, () {
+      if (_ready) return;
+      _ready = true;
+      notifyListeners();
+    });
     _userDocSub = _db.collection('users').doc(user.uid).snapshots().listen((doc) async {
+      _readyFallbackTimer?.cancel();
       final wasApproved = currentUser?.status == UserStatus.approved;
       currentUser = doc.exists ? AppUser.fromDoc(doc) : null;
       if (!wasApproved && currentUser?.status == UserStatus.approved) {
@@ -522,6 +540,7 @@ class AppStore extends ChangeNotifier {
       _ready = true;
       notifyListeners();
     }, onError: (_) {
+      _readyFallbackTimer?.cancel();
       _ready = true;
       notifyListeners();
     });
@@ -1048,6 +1067,79 @@ class AppStore extends ChangeNotifier {
       return null;
     } catch (e) {
       return 'تعذر نقل القسم: $e';
+    }
+  }
+
+  /// تحويل إدارة كاملة إلى قسم داخل إدارة أخرى.
+  ///
+  /// الهيكل الفعلي في الوزارة: الإدارة تضم أقساماً. وحين تُستورد الأقسام من
+  /// ملفات المتابعة تأتي كإدارات مستقلة، فيحتاج مسؤول النظام إلى ضمّها تحت
+  /// إدارتها الأم. هذه الدالة تفعل ذلك في دفعة واحدة:
+  /// ينشأ قسم في الإدارة الهدف باسم الإدارة ورئيسها، وتنتقل إليه كل مشاريعها،
+  /// وتصير أقسامها القائمة أقساماً فرعية تحته، ثم تُحذف الإدارة الفارغة.
+  ///
+  /// **لا يُحذف مشروع ولا قسم** — التحويل إعادة ترتيب لا إتلاف. ويُرفض إن
+  /// تجاوزت الشجرة الناتجة العمق المسموح، حتى لا تُدفن أقسام في مستوى لا
+  /// تعرضه الواجهة.
+  Future<String?> convertDepartmentToSection(Department source, String targetDepartmentId) async {
+    if (!canMoveSectionAcrossDepartments) return 'لا تملك صلاحية تحويل الإدارات إلى أقسام';
+    if (targetDepartmentId == source.id) return 'لا يمكن تحويل الإدارة إلى قسم داخل نفسها';
+    if (departmentById(targetDepartmentId) == null) return 'الإدارة المستقبِلة غير موجودة';
+
+    // أقسام الإدارة المصدر ستنزل مستوىً واحداً (تصبح تحت القسم الجديد)، فلو
+    // كان فيها قسم فرعي أصلاً لتجاوزنا الحد.
+    final ownSections = sections.where((s) => s.departmentId == source.id).toList();
+    final deepest = ownSections.fold<int>(0, (m, s) => s.levelIn(sections) > m ? s.levelIn(sections) : m);
+    if (deepest + 1 > DepartmentSection.maxDepth) {
+      return 'تحتوي هذه الإدارة أقساماً فرعية، وتحويلها سيتجاوز الحد المسموح '
+          '(${DepartmentSection.maxDepth} مستويات). انقل أقسامها الفرعية أولاً.';
+    }
+
+    try {
+      final owned = projectsForDepartment(source.id);
+      final ref = _db.collection('sections').doc();
+      final siblings = sectionsOf(targetDepartmentId);
+      final batch = _db.batch();
+
+      batch.set(
+        ref,
+        DepartmentSection(
+          id: ref.id,
+          departmentId: targetDepartmentId,
+          name: source.name,
+          headName: source.headName,
+          order: siblings.isEmpty ? 0 : siblings.last.order + 1,
+          sourceDepartmentId: source.id,
+        ).toMap(),
+      );
+
+      for (final p in owned) {
+        batch.update(_db.collection('projects').doc(p.id), {
+          'departmentId': targetDepartmentId,
+          // المشروع الذي كان داخل قسم من أقسام الإدارة يبقى فيه، وغيره ينضم
+          // للقسم الجديد مباشرةً.
+          if (p.sectionId == null || sectionById(p.sectionId) == null) 'sectionId': ref.id,
+        });
+      }
+
+      for (final s in ownSections) {
+        batch.update(_db.collection('sections').doc(s.id), {
+          'departmentId': targetDepartmentId,
+          if (s.parentId == null) 'parentId': ref.id,
+        });
+      }
+
+      batch.delete(_db.collection('departments').doc(source.id));
+      await batch.commit();
+
+      final target = departmentById(targetDepartmentId)?.name ?? targetDepartmentId;
+      await _log(
+        'أقسام الإدارات',
+        'حوّل ${currentUser?.name} إدارة "${source.name}" إلى قسم داخل "$target" مع ${owned.length} مشروعاً',
+      );
+      return null;
+    } catch (e) {
+      return 'تعذر تحويل الإدارة: $e';
     }
   }
 
@@ -1637,12 +1729,25 @@ class AppStore extends ChangeNotifier {
   /// معرّفات ثابتة (merge) فتكرار الاستيراد آمن ولا يُنشئ سجلات مكرّرة، ولا
   /// يمسّ بوابات الاعتماد الثلاث.
   Future<void> importMinistryProjects2026() async {
+    // إدارة صار لها قسم محوَّل عنها لا تُعاد إنشاؤها، وتُكتب مشاريعها داخل
+    // ذلك القسم. بدون هذا كان كل استيراد يُلغي إعادة الهيكلة التي قام بها
+    // مسؤول النظام ويُعيد الإدارات المحذوفة من العدم.
+    final converted = <String, DepartmentSection>{
+      for (final s in sections)
+        if (s.sourceDepartmentId != null) s.sourceDepartmentId!: s,
+    };
+
     final batch = _db.batch();
     for (final d in MinistryProjects2026.departments()) {
+      if (converted.containsKey(d.id)) continue;
       batch.set(_db.collection('departments').doc(d.id), d.toMap(), SetOptions(merge: true));
     }
     for (final p in MinistryProjects2026.projects()) {
-      batch.set(_db.collection('projects').doc(p.id), p.toMap(), SetOptions(merge: true));
+      final target = converted[p.departmentId];
+      final mapped = target == null
+          ? p
+          : p.copyWith(departmentId: target.departmentId, sectionId: target.id);
+      batch.set(_db.collection('projects').doc(mapped.id), mapped.toMap(), SetOptions(merge: true));
     }
     await batch.commit();
     await _log('استيراد بيانات', 'قام ${currentUser?.name} باستيراد ملف مراقبة تنفيذ المشروعات ٢٠٢٦');

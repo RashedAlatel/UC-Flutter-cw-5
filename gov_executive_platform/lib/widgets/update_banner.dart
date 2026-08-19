@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:web/web.dart' as web;
 
+import '../build_stamp.dart';
+export '../build_stamp.dart' show kBuildStamp;
+
 import '../theme/app_theme.dart';
 
-/// بصمة البناء الحالية، تُحقن وقت البناء عبر tool/build_web.sh.
-const String kBuildStamp = String.fromEnvironment('BUILD_STAMP', defaultValue: 'تطوير');
+
 
 /// شريط يظهر حين يُنشر إصدار أحدث بينما المستخدم ما زال على القديم.
 ///

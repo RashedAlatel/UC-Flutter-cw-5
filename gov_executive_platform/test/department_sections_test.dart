@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gov_exec_platform/data/app_store.dart';
 import 'package:gov_exec_platform/models/app_user.dart';
+import 'package:gov_exec_platform/models/department.dart';
 import 'package:gov_exec_platform/models/department_section.dart';
 import 'package:gov_exec_platform/models/enums.dart';
 import 'package:gov_exec_platform/models/project.dart';
@@ -193,6 +194,74 @@ void main() {
       expect(moving.map((p) => p.id), containsAll(['p1', 'p2', 'p3']));
       // ولا يمسّ أقسام إدارة أخرى.
       expect(branch.contains('x1'), isFalse);
+    });
+  });
+
+  group('تحويل إدارة إلى قسم', () {
+    test('الصلاحية لمسؤول النظام وحده، وتُرفض لغيره برسالة', () async {
+      final store = _store();
+      store.currentUser = AppUser(
+        id: 'mgr-1',
+        name: 'مدير إدارة',
+        email: 'mgr@moj.gov.kw',
+        phone: '+96555555556',
+        role: UserRole.departmentManager,
+        status: UserStatus.approved,
+        createdAt: DateTime(2026, 1, 1),
+        departmentIds: const ['d1', 'd2'],
+      );
+      final error = await store.convertDepartmentToSection(
+        const Department(id: 'd1', name: 'إدارة', headName: 'رئيس', colorValue: 0, iconKey: 'flag'),
+        'd2',
+      );
+      expect(error, isNotNull);
+    });
+
+    test('تحويل إدارة إلى نفسها مرفوض', () async {
+      final store = _store();
+      final error = await store.convertDepartmentToSection(
+        const Department(id: 'd1', name: 'إدارة', headName: 'رئيس', colorValue: 0, iconKey: 'flag'),
+        'd1',
+      );
+      expect(error, contains('نفسها'));
+    });
+
+    test('إدارة لها قسم فرعي أصلاً تُرفض حتى لا تتجاوز الشجرة الحد المسموح', () async {
+      final store = _store();
+      // d1 فيه s1 وتحته s1a (مستوى ٢)، فتحويله ينزلهما إلى ٢ و٣.
+      store.departments = const [
+        Department(id: 'd1', name: 'إدارة أولى', headName: 'رئيس', colorValue: 0, iconKey: 'flag'),
+        Department(id: 'd2', name: 'إدارة ثانية', headName: 'رئيس', colorValue: 0, iconKey: 'flag'),
+      ];
+      final error = await store.convertDepartmentToSection(store.departments.first, 'd2');
+      expect(error, contains('أقساماً فرعية'));
+    });
+
+    test('الإدارة المستقبِلة غير الموجودة تُرفض', () async {
+      final store = _store();
+      store.departments = const [
+        Department(id: 'dX', name: 'إدارة', headName: 'رئيس', colorValue: 0, iconKey: 'flag'),
+      ];
+      final error = await store.convertDepartmentToSection(store.departments.first, 'لا-وجود-له');
+      expect(error, contains('غير موجودة'));
+    });
+  });
+
+  group('الاستيراد لا يُلغي التحويل', () {
+    test('القسم المحوَّل يحمل معرّف الإدارة التي جاء منها', () {
+      const converted = DepartmentSection(
+        id: 'new-sec',
+        departmentId: 'dept_dev',
+        name: 'قسم النظم الآلية',
+        headName: 'آلاء الضفيري (تكليف)',
+        sourceDepartmentId: 'sec_auto_systems',
+      );
+      // هذه العلامة هي ما يقرأه الاستيراد ليكتب المشاريع داخل القسم بدل
+      // إعادة إنشاء الإدارة المحذوفة.
+      expect(converted.sourceDepartmentId, 'sec_auto_systems');
+      expect(converted.headName, contains('آلاء'));
+      expect(DepartmentSection.fromMapForTest(converted.toMap(), 'new-sec').sourceDepartmentId, 'sec_auto_systems');
+      expect(DepartmentSection.fromMapForTest(converted.toMap(), 'new-sec').headName, contains('آلاء'));
     });
   });
 }

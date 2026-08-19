@@ -48,6 +48,9 @@
   <div class="card">
     <h2>النسخة المنشورة</h2>
     <div class="big" id="stamp">…</div>
+    <!-- التاريخ يتغيّر مع كل ضغطة بناء ولو كانت الشيفرة قديمة، فهو لا يثبت
+         شيئاً وحده. هوية الالتزام هي التي تقول أي شيفرة تعمل فعلاً. -->
+    <div class="row"><div class="k">هوية الالتزام المنشور</div><div class="v" id="commit">…</div></div>
     <div class="row"><div class="k">يحتوي إصلاح طبقات شاشة الإقلاع</div><div class="v" id="fix-layer">…</div></div>
     <div class="row"><div class="k">يحتوي إشارة الواجهة من التطبيق</div><div class="v" id="fix-signal">…</div></div>
     <div class="row"><div class="k">يحتوي حارس ما بعد الرسم</div><div class="v" id="fix-watchdog">…</div></div>
@@ -141,8 +144,15 @@
     // ــــ النسخة المنشورة ــــ
     fetch('build.json' + bust, { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { set('stamp', j.stamp || '(بلا بصمة)'); })
-      .catch(function () { set('stamp', '❌ تعذّر قراءة build.json'); });
+      .then(function (j) {
+        set('stamp', j.stamp || '(بلا بصمة)');
+        set('commit', j.commit ? j.commit + (j.branch ? ' · ' + j.branch : '')
+                               : '❌ بناء قديم لا يذكر الالتزام');
+      })
+      .catch(function () {
+        set('stamp', '❌ تعذّر قراءة build.json');
+        set('commit', '❌ تعذّر');
+      });
 
     // نقرأ index.html نفسه ونبحث عن علامات الإصلاحات، فأعرف أي التزام منشور
     // فعلاً دون أن أسأل أحداً.

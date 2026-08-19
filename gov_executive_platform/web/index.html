@@ -221,7 +221,12 @@
     }
     fetch('build.json?t=' + Date.now(), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { bootVersionText = 'إصدار ' + (j.stamp || '—'); showBootVersion(); })
+      .then(function (j) {
+        // الالتزام لا التاريخ وحده: التاريخ يتغيّر مع كل ضغطة بناء ولو كانت
+        // الشيفرة قديمة، أما هوية الالتزام فتقول أي شيفرة تعمل أمامك حقاً.
+        bootVersionText = 'إصدار ' + (j.stamp || '—') + (j.commit ? ' · ' + j.commit : '');
+        showBootVersion();
+      })
       .catch(function () { showBootVersion(); });
 
     // حارس ما بعد الرسم — آخر باب مفتوح أمام الصمت، ويُغلق هنا.

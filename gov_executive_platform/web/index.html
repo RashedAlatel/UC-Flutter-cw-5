@@ -98,6 +98,12 @@
       <p id="boot-msg">وزارة العدل — دولة الكويت</p>
       <button id="boot-retry" style="display:none" onclick="location.reload()">إعادة المحاولة</button>
       <button id="boot-skip" style="display:none;background:transparent;color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.3);margin-inline-start:8px" onclick="hideBoot()">المتابعة على أي حال</button>
+      <!-- رقم الإصدار ورابط الفحص يظهران دائماً: أي لقطة شاشة يرسلها المستخدم
+           تحمل عندها النسخة المنشورة وطريق التشخيص، فلا نحتاج جولة أسئلة. -->
+      <div style="margin-top:22px;font-size:11px;color:rgba(255,255,255,.42)">
+        <span id="boot-version">…</span>
+        &nbsp;·&nbsp;<a href="diag.html" style="color:rgba(255,255,255,.55)">فحص تقني</a>
+      </div>
     </div>
   </div>
 
@@ -123,14 +129,99 @@
       if (el) el.remove();
     }
 
+    // بصمة البناء داخل شاشة الإقلاع. تُحفظ في متغيّر أيضاً لا في العنصر وحده،
+    // لأن الشاشة قد تُزال ثم يُعيد الحارس بناءها — وقتها يجب أن يبقى رقم
+    // الإصدار معنا، فهو أهم معلومة في أي بلاغ عطل.
+    var bootVersionText = 'إصدار غير معروف';
+    function showBootVersion() {
+      var el = document.getElementById('boot-version');
+      if (el) el.textContent = bootVersionText;
+      var el2 = document.getElementById('boot-version2');
+      if (el2) el2.textContent = bootVersionText;
+    }
+    fetch('build.json?t=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { bootVersionText = 'إصدار ' + (j.stamp || '—'); showBootVersion(); })
+      .catch(function () { showBootVersion(); });
+
+    // حارس ما بعد الرسم — آخر باب مفتوح أمام الصمت، ويُغلق هنا.
+    //
+    // إشارة Dart تعني "بُنيت شجرة الودجات"، لا "ظهرت بكسلات على الشاشة". فلو
+    // تعذّر على محرك الرسم أن يرسم (WebGL غير مدعوم، لوحة بمقاس صفر، أو أي
+    // عطل عرض) لأزلنا شاشة الإقلاع وتركنا المستخدم أمام خلفية خضراء صمّاء —
+    // وهو بالضبط ما اشتكى منه. فبعد الإشارة نتحقق أن لوحة الرسم موجودة
+    // وبمقاس حقيقي، وإلا أعدنا رسالة مفهومة بدل الفراغ.
+    //
+    // البحث عن اللوحة **يجب** أن يخترق جذور الظل (shadow roots): محرك Flutter
+    // يضع لوحة الرسم داخل flt-glass-pane ← shadowRoot ← flt-scene-host ←
+    // flt-scene ← flt-canvas-container ← canvas. و`querySelector` العادي لا
+    // يعبر جذر الظل إطلاقاً، فبحث سطحي واحد يرجع "لا توجد لوحة" حتى على
+    // إقلاع سليم تماماً — وهو خطأ أخطر من الصمت نفسه لأنه يُنذر بعطل غير
+    // موجود ويدفع المستخدم لترك منصة تعمل. قِسناه فعلياً: اللوحة موجودة
+    // بمقاس ٤١٢×٨٣٩ داخل الظل بينما البحث السطحي يراها معدومة.
+    function hasPaintedCanvas(root) {
+      var nodes = root.querySelectorAll('*');
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        if (n.tagName === 'CANVAS') {
+          var r = n.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) return true;
+        }
+        if (n.shadowRoot && hasPaintedCanvas(n.shadowRoot)) return true;
+      }
+      return false;
+    }
+
+    // محاولات متتابعة قبل إعلان الفشل: الأجهزة البطيئة قد تتأخر في تجهيز
+    // اللوحة بعد أول بناء للودجات، فإنذار من أول فحص يظلمها.
+    var watchdogTries = 0;
+    function paintWatchdog() {
+      var view = document.querySelector('flutter-view') || document.querySelector('flt-glass-pane');
+      var painted = false;
+      if (view) {
+        var box = view.getBoundingClientRect();
+        painted = box.width > 0 && box.height > 0 && hasPaintedCanvas(view);
+      }
+      if (painted) return;
+      if (++watchdogTries < 3) {
+        setTimeout(paintWatchdog, 2500);
+        return;
+      }
+
+      var el = document.getElementById('boot');
+      if (!el) {
+        // أُزيلت الشاشة عند الإشارة، فنُعيد بناء رسالة بديلة في مكانها.
+        el = document.createElement('div');
+        el.id = 'boot';
+        document.body.appendChild(el);
+      }
+      el.innerHTML =
+        '<div class="card">' +
+        '<h1>تعذّر عرض واجهة المنصة على هذا المتصفح</h1>' +
+        '<p>حُمِّلت المنصة لكن لم تُرسم على الشاشة. قد لا يدعم هذا المتصفح ' +
+        'محرّك الرسم المطلوب، أو منع إعداد فيه تشغيله. جرّب متصفحاً آخر على ' +
+        'الجهاز نفسه، أو افتح صفحة الفحص التقني وأرسل صورتها لمسؤول النظام.</p>' +
+        '<button onclick="location.reload()">إعادة المحاولة</button>' +
+        '<a href="diag.html" style="display:inline-block;margin-inline-start:8px;background:transparent;' +
+        'color:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.3);border-radius:8px;' +
+        'padding:11px 20px;font-size:13.5px;font-weight:700;text-decoration:none">فحص تقني</a>' +
+        '<div style="margin-top:20px;font-size:11px;color:rgba(255,255,255,.42)" id="boot-version2"></div>' +
+        '</div>';
+      showBootVersion();
+    }
+
     // من يُخفي هذه الشاشة؟ **التطبيق نفسه** عبر هذه الدالة، لا حدث من المحرك.
     //
     // كان الإخفاء مربوطاً بـ flutter-first-frame، وهو حدث يُطلقه المحرك عند
     // أول إطار **ولو كان المشهد فارغاً تماماً**. فكان يُخفي الشاشة قبل أن
     // يرسم التطبيق أي واجهة حقيقية. الآن يستدعي Dart هذه الدالة بعد أول بناء
     // فعلي لجذر التطبيق (راجع lib/boot_signal.dart)، فالإخفاء يعني حرفياً
-    // "ظهرت واجهة يراها المستخدم".
-    window.platformUiReady = hideBoot;
+    // "بُنيت شجرة الودجات" — ويبقى حارس ما بعد الرسم يتأكد أنها ظهرت فعلاً.
+    window.platformUiReady = function () {
+      hideBoot();
+      // مهلة قصيرة قبل الفحص: أول إطار قد يسبق ظهور اللوحة بمقاسها النهائي.
+      setTimeout(paintWatchdog, 2500);
+    };
 
     // ظهور flutter-view يُحدّث النص فقط ليعرف المستخدم أن التقدّم مستمر.
     // ولا يفعل ذلك بعد انقضاء المهلة: المحرك قد يُنشئ عنصره متأخراً فيمسح

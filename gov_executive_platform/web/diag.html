@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>فحص تقني — المنصة التنفيذية</title>
+  <!--
+    صفحة فحص مستقلة تماماً: HTML وجافاسكربت خالصة، بلا Flutter وبلا Firebase
+    وبلا أي ملف خارجي. فلا يمكن أن تفشل بالطريقة التي يفشل بها التطبيق، وتبقى
+    قابلة للفتح حتى حين لا تفتح المنصة نفسها.
+
+    الغرض: لقطة شاشة واحدة تُغني عن جولة تخمين كاملة — أي نسخة منشورة، وأي
+    ملف يُحمَّل وأيها يفشل، وهل يدعم الجهاز محرّك الرسم أصلاً.
+  -->
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; padding: 18px; background: #072E24; color: #fff;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 15px; line-height: 1.7;
+    }
+    h1 { font-size: 19px; margin: 0 0 4px; }
+    .sub { color: rgba(255,255,255,.6); font-size: 12.5px; margin-bottom: 18px; }
+    .card {
+      background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14);
+      border-radius: 12px; padding: 14px; margin-bottom: 14px;
+    }
+    .card h2 { font-size: 14px; margin: 0 0 10px; color: #C9A227; }
+    .row { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.07); }
+    .row:last-child { border-bottom: 0; }
+    .row .k { flex: 1; font-size: 13px; word-break: break-word; }
+    .row .v { font-size: 12.5px; color: rgba(255,255,255,.75); white-space: nowrap; }
+    .big { font-size: 22px; font-weight: 800; color: #C9A227; word-break: break-all; }
+    .hint { font-size: 12px; color: rgba(255,255,255,.55); margin-top: 12px; }
+    button {
+      background: #C9A227; color: #072E24; border: 0; border-radius: 8px;
+      padding: 11px 20px; font-size: 14px; font-weight: 700; font-family: inherit; margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <h1>فحص تقني للمنصة التنفيذية</h1>
+  <div class="sub">وزارة العدل — دولة الكويت · صوّر هذه الصفحة كاملةً وأرسلها</div>
+
+  <div class="card">
+    <h2>النسخة المنشورة</h2>
+    <div class="big" id="stamp">…</div>
+    <div class="row"><div class="k">يحتوي إصلاح طبقات شاشة الإقلاع</div><div class="v" id="fix-layer">…</div></div>
+    <div class="row"><div class="k">يحتوي إشارة الواجهة من التطبيق</div><div class="v" id="fix-signal">…</div></div>
+    <div class="row"><div class="k">يحتوي حارس ما بعد الرسم</div><div class="v" id="fix-watchdog">…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>محرّك الرسم على هذا الجهاز</h2>
+    <div class="row"><div class="k">WebGL 2</div><div class="v" id="webgl2">…</div></div>
+    <div class="row"><div class="k">WebGL 1</div><div class="v" id="webgl1">…</div></div>
+    <div class="row"><div class="k">WebAssembly</div><div class="v" id="wasm">…</div></div>
+    <div class="row"><div class="k">بطاقة الرسم</div><div class="v" id="gpu">…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>تحميل ملفات المنصة</h2>
+    <div id="files"></div>
+  </div>
+
+  <div class="card">
+    <h2>الاتصال بالنطاقات الخارجية</h2>
+    <div id="external"></div>
+  </div>
+
+  <div class="card">
+    <h2>المتصفح</h2>
+    <div class="row"><div class="k">المعرّف</div><div class="v" id="ua" style="white-space:normal"></div></div>
+    <div class="row"><div class="k">قياس الشاشة</div><div class="v" id="screen"></div></div>
+    <div class="row"><div class="k">وضع خاص/تخزين</div><div class="v" id="storage"></div></div>
+  </div>
+
+  <button onclick="location.reload()">إعادة الفحص</button>
+  <div class="hint">هذه الصفحة لا تعتمد على أي خدمة خارجية، ولا تُرسل بياناتك لأي جهة — كل الفحوص تجري داخل متصفحك.</div>
+
+  <script>
+    var bust = '?t=' + Date.now();
+
+    function set(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
+
+    function addRow(container, label) {
+      var row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = '<div class="k"></div><div class="v">…</div>';
+      row.children[0].textContent = label;
+      document.getElementById(container).appendChild(row);
+      return row.children[1];
+    }
+
+    // فحص تحميل ملف: يقيس الزمن ويُظهر رمز الحالة أو سبب الفشل. نستخدم
+    // no-store دائماً حتى لا يقول لنا التخزين المحلي "ناجح" عن ملف لم يُطلب.
+    function probe(container, label, url, opts) {
+      var cell = addRow(container, label);
+      var t0 = Date.now();
+      var ctrl = new AbortController();
+      var timer = setTimeout(function () { ctrl.abort(); }, 15000);
+      fetch(url, Object.assign({ cache: 'no-store', signal: ctrl.signal }, opts || {}))
+        .then(function (r) {
+          clearTimeout(timer);
+          cell.textContent = (r.ok || r.type === 'opaque' ? '✅ ' : '❌ ') +
+            (r.type === 'opaque' ? 'وصل' : r.status) + ' · ' + (Date.now() - t0) + ' م.ث';
+        })
+        .catch(function (e) {
+          clearTimeout(timer);
+          var why = (e && e.name === 'AbortError') ? 'انتهت المهلة (١٥ ث)' : 'تعذّر الوصول';
+          cell.textContent = '❌ ' + why + ' · ' + (Date.now() - t0) + ' م.ث';
+        });
+    }
+
+    // ــــ النسخة المنشورة ــــ
+    fetch('build.json' + bust, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { set('stamp', j.stamp || '(بلا بصمة)'); })
+      .catch(function () { set('stamp', '❌ تعذّر قراءة build.json'); });
+
+    // نقرأ index.html نفسه ونبحث عن علامات الإصلاحات، فأعرف أي التزام منشور
+    // فعلاً دون أن أسأل أحداً.
+    fetch('index.html' + bust, { cache: 'no-store' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        set('fix-layer', html.indexOf('2147483647') !== -1 ? '✅ موجود' : '❌ غير موجود');
+        set('fix-signal', html.indexOf('platformUiReady') !== -1 ? '✅ موجود' : '❌ غير موجود');
+        set('fix-watchdog', html.indexOf('paintWatchdog') !== -1 ? '✅ موجود' : '❌ غير موجود');
+      })
+      .catch(function () {
+        set('fix-layer', '❌ تعذّر'); set('fix-signal', '❌ تعذّر'); set('fix-watchdog', '❌ تعذّر');
+      });
+
+    // ــــ محرّك الرسم ــــ
+    // هذا الفحص جوهري: إصدار Flutter المستخدم لا يملك محرّك رسم بديلاً، فإن
+    // غاب WebGL عن الجهاز لن تُرسم الواجهة مهما أصلحنا في الشبكة أو التخزين.
+    (function () {
+      var c = document.createElement('canvas');
+      var gl2 = null, gl1 = null;
+      try { gl2 = c.getContext('webgl2'); } catch (e) {}
+      try { gl1 = c.getContext('webgl') || c.getContext('experimental-webgl'); } catch (e) {}
+      set('webgl2', gl2 ? '✅ مدعوم' : '❌ غير مدعوم');
+      set('webgl1', gl1 ? '✅ مدعوم' : '❌ غير مدعوم');
+      set('wasm', (typeof WebAssembly === 'object') ? '✅ مدعوم' : '❌ غير مدعوم');
+      var gl = gl2 || gl1;
+      var name = '—';
+      if (gl) {
+        try {
+          var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+          name = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : (gl.getParameter(gl.RENDERER) || '—');
+        } catch (e) { name = '—'; }
+      }
+      set('gpu', String(name).slice(0, 42));
+    })();
+
+    // ــــ ملفات المنصة ــــ
+    probe('files', 'مُقلِع Flutter (flutter_bootstrap.js)', 'flutter_bootstrap.js' + bust);
+    probe('files', 'شيفرة التطبيق (main.dart.js)', 'main.dart.js' + bust);
+    probe('files', 'محرّك الرسم (canvaskit.js)', 'canvaskit/canvaskit.js' + bust);
+    probe('files', 'محرّك الرسم (canvaskit.wasm)', 'canvaskit/canvaskit.wasm' + bust);
+    probe('files', 'حزم Firebase المحلية', 'firebase_sdk/firebase-app.js' + bust);
+
+    // ــــ النطاقات الخارجية ــــ
+    // no-cors لأن هذه النطاقات لا تسمح بقراءة الرد من صفحتنا؛ يكفينا أن نعرف
+    // هل يصل الطلب أصلاً أم تحجبه الشبكة.
+    probe('external', 'www.gstatic.com (حزم Firebase)',
+      'https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js', { mode: 'no-cors' });
+    probe('external', 'firestore.googleapis.com (قاعدة البيانات)',
+      'https://firestore.googleapis.com/', { mode: 'no-cors' });
+    probe('external', 'identitytoolkit.googleapis.com (تسجيل الدخول)',
+      'https://identitytoolkit.googleapis.com/', { mode: 'no-cors' });
+    probe('external', 'fonts.gstatic.com (الخطوط)',
+      'https://fonts.gstatic.com/', { mode: 'no-cors' });
+
+    // ــــ المتصفح ــــ
+    set('ua', navigator.userAgent);
+    set('screen', window.innerWidth + '×' + window.innerHeight +
+      ' · كثافة ' + (window.devicePixelRatio || 1));
+    (function () {
+      var out = [];
+      try { localStorage.setItem('_d', '1'); localStorage.removeItem('_d'); out.push('التخزين ✅'); }
+      catch (e) { out.push('التخزين ❌'); }
+      out.push('IndexedDB ' + (window.indexedDB ? '✅' : '❌'));
+      set('storage', out.join(' · '));
+    })();
+  </script>
+</body>
+</html>

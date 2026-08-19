@@ -1,12 +1,14 @@
 import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails, kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'boot_signal.dart';
+import 'widgets/render_error_card.dart';
 import 'data/app_store.dart';
 import 'firebase_options.dart';
 import 'models/enums.dart';
@@ -18,6 +20,10 @@ import 'screens/preparing_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _installErrorReporting();
+  // كل مسار يُعلن نفسه، فلا يبقى صفّ «المرحلة» في صفحة الفحص فارغاً على تطبيق
+  // يعمل — وصفٌّ فارغ يعني «لم يبلغ Dart أصلاً»، وهذا معنى يجب ألا يلتبس.
+  signalStage('booting');
   // تهيئة Firebase قد تفشل على الويب إذا تعذّر تحميل حزم Firebase من
   // www.gstatic.com (شبكة تحجب النطاق، انقطاع مؤقت، أو وكيل مؤسسي). بدون
   // هذا الالتقاط يتوقف الإقلاع فتظهر للمستخدم **صفحة بيضاء فارغة بلا أي
@@ -35,6 +41,7 @@ Future<void> main() async {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
         .timeout(const Duration(seconds: 8));
   } catch (e) {
+    signalStage('startup-error');
     runApp(StartupErrorApp(details: e.toString()));
     // شاشة الخطأ واجهة حقيقية أيضاً، فترفع شاشة الإقلاع عنها. بدون هذا السطر
     // تبقى شاشة الإقلاع فوقها (صارت في أعلى طبقة) فيُحجب الخطأ عن المستخدم —
@@ -43,6 +50,34 @@ Future<void> main() async {
     return;
   }
   runApp(const GovExecutivePlatformApp());
+}
+
+/// يجعل أخطاء Dart مرئية بدل أن تبقى في الطرفية وحدها.
+///
+/// على الجوال لا طرفية يفتحها المستخدم، فاستثناء يقع في Dart كان يضيع تماماً:
+/// إن وقع أثناء البناء رسم Flutter مستطيلاً صامتاً (نصّ `ErrorWidget` لا يظهر
+/// في بناء الإصدار)، وإن وقع خارجه لم يظهر شيء أصلاً. فكل ما يصل إلينا من
+/// المستخدم "المنصة لا تفتح" — بلا سبب يُشخَّص. هنا يُغلق هذا الباب من ثلاث
+/// جهات: بطاقة خطأ مقروءة بدل المستطيل، وتمرير النصّ إلى شاشة الإقلاع في
+/// الصفحة، مع إبقاء الطباعة الافتراضية كما هي لمن يفتح الطرفية.
+void _installErrorReporting() {
+  ErrorWidget.builder = (FlutterErrorDetails details) => RenderErrorCard(
+        message: details.exceptionAsString(),
+        onRetry: kIsWeb ? _reload : null,
+      );
+
+  final previousOnError = FlutterError.onError;
+  FlutterError.onError = (FlutterErrorDetails details) {
+    previousOnError?.call(details);
+    reportDartError(details.exceptionAsString());
+  };
+
+  // أخطاء غير متزامنة لا تمرّ بـFlutterError إطلاقاً. `false` تعني أننا
+  // أبلغنا عنها ولم نبتلعها، فيبقى سلوك المنصة الافتراضي كما هو.
+  PlatformDispatcher.instance.onError = (error, stack) {
+    reportDartError(error.toString());
+    return false;
+  };
 }
 
 /// شاشة تُعرض حين يتعذّر الاتصال بخدمات المنصة عند الإقلاع، بدل الشاشة
@@ -181,14 +216,22 @@ class _RootGateState extends State<_RootGate> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    if (!store.ready) return const PreparingScreen(onRetry: _reload);
+    // إعلان المرحلة في كل بناء: حين تظهر شاشة صمّاء على جهاز لا نملكه، هذه
+    // الكلمة الواحدة تحسم أين وقف التطبيق — راجع lib/boot_signal.dart.
+    if (!store.ready) {
+      signalStage('preparing');
+      return const PreparingScreen(onRetry: _reload);
+    }
     final user = store.currentUser;
     if (user == null) {
+      signalStage('login');
       return const LoginScreen();
     }
     if (user.status != UserStatus.approved) {
+      signalStage('pending');
       return const PendingApprovalScreen();
     }
+    signalStage('shell');
     return const AppShell();
   }
 }

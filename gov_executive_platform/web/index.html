@@ -121,7 +121,17 @@
     // مسار CanvasKit المحلي يُضبط عبر راية البناء --no-web-resources-cdn،
     // انظر tool/build_web.sh.
 
+    // خطأ Dart قاتل: يُعرض ولا يُمحى. التطبيق يُرسل إشارة «ظهرت واجهتي» من
+    // أول إطار حتى لو فشل بناء شجرته، فكانت الإشارة تمسح رسالة الخطأ بعد
+    // عرضها بأجزاء من الثانية ويعود المستخدم إلى سطح صامت. أما الخطأ الذي
+    // يقع **بعد** ظهور الواجهة فلا يُعرض إطلاقاً: تطبيق يعمل لا تُغطّى واجهته
+    // برسالة عطل.
+    var bootFatal = false;
+    var bootReady = false;
+
     function hideBoot() {
+      if (bootFatal) return;
+      bootReady = true;
       clearTimeout(bootTimer);
       clearInterval(bootTick);
       if (bootObserver) bootObserver.disconnect();
@@ -137,7 +147,7 @@
     // خطأ متأخر في تطبيق يعمل ليس عطل إقلاع، وإظهاره يُقلق بلا سبب.
     var bootErrors = [];
     function noteBootError(text) {
-      var msg = String(text).slice(0, 160);
+      var msg = String(text).slice(0, 300);
       if (bootErrors.indexOf(msg) !== -1) return;
       bootErrors.push(msg);
       var el = document.getElementById('boot-msg');
@@ -158,6 +168,46 @@
     window.addEventListener('unhandledrejection', function (e) {
       noteBootError('وعد مرفوض: ' + (e && e.reason ? e.reason : '—'));
     });
+
+    // أخطاء Dart. يستدعيها التطبيق نفسه (راجع lib/boot_signal.dart)، فتصل
+    // إلى الشاشة بدل أن تبقى في طرفية لا يفتحها أحد على الجوال. ونُعيد بناء
+    // شاشة الإقلاع إن كانت قد أُزيلت: خطأ Dart بعد إخفائها هو تحديداً حالة
+    // «السطح الأخضر الصامت» التي نطاردها.
+    window.platformError = function (message) {
+      if (bootReady) return;
+      if (!document.getElementById('boot')) {
+        var el = document.createElement('div');
+        el.id = 'boot';
+        el.innerHTML =
+          '<div class="card">' +
+          '<h1 id="boot-title">تعذّر تشغيل المنصة</h1>' +
+          '<p id="boot-msg"></p>' +
+          '<button onclick="location.reload()">إعادة المحاولة</button>' +
+          '<a href="diag.html" style="display:inline-block;margin-inline-start:8px;background:transparent;' +
+          'color:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.3);border-radius:8px;' +
+          'padding:11px 20px;font-size:13.5px;font-weight:700;text-decoration:none">فحص تقني</a>' +
+          '<div style="margin-top:20px;font-size:11px;color:rgba(255,255,255,.42)" id="boot-version2"></div>' +
+          '</div>';
+        document.body.appendChild(el);
+        showBootVersion();
+      }
+      bootFailed = true;
+      bootFatal = true;
+      var title = document.getElementById('boot-title');
+      if (title) title.textContent = 'تعذّر تشغيل المنصة';
+      var spin = document.getElementById('boot-spinner');
+      if (spin) spin.style.display = 'none';
+      var retry = document.getElementById('boot-retry');
+      if (retry) retry.style.display = 'inline-block';
+      noteBootError('خطأ في التطبيق: ' + message);
+    };
+
+    // المرحلة التي يعرضها التطبيق، تقرأها صفحة الفحص من الإطار.
+    // الاسمان مختلفان عمداً: تسمية المتغيّر والدالة بالاسم نفسه على النافذة
+    // تجعل كلاً منهما يدوس الآخر، فيصير الاستدعاء نصّاً والقراءة دالة.
+    var platformStageValue = '—';
+    window.platformStage = function (stage) { platformStageValue = String(stage); };
+    window.platformStageName = function () { return platformStageValue; };
 
     // بصمة البناء داخل شاشة الإقلاع. تُحفظ في متغيّر أيضاً لا في العنصر وحده،
     // لأن الشاشة قد تُزال ثم يُعيد الحارس بناءها — وقتها يجب أن يبقى رقم

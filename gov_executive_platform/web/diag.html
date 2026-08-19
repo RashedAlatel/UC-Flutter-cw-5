@@ -134,12 +134,20 @@
     // هذا الفحص جوهري: إصدار Flutter المستخدم لا يملك محرّك رسم بديلاً، فإن
     // غاب WebGL عن الجهاز لن تُرسم الواجهة مهما أصلحنا في الشبكة أو التخزين.
     (function () {
-      var c = document.createElement('canvas');
-      var gl2 = null, gl1 = null;
-      try { gl2 = c.getContext('webgl2'); } catch (e) {}
-      try { gl1 = c.getContext('webgl') || c.getContext('experimental-webgl'); } catch (e) {}
+      // لوحة **جديدة لكل فحص**، وهذا سطر جوهري لا تنظيمي: اللوحة الواحدة لا
+      // تحمل إلا سياق رسم واحداً، فطلب webgl بعد webgl2 على اللوحة نفسها
+      // يُرجع null دائماً. النسخة الأولى من هذه الصفحة وقعت في ذلك فأظهرت
+      // «WebGL 1 غير مدعوم» بعلامة حمراء على كل جهاز سليم — إنذار كاذب
+      // صنعته الصفحة بنفسها، وأقلق مستخدماً جهازه لا عيب فيه.
+      function ctx(name) {
+        try { return document.createElement('canvas').getContext(name); } catch (e) { return null; }
+      }
+      var gl2 = ctx('webgl2');
+      var gl1 = ctx('webgl') || ctx('experimental-webgl');
       set('webgl2', gl2 ? '✅ مدعوم' : '❌ غير مدعوم');
-      set('webgl1', gl1 ? '✅ مدعوم' : '❌ غير مدعوم');
+      // WebGL 1 ليس مطلوباً حين يتوفّر WebGL 2 — فلا تُعرض له علامة حمراء
+      // توحي بعطل. Flutter يرسم بـ WebGL 2، وهو الفحص الحاسم أعلاه.
+      set('webgl1', gl1 ? '✅ مدعوم' : (gl2 ? '— غير مطلوب (WebGL 2 متوفر)' : '❌ غير مدعوم'));
       set('wasm', (typeof WebAssembly === 'object') ? '✅ مدعوم' : '❌ غير مدعوم');
       var gl = gl2 || gl1;
       var name = '—';

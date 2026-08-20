@@ -700,11 +700,23 @@ class AppStore extends ChangeNotifier {
         final claims = await currentTokenClaims(forceRefresh: refresh);
         if (claims['approved'] != true) return true;
         if (claims['role'] != me.role.name) return true;
+        // الإدارة المفردة تُقارَن بالمفردة، والجمع بالجمع.
+        //
+        // ومقارنة الجمع بـ `myDepartmentIds` — وهي ترجع إلى المفرد حين تفرغ —
+        // كانت عطلاً مزدوجاً لكل من ليس مدير إدارة: بطاقته تحمل
+        // `departmentIds: []` دائماً (والخادم لا يملؤها إلا لمدير الإدارة)،
+        // فتقول المقارنة «مختلف» أبداً ولا تتّفق مهما أُعيد الختم — فتُستدعى
+        // دالة سحابية في كل دخول بلا جدوى، و**تُحجب مقارنة الصلاحيات خلفها**
+        // فلا تُفحص أصلاً.
+        //
+        // والأهم أن المفرد لم يكن يُقارَن قط، وهو الذي تحتكم إليه القواعد:
+        // فبطاقةٌ بلا `departmentId` مع سجلٍّ يحمل إدارةً تعني رفض كل قراءات
+        // الموظف لمشاريع إدارته — وهو يرى إدارته في سجلّه فلا يفهم السبب.
+        if ((claims['departmentId'] as String?) != me.departmentId) return true;
         final tokenDepts = ((claims['departmentIds'] as List?) ?? const [])
             .map((e) => e.toString())
             .toSet();
-        final mine = myDepartmentIds.toSet();
-        if (!tokenDepts.containsAll(mine)) return true;
+        if (!tokenDepts.containsAll(me.departmentIds.toSet())) return true;
         // الصلاحيات أيضاً — وغيابها من المقارنة كان عيباً حقيقياً: مسؤول
         // النظام يمنح صلاحية فتُختم على الخادم، بينما يبقى المستخدم حاملاً
         // بطاقته القديمة حتى ينتهي أجل رمزه (قد يبلغ ساعة). فيرى الصلاحية
@@ -889,7 +901,7 @@ class AppStore extends ChangeNotifier {
       notifyListeners();
     });
 
-    // مدير المشروع (officer) يُقيَّد بمشروعه المُسنَد إليه تحديداً (عبر managerUid).
+    // مدير المشروع (officer) تُقرأ له مستندات مشروعه التابعة عبر managerUid.
     // مدير الإدارة (manager) قد يدير أكثر من إدارة، فيُقيَّد بقائمة departmentIds
     // كاملة (whereIn) بدل مطابقة إدارة واحدة فقط.
     Query<Map<String, dynamic>> scoped(String collection) {
@@ -900,6 +912,25 @@ class AppStore extends ChangeNotifier {
         return ids.isEmpty ? col.where('departmentId', isEqualTo: '__none__') : _whereDeptIn(col, ids);
       }
       return scopedDept == null ? col : col.where('departmentId', isEqualTo: scopedDept);
+    }
+
+    // المشاريع وحدها لا تتبع `scoped`: نطاقها **الإدارة** لكل من لا يرى كل
+    // الإدارات، مدير المشروع منهم.
+    //
+    // وتقييد مدير المشروع بمشروعه المُسنَد إليه كان يمنعه من رؤية مشاريع
+    // إدارته أصلاً — فلا يجد ما ينضمّ إليه. أما مشاريعه المُسنَدة خارج إدارته
+    // فتصله عبر تدفّقَي العضوية أدناه، فلا يضيع منه شيء.
+    Query<Map<String, dynamic>> projectsScope() {
+      final col = _db.collection('projects');
+      if (canViewAllDepartments) return col;
+      if (manager) {
+        final ids = myDepartmentIds;
+        return ids.isEmpty ? col.where('departmentId', isEqualTo: '__none__') : _whereDeptIn(col, ids);
+      }
+      final dept = currentUser?.departmentId;
+      return (dept == null || dept.isEmpty)
+          ? col.where('departmentId', isEqualTo: '__none__')
+          : col.where('departmentId', isEqualTo: dept);
     }
 
     // المشاريع تُقرأ بتدفّقين لا بواحد.
@@ -917,7 +948,7 @@ class AppStore extends ChangeNotifier {
       notifyListeners();
     }
 
-    _listen('projects', scoped('projects').snapshots(), (snap) {
+    _listen('projects', projectsScope().snapshots(), (snap) {
       _projectsByScope = snap.docs.map(Project.fromDoc).toList();
       publishProjects();
     });
@@ -1486,22 +1517,22 @@ class AppStore extends ChangeNotifier {
     return departments.where((d) => d.id == currentUser?.departmentId).toList();
   }
 
-  /// مشاريع "مدير المشروع" مقيَّدة بالمشروع (أو المشاريع) المُسنَدة إليه تحديداً
-  /// عبر managerUid، بمعزل تام عن بقية مشاريع إدارته. أما مدير الإدارة فيرى
-  /// مشاريع إدارته أو إداراته (قد تكون أكثر من إدارة واحدة) فقط.
+  /// المشاريع التي يراها المستخدم الحالي: **مشاريع إدارته، وما هو عضو فيه**.
+  ///
+  /// قاعدة واحدة لكل الأدوار، ومطابقة لشرط القراءة على الخادم حرفياً. وكانت
+  /// قبلها أربعة فروع متباينة، وفيها عطلان:
+  ///
+  /// - مدير المشروع كان يُقيَّد بما هو عضو فيه وحده، فلا يرى مشاريع إدارته
+  ///   ولا يجد ما ينضمّ إليه.
+  /// - وبقية الأدوار كانت رؤيتها لإدارتها معلَّقة على صلاحية «الانضمام
+  ///   لمشاريع الإدارة»، وقد صار الاطّلاع حقاً أساسياً لا صلاحية.
+  ///
+  /// والعضوية تبقى في الشرط لأن المستخدم قد يُسنَد إلى مشروع خارج إدارته.
   List<Project> get visibleProjects {
     if (canViewAllDepartments) return projects;
     final uid = currentUser?.id;
-    // صاحب صلاحية «الانضمام لمشاريع الإدارة» يرى إدارته كاملةً — وهذا شرط
-    // المطلب نفسه: لا يستطيع الموظف اختيار مشروع ينضمّ إليه إن لم يرَ إلا
-    // ما هو عضو فيه أصلاً.
-    if (hasPermission(RolePermission.selfAssignProjects)) {
-      final myDepts = {...myDepartmentIds, if (currentUser?.departmentId != null) currentUser!.departmentId!};
-      return projects.where((p) => myDepts.contains(p.departmentId) || p.hasMember(uid)).toList();
-    }
-    if (isOfficer) return projects.where((p) => p.hasMember(uid)).toList();
-    if (isManager) return projects.where((p) => myDepartmentIds.contains(p.departmentId)).toList();
-    return projects.where((p) => p.departmentId == currentUser?.departmentId || p.hasMember(uid)).toList();
+    final myDepts = {...myDepartmentIds, if (currentUser?.departmentId != null) currentUser!.departmentId!};
+    return projects.where((p) => myDepts.contains(p.departmentId) || p.hasMember(uid)).toList();
   }
 
   List<Project> projectsForDepartment(String departmentId) =>

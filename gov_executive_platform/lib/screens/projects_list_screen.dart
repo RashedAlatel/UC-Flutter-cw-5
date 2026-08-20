@@ -219,10 +219,36 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
           const SizedBox(height: 20),
           Text('${projects.length} مشروع', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w700)),
           const SizedBox(height: 10),
+          // «لا توجد مشاريع مطابقة» جوابٌ خاطئ حين لا يكون للحساب إدارة أصلاً:
+          // نطاق المستخدم عندها **فارغ بنيوياً** لا مُصفّى، فيبحث عن عطل ليس
+          // موجوداً. ونفرّق كذلك بين نطاق خالٍ وتصفية لم تطابق شيئاً.
           if (projects.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 30),
-              child: Center(child: Text('لا توجد مشاريع مطابقة', style: TextStyle(color: AppColors.textSecondary))),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 30),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(Icons.folder_off_outlined, size: 34, color: AppColors.textSecondary.withValues(alpha: 0.5)),
+                    const SizedBox(height: 10),
+                    Text(
+                      store.myDepartmentIds.isEmpty && !store.canViewAllDepartments
+                          ? 'لا توجد إدارة مرتبطة بحسابك'
+                          : (store.visibleProjects.isEmpty
+                              ? 'لا توجد مشاريع في نطاقك بعد'
+                              : 'لا توجد مشاريع مطابقة لبحثك'),
+                      style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700),
+                    ),
+                    if (store.myDepartmentIds.isEmpty && !store.canViewAllDepartments) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        'مشاريعك تُعرض بحسب إدارتك. اطلب من مسؤول النظام ربط حسابك بإدارتك.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5, height: 1.7),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             )
           else
             ...projects.map((p) => _ProjectRow(project: p)),

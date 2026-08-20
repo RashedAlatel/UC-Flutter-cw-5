@@ -47,24 +47,11 @@ class _AppShellState extends State<AppShell> {
   int _selected = 0;
 
   List<_NavEntry> _buildEntries(AppStore store) {
-    // "مدير المشروع" مقيَّد بمشروعه المُسنَد إليه فقط: لا لوحة قيادة، ولا
-    // إدارات، ولا بقية المشاريع — فقط مشروعه (أو مشاريعه إن أُسنِد أكثر من واحد).
-    if (store.isOfficer) {
-      final myProjects = store.visibleProjects;
-      if (myProjects.isEmpty) {
-        return const [
-          _NavEntry(label: 'مشروعي', icon: Icons.folder_off_outlined, page: _NoProjectAssignedView()),
-        ];
-      }
-      return myProjects
-          .map((p) => _NavEntry(
-                label: p.name,
-                icon: Icons.folder_copy_rounded,
-                page: ProjectDetailScreen(projectId: p.id),
-              ))
-          .toList();
-    }
-
+    // كان «مدير المشروع» يُعطى قائمةً بمشاريعه المُسنَدة وحدها — بلا لوحة
+    // قيادة ولا تبويب مشاريع إطلاقاً. فلم يكن له طريق إلى مشاريع إدارته
+    // ليضيف نفسه على أحدها، وهو ما اشتُكي منه. صار يأخذ الشاشات نفسها
+    // كبقية الأدوار، ومشاريعه المُسنَدة تظهر له مثبّتةً في أول القائمة
+    // فلا يفقد الوصول المباشر إليها.
     final entries = <_NavEntry>[
       const _NavEntry(label: 'لوحة القيادة', icon: Icons.dashboard_rounded, page: DashboardScreen()),
     ];
@@ -93,6 +80,18 @@ class _AppShellState extends State<AppShell> {
 
     entries.add(const _NavEntry(label: 'المشاريع', icon: Icons.folder_copy_rounded, page: ProjectsListScreen()));
     entries.add(const _NavEntry(label: 'الأعمال', icon: Icons.checklist_rounded, page: WorksListScreen()));
+
+    // مشاريع مدير المشروع المُسنَدة إليه: مدخل مباشر لكل منها كما كان، لكن
+    // **إضافةً** إلى بقية الشاشات لا بديلاً عنها.
+    if (store.isOfficer) {
+      for (final p in store.projects.where((p) => p.isManager(store.currentUser?.id))) {
+        entries.add(_NavEntry(
+          label: p.name,
+          icon: Icons.folder_special_outlined,
+          page: ProjectDetailScreen(projectId: p.id),
+        ));
+      }
+    }
 
     // مركز القرارات مخصص لمن يملك فعلياً صلاحية اعتماد قرار فيه (مسؤول النظام،
     // المستخدم التنفيذي، أو دور مخصص بصلاحية اعتماد القرارات العامة) — مدير
@@ -464,25 +463,3 @@ class _Sidebar extends StatelessWidget {
   }
 }
 
-class _NoProjectAssignedView extends StatelessWidget {
-  const _NoProjectAssignedView();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.folder_off_outlined, size: 40, color: AppColors.textSecondary),
-            SizedBox(height: 12),
-            Text('لم يتم تعيينك مديراً لأي مشروع بعد', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-            SizedBox(height: 6),
-            Text('تواصل مع مسؤول النظام ليعيّنك على مشروع.', style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
-          ],
-        ),
-      ),
-    );
-  }
-}

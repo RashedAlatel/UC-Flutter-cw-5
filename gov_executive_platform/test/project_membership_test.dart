@@ -72,15 +72,19 @@ void main() {
   });
 
   group('نطاق الرؤية', () {
-    test('مدير مشروع بلا الصلاحية يرى عضوياته فقط', () {
+    // كان مدير المشروع يُقيَّد بعضوياته وحدها، فلا يرى مشاريع إدارته ولا
+    // يجد ما ينضمّ إليه — وهو ما اشتُكي منه. الاطّلاع داخل الإدارة صار
+    // حقاً أساسياً لكل الأدوار، والانضمام وحده هو الذي بقي بصلاحية.
+    test('مدير المشروع يرى مشاريع إدارته لا عضوياته وحدها', () {
       final store = AppStore()
         ..currentUser = _user(UserRole.projectOfficer, dept: 'd1')
         ..projects = [
           _project('mine', 'd1', managers: ['me']),
           _project('mine-exec', 'd1', executors: ['me']),
           _project('other', 'd1'),
+          _project('elsewhere', 'd9'),
         ];
-      expect(store.visibleProjects.map((p) => p.id).toSet(), {'mine', 'mine-exec'});
+      expect(store.visibleProjects.map((p) => p.id).toSet(), {'mine', 'mine-exec', 'other'});
     });
 
     // جوهر المطلب: لا يستطيع الموظف اختيار مشروع ينضمّ إليه إن لم يرَ إلا ما

@@ -52,6 +52,16 @@ class DataAccessBanner extends StatelessWidget {
                       : 'رُفضت قراءة: $names$more. تأكد من اتصال الشبكة ثم أعد المحاولة.',
                   style: const TextStyle(fontSize: 12.5, height: 1.8, color: AppColors.textSecondary),
                 ),
+                // إرشاد صريح بدل رسالة عامة: أكثر أسباب الرفض شيوعاً أن
+                // مسؤول النظام منح صلاحية ولم تصل بطاقة دخول المستخدم بعد.
+                if (permissions) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    'إن كان مسؤول النظام قد منحك صلاحية حديثاً فقد لا تكون بطاقة دخولك '
+                    'حُدِّثت بعد — افتح «تشخيص حسابي» واضغط «مزامنة صلاحيات حسابي».',
+                    style: TextStyle(fontSize: 12, height: 1.8, color: AppColors.textSecondary),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
                   onPressed: () => Navigator.of(context).push(

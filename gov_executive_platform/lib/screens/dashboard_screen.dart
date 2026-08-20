@@ -43,14 +43,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // وقوائم المشاريع معاً) بدل الاقتصار على ودجات بعينها، حتى يكون سلوكه
     // متوقعاً: كل ما تراه أسفل الشريط يعكس الفلتر المُختار فعلياً.
     final filteredProjects = projects
-        .where((p) => _statusFilter == null || p.status == _statusFilter)
+        .where((p) => _statusFilter == null || p.effectiveStatus == _statusFilter)
         .where((p) => _deptFilter == null || p.departmentId == _deptFilter)
         .toList();
 
     // ترتيب الإدارات يقارن الإدارات ببعضها، فلا معنى لتضييقه بفلتر الإدارة
     // نفسه (سيُظهر عندها عموداً واحداً فقط ويُفرغ البقية) — يتأثر بفلتر
     // الحالة فقط، بينما تبقى المقارنة شاملة كل الإدارات المرئية.
-    final rankingProjects = projects.where((p) => _statusFilter == null || p.status == _statusFilter).toList();
+    final rankingProjects = projects.where((p) => _statusFilter == null || p.effectiveStatus == _statusFilter).toList();
     final ranking = store.departments
         .where((d) => store.canViewDepartment(d.id))
         .map((d) {
@@ -64,7 +64,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ..sort((a, b) => b.value.compareTo(a.value));
 
     final statusCounts = <String, int>{
-      for (final s in ProjectStatus.values) s.label: filteredProjects.where((p) => p.status == s).length,
+      for (final s in ProjectStatus.values) s.label: filteredProjects.where((p) => p.effectiveStatus == s).length,
     };
     final statusColors = {
       for (final s in ProjectStatus.values) s.label: AppColors.statusColor(s.name),
@@ -210,7 +210,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     context,
                     title: 'مشاريع "${dept.name}" المتأخرة',
                     projects: store.visibleProjects
-                        .where((p) => p.departmentId == dept.id && p.status == ProjectStatus.delayed)
+                        .where((p) => p.departmentId == dept.id && p.effectiveStatus == ProjectStatus.delayed)
                         .toList(),
                   ),
                 ),
@@ -228,7 +228,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _showProjectsPeek(
                 context,
                 title: 'مشاريع بحالة "$label"',
-                projects: store.visibleProjects.where((p) => p.status == status).toList(),
+                projects: store.visibleProjects.where((p) => p.effectiveStatus == status).toList(),
               );
             },
           ),
@@ -313,7 +313,7 @@ void _showProjectsPeek(BuildContext context, {required String title, required Li
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Expanded(child: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5))),
-                                      StatusChip(status: p.status),
+                                      StatusChip(status: p.effectiveStatus),
                                     ],
                                   ),
                                   const SizedBox(height: 10),
@@ -636,7 +636,7 @@ class _ProjectsTableCard extends StatelessWidget {
                       cells: [
                         DataCell(SizedBox(width: 190, child: Text(p.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis))),
                         DataCell(Text(dept?.name ?? 'بدون إدارة', style: const TextStyle(fontSize: 11.5))),
-                        DataCell(StatusChip(status: p.status)),
+                        DataCell(StatusChip(status: p.effectiveStatus)),
                         DataCell(Text(Formatters.percent(p.progressPercent), style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700))),
                         DataCell(Text(Formatters.shortDate(p.dueDate), style: const TextStyle(fontSize: 11.5))),
                         DataCell(SizedBox(width: 120, child: Text(p.executorLabel, style: const TextStyle(fontSize: 11.5), maxLines: 1, overflow: TextOverflow.ellipsis))),

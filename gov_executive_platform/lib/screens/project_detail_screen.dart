@@ -85,7 +85,7 @@ class ProjectDetailScreen extends StatelessWidget {
                           ],
                         ),
                       ),
-                      StatusChip(status: project.status),
+                      StatusChip(status: project.effectiveStatus),
                       if (store.canSendNotifications)
                         IconButton(
                           icon: Icon(Icons.forward_to_inbox_rounded, size: 20, color: AppColors.primary),
@@ -464,7 +464,7 @@ class _ProjectPipelineCard extends StatelessWidget {
     final due = DateTime(project.dueDate.year, project.dueDate.month, project.dueDate.day);
     final now = DateTime(today.year, today.month, today.day);
     final remaining = due.difference(now).inDays;
-    final overdue = remaining < 0 && project.status != ProjectStatus.completed;
+    final overdue = remaining < 0 && project.effectiveStatus != ProjectStatus.completed;
 
     return Card(
       child: Padding(

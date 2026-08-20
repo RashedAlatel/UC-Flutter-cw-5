@@ -3,6 +3,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/role_permissions.dart';
 import '../theme/app_theme.dart';
 
 /// «تشخيص حسابي» — سجلّ المستخدم مقابل بطاقة دخوله.
@@ -197,6 +198,39 @@ class _AccountDiagnosticsScreenState extends State<AccountDiagnosticsScreen> {
                       ),
                     ],
                   ),
+                  // الصلاحيات: ما تقوله إعدادات دورك مقابل ما تحمله بطاقتك.
+                  // غياب هذا القسم هو ما جعل «منحتُ الصلاحية ولا تعمل» سؤالاً
+                  // بلا جواب — والقواعد تحتكم إلى البطاقة لا إلى الإعدادات.
+                  if (!store.isAdmin) ...[
+                    const SizedBox(height: 24),
+                    const Text('الصلاحيات',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 8),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: const [
+                                Expanded(flex: 7, child: Text('الصلاحية', style: _head)),
+                                Expanded(flex: 3, child: Text('في إعدادات دورك', style: _head)),
+                                Expanded(flex: 3, child: Text('في بطاقتك', style: _head)),
+                              ],
+                            ),
+                            const Divider(height: 18),
+                            for (final p in RolePermission.values)
+                              _permRow(
+                                p,
+                                store.hasPermission(p),
+                                store.tokenPermissionKeys(claims).contains(p.key),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                   if (store.hasDataErrors) ...[
                     const SizedBox(height: 24),
                     const Text('بيانات رُفضت قراءتها',
@@ -222,6 +256,31 @@ class _AccountDiagnosticsScreenState extends State<AccountDiagnosticsScreen> {
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _permRow(RolePermission p, bool inSettings, bool inToken) {
+    final agree = inSettings == inToken;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(flex: 7, child: Text(p.label, style: const TextStyle(fontSize: 12.5))),
+          Expanded(flex: 3, child: Text(inSettings ? 'ممنوحة' : '—', style: _value)),
+          Expanded(
+            flex: 3,
+            child: Row(
+              children: [
+                Text(inToken ? 'موجودة' : '—', style: _value),
+                const SizedBox(width: 6),
+                if (!agree)
+                  const Icon(Icons.priority_high_rounded, size: 15, color: AppColors.danger),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

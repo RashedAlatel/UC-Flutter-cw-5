@@ -77,6 +77,35 @@ class Project {
     return now.isAfter(due) ? now.difference(due).inDays : 0;
   }
 
+  /// الحالة التي تُعرض للمستخدم — **مصدر الحقيقة الوحيد**.
+  ///
+  /// كانت البطاقة الواحدة تعرض مصدرين متناقضين: شارة الحالة من الحقل
+  /// المخزَّن، وسطر «متأخر N يوم» محسوباً من تاريخ الاستحقاق. فرأى مسؤول
+  /// النظام مشاريع متأخرة مكتوباً عليها «على المسار» وعكسها.
+  ///
+  /// والحقل المخزَّن استُنتج عند الاستيراد من نصوص ملفات الوزارة («جاري
+  /// العمل» ← على المسار، «لم يبدأ» ← مهدد بالخطر)، فهو تقدير بشري جامد لا
+  /// يعرف مرور الزمن. أما تاريخ الاستحقاق فموضوعي — ولذلك هو الفيصل:
+  ///
+  /// * المكتمل يبقى مكتملاً مهما مضى من وقت.
+  /// * من تجاوز موعده ولم يكتمل فهو **متأخر**، مهما قال الحقل المخزَّن.
+  /// * ومن لم يتجاوز موعده فليس متأخراً — ويبقى «مهدد بالخطر» تقديراً بشرياً
+  ///   محترماً، لأنه إنذار مبكر لا ادّعاء تأخّر.
+  ///
+  /// الحقل المخزَّن يبقى في المستند بوصفه ما أُدخل، ولا يُعرض وحده أبداً.
+  ProjectStatus get effectiveStatus {
+    if (status == ProjectStatus.completed) return ProjectStatus.completed;
+    if (delayDays > 0) return ProjectStatus.delayed;
+    if (status == ProjectStatus.atRisk) return ProjectStatus.atRisk;
+    // مخزَّن «متأخر» وموعده لم يحن: التاريخ يقول إنه ليس متأخراً.
+    if (status == ProjectStatus.delayed) return ProjectStatus.onTrack;
+    return status;
+  }
+
+  /// هل يخالف الحقل المخزَّن ما يقوله التاريخ؟ يستعمله مسؤول النظام في
+  /// «مطابقة الحالات المخزّنة».
+  bool get statusOutOfSync => status != effectiveStatus;
+
   Project copyWith({
     String? departmentId,
     String? name,

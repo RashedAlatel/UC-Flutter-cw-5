@@ -386,7 +386,7 @@ class _ProjectCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  StatusChip(status: project.status),
+                  StatusChip(status: project.effectiveStatus),
                   if (store.canManageSections(project.departmentId))
                     IconButton(
                       tooltip: 'نقل المشروع إلى قسم',

@@ -93,7 +93,7 @@ class CustomWidgetEngine {
         final p = item as Project;
         switch (field) {
           case 'status':
-            return p.status.label;
+            return p.effectiveStatus.label;
           case 'priority':
             return p.priority.label;
           case 'department':

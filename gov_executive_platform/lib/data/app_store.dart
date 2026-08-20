@@ -534,7 +534,7 @@ class AppStore extends ChangeNotifier {
       final today = DateTime.now();
       final todayDate = DateTime(today.year, today.month, today.day);
       final dueSoon = visibleProjects.where((p) {
-        if (p.status == ProjectStatus.completed) return false;
+        if (p.effectiveStatus == ProjectStatus.completed) return false;
         final due = DateTime(p.dueDate.year, p.dueDate.month, p.dueDate.day);
         final diff = due.difference(todayDate).inDays;
         return diff >= 0 && diff <= alertRules.dueSoonDays;
@@ -602,7 +602,12 @@ class AppStore extends ChangeNotifier {
             .map((e) => e.toString())
             .toSet();
         final mine = myDepartmentIds.toSet();
-        return !tokenDepts.containsAll(mine);
+        if (!tokenDepts.containsAll(mine)) return true;
+        // الصلاحيات أيضاً — وغيابها من المقارنة كان عيباً حقيقياً: مسؤول
+        // النظام يمنح صلاحية فتُختم على الخادم، بينما يبقى المستخدم حاملاً
+        // بطاقته القديمة حتى ينتهي أجل رمزه (قد يبلغ ساعة). فيرى الصلاحية
+        // ممنوحة في الشاشة ولا تعمل، ولا شيء يفسّر له السبب.
+        return expectedPermissionKeys.difference(tokenPermissionKeys(claims)).isNotEmpty;
       } catch (_) {
         return false;
       }
@@ -1060,6 +1065,28 @@ class AppStore extends ChangeNotifier {
     } on FirebaseFunctionsException catch (e) {
       return (updated: 0, error: e.message ?? 'تعذر تطبيق الصلاحيات');
     }
+  }
+
+  /// مفاتيح الصلاحيات التي **يُفترض** أن يحملها المستخدم حسب إعدادات دوره.
+  ///
+  /// مسؤول النظام لا يمرّ من هنا: صلاحياته كاملة عبر `isAdmin()` في القواعد
+  /// لا عبر أعلام في البطاقة، فمقارنته بها تُنتج اختلافاً وهمياً دائماً.
+  Set<String> get expectedPermissionKeys {
+    if (isAdmin) return const {};
+    return {
+      for (final p in RolePermission.values)
+        if (hasPermission(p)) p.key,
+    };
+  }
+
+  /// مفاتيح الصلاحيات الموجودة فعلاً في بطاقة الدخول.
+  Set<String> tokenPermissionKeys(Map<String, dynamic> claims) {
+    final perms = claims['perms'];
+    if (perms is! Map) return const {};
+    return {
+      for (final e in perms.entries)
+        if (e.value == true) e.key.toString(),
+    };
   }
 
   /// بصمات بطاقة الدخول الحالية (Custom Claims) كما يراها الخادم.
@@ -1822,6 +1849,31 @@ class AppStore extends ChangeNotifier {
       project.executorUids,
     );
     await _log('تعيين مدير مشروع', 'تم تعيين مدير المشروع لمشروع "${project.name}"');
+  }
+
+  /// المشاريع التي يخالف حقلها المخزَّن ما يقوله تاريخ الاستحقاق.
+  ///
+  /// تُعرض لمسؤول النظام قبل المطابقة: تغيير عشرات المستندات دفعةً واحدة
+  /// دون أن يرى ماذا سيتغيّر ليس قراراً، بل مقامرة.
+  List<Project> get projectsWithStaleStatus =>
+      visibleProjects.where((p) => p.statusOutOfSync).toList();
+
+  /// يكتب الحالة الفعلية في المستندات التي تخالفها.
+  ///
+  /// العرض يستعمل `effectiveStatus` دائماً، فالمنصة متسقة بدونها. لكن الحقل
+  /// المخزَّن يخرج مع التقارير المُصدَّرة ويقرؤه أي نظام آخر، فمطابقته تمنع
+  /// أن يقرأ الخارج حالةً غير التي يراها المستخدم على الشاشة.
+  Future<int> reconcileProjectStatuses() async {
+    final stale = projectsWithStaleStatus;
+    if (stale.isEmpty) return 0;
+    final batch = _db.batch();
+    for (final p in stale) {
+      batch.update(_db.collection('projects').doc(p.id), {'status': p.effectiveStatus.name});
+    }
+    await batch.commit();
+    await _log('مطابقة حالات المشاريع',
+        'طابق ${currentUser?.name} حالة ${stale.length} مشروعاً مع تواريخ استحقاقها');
+    return stale.length;
   }
 
   /// تحديث قائمة الأشخاص المنفذين للمشروع (يمكن أن يكون أكثر من شخص).

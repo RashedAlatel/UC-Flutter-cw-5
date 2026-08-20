@@ -81,7 +81,7 @@ class ReportExporter {
       projectsSheet.appendRow([
         xls.TextCellValue(p.name),
         xls.TextCellValue(departmentById(p.departmentId)?.name ?? ''),
-        xls.TextCellValue(p.status.label),
+        xls.TextCellValue(p.effectiveStatus.label),
         xls.DoubleCellValue(p.progressPercent),
         xls.IntCellValue(p.delayDays),
         xls.TextCellValue(p.executorLabel),
@@ -282,7 +282,7 @@ class ReportExporter {
                 .map((p) => [
                       p.name,
                       departmentById(p.departmentId)?.name ?? '',
-                      p.status.label,
+                      p.effectiveStatus.label,
                       '${p.progressPercent.toStringAsFixed(0)}٪',
                       p.executorLabel,
                     ])

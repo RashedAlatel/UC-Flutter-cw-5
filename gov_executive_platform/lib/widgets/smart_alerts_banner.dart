@@ -143,7 +143,7 @@ class _AlertBar extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Expanded(child: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5))),
-                                  StatusChip(status: p.status),
+                                  StatusChip(status: p.effectiveStatus),
                                 ],
                               ),
                               const SizedBox(height: 10),

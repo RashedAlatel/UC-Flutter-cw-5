@@ -9,6 +9,7 @@ import 'package:gov_exec_platform/data/app_store.dart';
 import 'package:gov_exec_platform/models/app_user.dart';
 import 'package:gov_exec_platform/models/enums.dart';
 import 'package:gov_exec_platform/models/project.dart';
+import 'package:gov_exec_platform/models/role_permissions.dart';
 import 'package:gov_exec_platform/theme/app_theme.dart';
 import 'package:gov_exec_platform/widgets/data_access_banner.dart';
 
@@ -122,6 +123,55 @@ void main() {
       store.dataErrors['projects'] = '[cloud_firestore/unavailable] Failed to connect';
       await pump(tester, store);
       expect(find.textContaining('تعذّر تحميل بعض البيانات'), findsOneWidget);
+    });
+  });
+
+  // بصمات الصلاحيات: مسؤول النظام يمنح صلاحية فتُختم على الخادم، بينما يبقى
+  // المستخدم حاملاً بطاقته القديمة حتى ينتهي أجل رمزه. فيرى الصلاحية ممنوحة
+  // ولا تعمل، ولا شيء يفسّر له السبب — ما لم تُقارَن البصمتان.
+  group('مقارنة بصمات الصلاحيات', () {
+    test('المتوقَّع يُشتقّ من إعدادات الدور', () {
+      final store = AppStore()
+        ..currentUser = _manager(dept: 'd1')
+        ..rolePermissions = const RolePermissionsConfig({
+          'departmentManager': {'mw', 'sap'},
+        });
+      expect(store.expectedPermissionKeys, {'mw', 'sap'});
+    });
+
+    test('بطاقة تنقصها صلاحية ممنوحة تُكشف', () {
+      final store = AppStore()
+        ..currentUser = _manager(dept: 'd1')
+        ..rolePermissions = const RolePermissionsConfig({
+          'departmentManager': {'mw', 'sap'},
+        });
+      final inToken = store.tokenPermissionKeys({
+        'perms': {'mw': true, 'sap': false},
+      });
+      expect(inToken, {'mw'});
+      expect(store.expectedPermissionKeys.difference(inToken), {'sap'},
+          reason: 'الصلاحية ممنوحة في الإعدادات وغائبة عن البطاقة — وهذا ما يجب أن يُكشف');
+    });
+
+    test('بطاقة بلا حقل صلاحيات إطلاقاً لا تُسقط المقارنة', () {
+      final store = AppStore()..currentUser = _manager(dept: 'd1');
+      expect(store.tokenPermissionKeys(const {}), isEmpty);
+    });
+
+    // مسؤول النظام صلاحياته كاملة عبر isAdmin() في القواعد لا عبر أعلام في
+    // البطاقة، فمقارنته بها تُنتج اختلافاً وهمياً دائماً ومزامنة لا تنتهي.
+    test('مسؤول النظام خارج المقارنة', () {
+      final admin = AppStore()
+        ..currentUser = AppUser(
+          id: 'a1',
+          name: 'مسؤول',
+          email: 'a@moj.gov.kw',
+          phone: '',
+          role: UserRole.systemAdmin,
+          status: UserStatus.approved,
+          createdAt: DateTime(2026, 1, 1),
+        );
+      expect(admin.expectedPermissionKeys, isEmpty);
     });
   });
 }

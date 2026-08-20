@@ -340,7 +340,7 @@ class PersonProfileScreen extends StatelessWidget {
                     title: Text(p.name, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
                     subtitle: Padding(
                       padding: const EdgeInsets.only(top: 6),
-                      child: LabeledProgressBar(value: p.progressPercent, label: p.status.label),
+                      child: LabeledProgressBar(value: p.progressPercent, label: p.effectiveStatus.label),
                     ),
                     trailing: p.delayDays > 0
                         ? Text('متأخر ${p.delayDays} يوم',

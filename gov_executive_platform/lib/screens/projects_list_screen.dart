@@ -33,6 +33,59 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
     super.dispose();
   }
 
+  /// يعرض ما سيتغيّر **قبل** أن يتغيّر: تعديل عشرات المستندات دفعةً واحدة
+  /// دون أن يرى مسؤول النظام ماذا سيمسّه ليس قراراً بل مقامرة.
+  Future<void> _reconcileStatuses(BuildContext context, AppStore store) async {
+    final stale = store.projectsWithStaleStatus;
+    final sample = stale.take(5).toList();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('مطابقة الحالات المخزّنة'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${stale.length} مشروعاً حالته المخزّنة تخالف تاريخ استحقاقه. '
+                  'المنصة تعرض الحالة الصحيحة أصلاً؛ هذه المطابقة تكتبها في السجل '
+                  'حتى تتفق معها التقارير المُصدَّرة.',
+                  style: const TextStyle(fontSize: 13, height: 1.9, color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 14),
+                for (final p in sample)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      '• ${p.name}: ${p.status.label} ← ${p.effectiveStatus.label}',
+                      style: const TextStyle(fontSize: 12.5, height: 1.7),
+                    ),
+                  ),
+                if (stale.length > sample.length)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text('و${stale.length - sample.length} غيرها…',
+                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('طابِق')),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final count = await store.reconcileProjectStatuses();
+    messenger.showSnackBar(SnackBar(content: Text('طوبقت حالة $count مشروعاً.')));
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
@@ -75,6 +128,20 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                   ],
                 ),
               ),
+              // مطابقة الحالات المخزّنة مع تواريخ الاستحقاق.
+              //
+              // العرض يستعمل الحالة الفعلية دائماً، فالمنصة متسقة بدون هذا
+              // الزر. لكن الحقل المخزَّن يخرج مع التقارير المُصدَّرة ويقرؤه
+              // أي نظام آخر، فمطابقته تمنع أن يقرأ الخارج حالةً غير التي
+              // يراها المستخدم على الشاشة.
+              if (store.isAdmin && store.projectsWithStaleStatus.isNotEmpty) ...[
+                OutlinedButton.icon(
+                  onPressed: () => _reconcileStatuses(context, store),
+                  icon: const Icon(Icons.rule_rounded, size: 18),
+                  label: Text('مطابقة ${store.projectsWithStaleStatus.length} حالة مخزّنة'),
+                ),
+                const SizedBox(width: 10),
+              ],
               if (store.isAdmin)
                 ElevatedButton.icon(
                   onPressed: () => showDialog(context: context, builder: (_) => const RequestProjectDialog()),
@@ -219,7 +286,7 @@ class _ProjectRow extends StatelessWidget {
                       ],
                     ),
                   ),
-                  StatusChip(status: project.status),
+                  StatusChip(status: project.effectiveStatus),
                   if (store.isAdmin) ...[
                     IconButton(
                       icon: Icon(

@@ -191,13 +191,32 @@ class _WorksListScreenState extends State<WorksListScreen> {
 
           Text('${works.length} عمل', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w700)),
           const SizedBox(height: 10),
+          // «لا توجد أعمال مطابقة» جوابٌ خاطئ حين لا يكون في نطاق المستخدم عمل
+          // أصلاً: فيظن أن عطلاً أصابه بينما لم يُسنَد إليه شيء بعد. نفرّق
+          // بين الفراغ والتصفية، ونقول للموظف من يُسنِد إليه العمل.
           if (works.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 30),
               child: Center(
-                child: Text(
-                  _showLog ? 'لا توجد أعمال منجزة بعد' : 'لا توجد أعمال مطابقة',
-                  style: const TextStyle(color: AppColors.textSecondary),
+                child: Column(
+                  children: [
+                    Icon(Icons.checklist_rtl_rounded, size: 34, color: AppColors.textSecondary.withValues(alpha: 0.5)),
+                    const SizedBox(height: 10),
+                    Text(
+                      all.isEmpty
+                          ? 'لا توجد أعمال مُسنَدة إليك بعد'
+                          : (_showLog ? 'لا توجد أعمال منجزة بعد' : 'لا توجد أعمال مطابقة لبحثك'),
+                      style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700),
+                    ),
+                    if (all.isEmpty && !store.canManageWorks) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        'الأعمال التشغيلية يُسنِدها إليك مدير إدارتك، وتظهر هنا فور إسنادها.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5, height: 1.7),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             )

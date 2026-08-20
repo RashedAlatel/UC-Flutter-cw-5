@@ -98,6 +98,12 @@ class AppStore extends ChangeNotifier {
   List<Project> _projectsByMembership = [];
   List<Project> _projectsByExecution = [];
 
+  /// الأعمال وطلبات الاعتماد كذلك: لكل نطاق تدفّقه، ثم تُدمج — راجع `_mergeById`.
+  List<WorkItem> _worksByScope = [];
+  List<WorkItem> _worksByAssignment = [];
+  List<ApprovalRequest> _requestsByScope = [];
+  List<ApprovalRequest> _requestsByMine = [];
+
   /// هل رُفضت قراءة أي مجموعة؟ يُستخدم لإظهار اللافتة.
   bool get hasDataErrors => dataErrors.isNotEmpty;
 
@@ -582,6 +588,21 @@ class AppStore extends ChangeNotifier {
   /// عند كل تحديث للسجل يعني استدعاء دالة سحابية في حلقة.
   bool _claimsSyncTried = false;
 
+  /// هل وصلت صلاحيات الأدوار من الخادم؟ الإعداد المبدئي ليس حقيقةً — وفيه
+  /// «موظف» بلا أي صلاحية — فالمقارنة به تُنتج «لا اختلاف» كاذباً.
+  bool _rolePermissionsLoaded = false;
+
+  /// صلاحيات الأدوار قراءةً واحدة، لا عبر الاشتراكات.
+  Future<RolePermissionsConfig> loadRolePermissions() async {
+    try {
+      final doc = await _db.collection('settings').doc('rolePermissions').get();
+      return RolePermissionsConfig.fromMap(doc.data());
+    } catch (_) {
+      // تعذّرت القراءة: نُبقي ما لدينا بدل أن نستنتج نقصاً وهمياً.
+      return rolePermissions;
+    }
+  }
+
   /// يوفّق بين سجل المستخدم وبطاقة دخوله.
   ///
   /// قواعد Firestore تقرأ `request.auth.token` لا مستند المستخدم. فحساب
@@ -592,6 +613,19 @@ class AppStore extends ChangeNotifier {
   Future<void> _reconcileClaims(fb_auth.User user) async {
     final me = currentUser;
     if (me == null || me.status != UserStatus.approved) return;
+
+    // صلاحيات الأدوار تُقرأ هنا قراءةً واحدة قبل أي مقارنة.
+    //
+    // وغياب هذه القراءة كان عطلاً حقيقياً أفرغ شاشة الموظف: هذه الدالة
+    // تُستدعى **قبل** `_subscribeAppData()`، وصلاحيات الأدوار لا تصل إلا
+    // من اشتراكاتها. فكانت المقارنة تجري على الإعداد المبدئي — وفيه «موظف»
+    // بلا أي صلاحية — فتقول «المتوقَّع لا شيء والبطاقة لا شيء، إذن لا
+    // اختلاف» وتنصرف. فلا تسري صلاحية مُنحت حديثاً أبداً، والحارس الذي
+    // بنيناه للمشكلة نفسها كان يحرس وعيناه مغمضتان.
+    if (!_rolePermissionsLoaded) {
+      rolePermissions = await loadRolePermissions();
+      _rolePermissionsLoaded = true;
+    }
 
     Future<bool> mismatched({required bool refresh}) async {
       try {
@@ -624,6 +658,21 @@ class AppStore extends ChangeNotifier {
     await syncMyClaims();
   }
 
+  /// يُعيد الفحص حين تصل إعدادات الصلاحيات **بعد** بدء الاشتراكات — أي حين
+  /// يمنح مسؤول النظام صلاحيةً والمستخدم فاتحٌ صفحته. فتسري بلا خروج ودخول.
+  Future<void> _recheckPermissionClaims() async {
+    final user = _auth.currentUser;
+    if (user == null || _claimsSyncTried) return;
+    if (currentUser?.status != UserStatus.approved) return;
+    try {
+      final claims = await currentTokenClaims();
+      if (expectedPermissionKeys.difference(tokenPermissionKeys(claims)).isEmpty) return;
+    } catch (_) {
+      return;
+    }
+    await _reconcileClaims(user);
+  }
+
   void _cancelDataSubs() {
     for (final s in _dataSubs) {
       s.cancel();
@@ -635,6 +684,10 @@ class AppStore extends ChangeNotifier {
     _projectsByScope = [];
     _projectsByMembership = [];
     _projectsByExecution = [];
+    _worksByScope = [];
+    _worksByAssignment = [];
+    _requestsByScope = [];
+    _requestsByMine = [];
     departments = [];
     sections = [];
     projects = [];
@@ -658,6 +711,9 @@ class AppStore extends ChangeNotifier {
     myFocusWorkIds = [];
     focusedProjectIds = [];
     rolePermissions = RolePermissionsConfig.defaults();
+    // ولأن القيمة عادت إلى الإعداد المبدئي، تعود معها علامة التحميل — وإلا
+    // قارنت المزامنة لاحقاً بإعدادٍ مبدئي وهي تحسبه الحقيقة.
+    _rolePermissionsLoaded = false;
     customRoles = [];
     _projectWidgets.clear();
     _projectWidgetsSubscribed.clear();
@@ -720,7 +776,33 @@ class AppStore extends ChangeNotifier {
     });
   }
 
+  /// يدمج تدفّقات متعددة على المجموعة نفسها في قائمة واحدة بلا تكرار.
+  ///
+  /// قواعد Firestore **ترفض ولا تُصفّي**: المجموعة تُطلب بنطاق يضمن أن كل ما
+  /// تعيده مسموح، وإلا رُفض الطلب كله فتظهر الشاشة فارغة كأن لا بيانات. وما
+  /// يحتاج شرطين مختلفين (إدارتي **أو** المُسنَد إليّ) لا يُجمع في استعلام
+  /// واحد، فيُقرأ بتدفّقين. ولا يجوز أن يكتبا في قائمة واحدة لأن كلاً منهما
+  /// يصل بلقطة كاملة فيدوس على الآخر — لذلك لكلٍّ قائمته وتُدمجان هنا.
+  @visibleForTesting
+  static List<T> mergeById<T>(String Function(T) idOf, List<List<T>> sources) {
+    final byId = <String, T>{};
+    for (final list in sources) {
+      for (final item in list) {
+        byId[idOf(item)] = item;
+      }
+    }
+    return byId.values.toList();
+  }
+
+  /// تصفية بقائمة إدارات. Firestore يحدّ `whereIn` بثلاثين قيمة، فتُقتطع.
+  Query<Map<String, dynamic>> _whereDeptIn(
+    CollectionReference<Map<String, dynamic>> col,
+    List<String> ids,
+  ) =>
+      col.where('departmentId', whereIn: ids.length > 30 ? ids.sublist(0, 30) : ids);
+
   void _subscribeAppData() {
+    final myUid = currentUser?.id;
     final officer = isOfficer;
     final manager = isManager;
     final scopedDept = (canViewAllDepartments || officer || manager) ? null : currentUser?.departmentId;
@@ -744,9 +826,7 @@ class AppStore extends ChangeNotifier {
       if (officer) return col.where('managerUid', isEqualTo: currentUser?.id);
       if (manager) {
         final ids = myDepartmentIds;
-        return ids.isEmpty
-            ? col.where('departmentId', isEqualTo: '__none__')
-            : col.where('departmentId', whereIn: ids.length > 30 ? ids.sublist(0, 30) : ids);
+        return ids.isEmpty ? col.where('departmentId', isEqualTo: '__none__') : _whereDeptIn(col, ids);
       }
       return scopedDept == null ? col : col.where('departmentId', isEqualTo: scopedDept);
     }
@@ -759,11 +839,10 @@ class AppStore extends ChangeNotifier {
     // التدفّقان في نفس القائمة لداس أحدهما الآخر عند كل لقطة، فتظهر
     // المشاريع وتختفي بلا سبب — لذلك لكلٍّ قائمته وتُدمجان في `projects`.
     void publishProjects() {
-      final byId = <String, Project>{};
-      for (final p in [..._projectsByScope, ..._projectsByMembership, ..._projectsByExecution]) {
-        byId[p.id] = p;
-      }
-      projects = byId.values.toList();
+      projects = mergeById<Project>(
+        (p) => p.id,
+        [_projectsByScope, _projectsByMembership, _projectsByExecution],
+      );
       notifyListeners();
     }
 
@@ -771,16 +850,15 @@ class AppStore extends ChangeNotifier {
       _projectsByScope = snap.docs.map(Project.fromDoc).toList();
       publishProjects();
     });
-    final myUidForProjects = currentUser?.id;
-    if (myUidForProjects != null && !canViewAllDepartments) {
+    if (myUid != null && !canViewAllDepartments) {
       _listen('projects/عضويتي',
-          _db.collection('projects').where('managerUids', arrayContains: myUidForProjects).snapshots(),
+          _db.collection('projects').where('managerUids', arrayContains: myUid).snapshots(),
           (snap) {
         _projectsByMembership = snap.docs.map(Project.fromDoc).toList();
         publishProjects();
       });
       _listen('projects/تنفيذي',
-          _db.collection('projects').where('executorUids', arrayContains: myUidForProjects).snapshots(),
+          _db.collection('projects').where('executorUids', arrayContains: myUid).snapshots(),
           (snap) {
         _projectsByExecution = snap.docs.map(Project.fromDoc).toList();
         publishProjects();
@@ -802,13 +880,38 @@ class AppStore extends ChangeNotifier {
       dailyUpdates = snap.docs.map(DailyUpdate.fromDoc).toList();
       notifyListeners();
     });
-    _listen('approvalRequests', _db.collection('approvalRequests').snapshots(), (snap) {
-      approvalRequests = snap.docs
-          .map(ApprovalRequest.fromDoc)
+    // طلبات الاعتماد كانت تُطلب كاملةً بلا نطاق، وقاعدتها تعتمد على محتوى
+    // المستند — فيُرفض الطلب كله لكل من ليس مسؤول نظام أو مستخدماً تنفيذياً،
+    // فلا يرى الموظف حتى حالة طلباته هو. النطاق هنا يطابق القاعدة حرفياً.
+    void publishRequests() {
+      approvalRequests = mergeById<ApprovalRequest>((r) => r.id, [_requestsByScope, _requestsByMine])
           .where((r) => canViewAll(r))
           .toList();
       notifyListeners();
-    });
+    }
+
+    if (isAdmin || isExecutive) {
+      _listen('approvalRequests', _db.collection('approvalRequests').snapshots(), (snap) {
+        _requestsByScope = snap.docs.map(ApprovalRequest.fromDoc).toList();
+        publishRequests();
+      });
+    } else {
+      final deptIds = myDepartmentIds;
+      if (deptIds.isNotEmpty) {
+        _listen('approvalRequests/إدارتي',
+            _whereDeptIn(_db.collection('approvalRequests'), deptIds).snapshots(), (snap) {
+          _requestsByScope = snap.docs.map(ApprovalRequest.fromDoc).toList();
+          publishRequests();
+        });
+      }
+      if (myUid != null) {
+        _listen('approvalRequests/طلباتي',
+            _db.collection('approvalRequests').where('requestedByUid', isEqualTo: myUid).snapshots(), (snap) {
+          _requestsByMine = snap.docs.map(ApprovalRequest.fromDoc).toList();
+          publishRequests();
+        });
+      }
+    }
     _listen('reports', _db.collection('reports').snapshots(), (snap) {
       reports = snap.docs.map(ReportSnapshot.fromDoc).toList()
         ..sort((a, b) => b.generatedDate.compareTo(a.generatedDate));
@@ -852,16 +955,44 @@ class AppStore extends ChangeNotifier {
       registrationPolicy = RegistrationPolicy.fromMap(doc.data());
       notifyListeners();
     });
-    _listen('works', _db.collection('works').snapshots(), (snap) {
-      works = snap.docs.map(WorkItem.fromDoc).toList()
+    // الأعمال كانت تُطلب كاملةً بلا نطاق، وقاعدتها تعتمد على محتوى المستند
+    // (إدارتي، أو مُسنَد إليّ). فالطلب المفتوح يُرفض لكل من لا يرى كل
+    // الإدارات — **بمن فيهم مدراء الإدارات** — فتظهر صفحة الأعمال فارغة.
+    void publishWorks() {
+      works = mergeById<WorkItem>((w) => w.id, [_worksByScope, _worksByAssignment])
         ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
       notifyListeners();
-    });
+    }
+
+    if (canViewAllDepartments) {
+      _listen('works', _db.collection('works').snapshots(), (snap) {
+        _worksByScope = snap.docs.map(WorkItem.fromDoc).toList();
+        publishWorks();
+      });
+    } else {
+      // أعمال الإدارة لا تُطلب إلا لمن يعرضها فعلاً (راجع `visibleWorks`):
+      // الموظف العادي يرى المُسنَد إليه وحده، فلا معنى لتحميل ما لن يُعرض له.
+      final deptIds = myDepartmentIds;
+      if ((isManager || canManageWorks) && deptIds.isNotEmpty) {
+        _listen('works/إدارتي', _whereDeptIn(_db.collection('works'), deptIds).snapshots(), (snap) {
+          _worksByScope = snap.docs.map(WorkItem.fromDoc).toList();
+          publishWorks();
+        });
+      }
+      if (myUid != null) {
+        _listen('works/المسنَدة إليّ',
+            _db.collection('works').where('assigneeUid', isEqualTo: myUid).snapshots(), (snap) {
+          _worksByAssignment = snap.docs.map(WorkItem.fromDoc).toList();
+          publishWorks();
+        });
+      }
+    }
     _listen('settings/rolePermissions', _db.collection('settings').doc('rolePermissions').snapshots(), (doc) {
       rolePermissions = RolePermissionsConfig.fromMap(doc.data());
+      _rolePermissionsLoaded = true;
       notifyListeners();
+      _recheckPermissionClaims();
     });
-    final myUid = currentUser?.id;
     if (myUid != null) {
       _listen('userFocus', _db.collection('userFocus').doc(myUid).snapshots(), (doc) {
         final data = doc.data() ?? {};
@@ -1077,6 +1208,24 @@ class AppStore extends ChangeNotifier {
       for (final p in RolePermission.values)
         if (hasPermission(p)) p.key,
     };
+  }
+
+  /// الصلاحيات الممنوحة في إعدادات الدور والغائبة عن بطاقة الدخول.
+  ///
+  /// هذه هي الحالة التي تُفرغ الشاشة بلا سبب مفهوم: مسؤول النظام يرى
+  /// الصلاحية مفعّلة، والمستخدم لا تعمل عنده — لأن الخادم يحتكم إلى البطاقة
+  /// وحدها. فتُسمّى له باسمها العربي بدل رسالة رفض عامة.
+  Future<List<RolePermission>> pendingPermissions() async {
+    try {
+      final claims = await currentTokenClaims();
+      final missing = expectedPermissionKeys.difference(tokenPermissionKeys(claims));
+      return [
+        for (final key in missing)
+          if (RolePermission.fromKey(key) != null) RolePermission.fromKey(key)!,
+      ];
+    } catch (_) {
+      return const [];
+    }
   }
 
   /// مفاتيح الصلاحيات الموجودة فعلاً في بطاقة الدخول.

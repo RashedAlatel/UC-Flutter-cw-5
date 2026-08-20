@@ -53,9 +53,13 @@ service cloud.firestore {
     // صلاحية القراءة/الكتابة على مستند مرتبط بمشروع (تقدّم عبر departmentId و managerUid المنسوخين عليه).
     function canEditDept(deptId) { return isAdmin() || (isDeptManager() && isMyDeptOfManager(deptId)); }
     function canAccessProjectDoc(deptId, managerUid) { return canEditDept(deptId) || isMyProject(managerUid); }
-    // صاحب صلاحية «الانضمام لمشاريع الإدارة» يقرأ مشاريع إدارته ومستنداتها
-    // التابعة. بدون التابعة يفتح مشروعاً يراه فلا يجد فيه شيئاً، فيبدو العطل
-    // بيانات مفقودة لا صلاحية ناقصة.
+    // صلاحية «الانضمام لمشاريع الإدارة» صارت تحكم **التسجيل** وحده — راجع
+    // isSelfMembershipChange. أما الاطّلاع على مشاريع الإدارة فحقٌّ أساسي لكل
+    // موظف فيها عبر isMyDeptAny في شرط القراءة أدناه، لا صلاحية تُمنح.
+    //
+    // وسبب ذلك عطلٌ وقع فعلاً: الاطّلاع كان معلَّقاً على بصمة في بطاقة الدخول،
+    // وبطاقةُ من مُنح الصلاحية قد لا تُختم فوراً، فيرى الموظف منصة خالية بلا
+    // سبب مفهوم. والقراءة داخل الإدارة لا تحتاج هذا التعليق أصلاً.
     function canBrowseDeptProjects(deptId) { return perm('sap') && isMyDeptAny(deptId); }
 
     // ــــ تسجيل الموظف نفسه على مشروع ــــ
@@ -144,10 +148,13 @@ service cloud.firestore {
 
     // ------------------------- المشاريع -------------------------
     match /projects/{id} {
+      // القراءة: من يرى كل الإدارات، أو من يملك المشروع إدارةً أو مديراً، أو
+      // عضو فيه، أو **أي موظف معتمد في إدارة المشروع**. والأخير هو ما يجعل
+      // الموظف يرى مشاريع إدارته فور اعتماده بلا صلاحية إضافية.
       allow read: if isApproved() && (canViewAll()
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
-                                      || canBrowseDeptProjects(deptOf(resource.data)));
+                                      || isMyDeptAny(deptOf(resource.data)));
       // مسؤول النظام يملك صلاحية إضافة مشروع مباشرة (موافقته الذاتية كافية).
       // أي دور آخر لا يُنشئ مشروعاً مباشرة؛ الإنشاء عندها يتم فقط عبر Cloud
       // Function بعد اعتماد طلب "إضافة مشروع" من مسؤول النظام.
@@ -175,7 +182,7 @@ service cloud.firestore {
       allow read: if isApproved() && (canViewAll()
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
-                                      || canBrowseDeptProjects(deptOf(resource.data)));
+                                      || isMyDeptAny(deptOf(resource.data)));
       allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
@@ -189,7 +196,7 @@ service cloud.firestore {
       allow read: if isApproved() && (canViewAll()
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
-                                      || canBrowseDeptProjects(deptOf(resource.data)));
+                                      || isMyDeptAny(deptOf(resource.data)));
       allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       // السجل غير قابل للتعديل إطلاقاً. الحذف مسموح لمسؤول النظام فقط، وهو
@@ -203,7 +210,7 @@ service cloud.firestore {
       allow read: if isApproved() && (canViewAll()
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
-                                      || canBrowseDeptProjects(deptOf(resource.data)));
+                                      || isMyDeptAny(deptOf(resource.data)));
       allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
@@ -216,7 +223,7 @@ service cloud.firestore {
       allow read: if isApproved() && (canViewAll()
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
-                                      || canBrowseDeptProjects(deptOf(resource.data)));
+                                      || isMyDeptAny(deptOf(resource.data)));
       allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))

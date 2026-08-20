@@ -83,7 +83,59 @@ async function logAudit(userName: string, action: string, details: string): Prom
 // مفاتيح الصلاحيات القابلة للتفويض. لا تتضمن — ولن تتضمن — بوابات الاعتماد
 // الثلاث (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي)؛ تلك تبقى محصورة
 // بـ systemAdmin عبر requireAdmin وقواعد Firestore معاً.
-const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap", "sfb", "mfb"] as const;
+const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap", "sfb", "mfb",
+  "mpr", "apr"] as const;
+
+/**
+ * صلاحيتان **لا تُمنحان لدور قط**، بل لفرد بعينه ومعهما نطاق إدارات.
+ *
+ * `apr` منهما تفتح بوابةً كانت محصورة بمسؤول النظام وحده (اعتماد إضافة
+ * المشاريع)، بقرار صريح منه. فهي مغلقة افتراضياً، ولا يمنحها إلا هو،
+ * ومقيَّدة بنطاق، وقابلة للسحب. أما تسجيل الأعضاء وتعديل المواعيد النهائية
+ * فتبقيان محصورتين به وحده.
+ *
+ * وتُستبعَد من صلاحيات الأدوار عند الختم مهما كُتب في settings/rolePermissions،
+ * حتى لا يفتحها أحد بالخطأ من شاشة الأدوار.
+ */
+const SCOPED_PERM_KEYS: readonly string[] = ["mpr", "apr"];
+
+/** نطاق صلاحية كما يُختم في البطاقة: `'*'` أو قائمة معرّفات إدارات. */
+type GrantScopeClaim = "*" | string[];
+
+/**
+ * يقرأ منح النطاقات من سجل المستخدم إلى صورتها في البطاقة.
+ *
+ * «إدارته وحدها» تُحلّ هنا إلى معرّف إدارته، فلا تحتاج القواعد قراءة سجل
+ * ولا حالة خاصة. والقائمة تُقتطع عند ثلاثين لأن للبطاقة حدّ حجم صارم.
+ */
+function readScopedGrants(
+  raw: unknown,
+  ownDepartmentId: string | null,
+): {perms: Record<string, boolean>; scopes: Record<string, GrantScopeClaim>} {
+  const perms: Record<string, boolean> = {};
+  const scopes: Record<string, GrantScopeClaim> = {};
+  if (!raw || typeof raw !== "object") return {perms, scopes};
+  for (const key of SCOPED_PERM_KEYS) {
+    const grant = (raw as Record<string, unknown>)[key];
+    if (!grant || typeof grant !== "object") continue;
+    const g = grant as Record<string, unknown>;
+    if (g.all === true) {
+      perms[key] = true;
+      scopes[key] = "*";
+      continue;
+    }
+    const ids = Array.isArray(g.departmentIds) ?
+      g.departmentIds.map((d: unknown) => String(d)).filter(Boolean) :
+      [];
+    const resolved = ids.length > 0 ? ids : (g.own === true && ownDepartmentId ? [ownDepartmentId] : []);
+    // نطاق فارغ ليس منحاً: لا يُختم علَمٌ بلا نطاق، لأن علَماً بلا نطاق قد
+    // يُقرأ يوماً على أنه «الكل» — وهو أخطر ما يقع في صلاحية تفتح بوابة.
+    if (resolved.length === 0) continue;
+    perms[key] = true;
+    scopes[key] = resolved.slice(0, 30);
+  }
+  return {perms, scopes};
+}
 
 /** الأدوار الأساسية التي يضبط مسؤول النظام صلاحياتها من شاشة "صلاحيات الأدوار". */
 const CONFIGURABLE_ROLES = ["executiveViewer", "departmentManager", "projectOfficer", "employee"] as const;
@@ -141,6 +193,30 @@ function applyOverrides(
   const merged = {...perms};
   for (const [key, value] of entries) merged[key] = value as boolean;
   return merged;
+}
+
+/**
+ * أعلام الصلاحيات ونطاقاتها كما تُختم على البطاقة — **المصدر الوحيد**.
+ *
+ * ستة مواضع كانت تختم البطاقة، وكلٌّ يحسب `perms` بنفسه. وإضافة النطاقات
+ * إلى خمسة منها ونسيان السادس عطلٌ صامت لا يظهر إلا حين يُستعمل ذلك المسار.
+ * فجُمِع الحساب هنا.
+ *
+ * والصلاحيتان المقيَّدتان بنطاق تُمسحان أولاً ثم تُكتبان من `scopedGrants`
+ * وحدها: لا يمنحهما دورٌ ولا استثناءٌ فردي مهما كُتب في المستندات.
+ */
+function claimPermissions(
+  rolePerms: Record<string, boolean> | undefined,
+  userData: Record<string, unknown> | undefined,
+  departmentId: string | null,
+): {perms?: Record<string, boolean>; scopes?: Record<string, GrantScopeClaim>} {
+  // مسؤول النظام يدخل بـ undefined ويخرج بلا أعلام: صلاحياته عبر isAdmin().
+  if (rolePerms === undefined) return {};
+  const merged = {...(applyOverrides(rolePerms, userData?.permissionOverrides) ?? rolePerms)};
+  for (const key of SCOPED_PERM_KEYS) merged[key] = false;
+  const {perms: granted, scopes} = readScopedGrants(userData?.scopedGrants, departmentId);
+  for (const [key, value] of Object.entries(granted)) merged[key] = value;
+  return Object.keys(scopes).length > 0 ? {perms: merged, scopes} : {perms: merged};
 }
 
 /**
@@ -212,15 +288,66 @@ export const bootstrapFirstAdmin = onCall(async (request) => {
 // (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي / قرار تنفيذي عام)
 // ------------------------------------------------------------------
 
-function checkApprovalPermission(type: string, auth: CallableRequest["auth"]) {
+/** هل يشمل نطاق صلاحية في البطاقة هذه الإدارة؟ */
+function tokenScopeCovers(
+  auth: CallableRequest["auth"],
+  key: string,
+  departmentId: string | null,
+): boolean {
+  const perms = auth?.token.perms as Record<string, boolean> | undefined;
+  if (perms?.[key] !== true) return false;
+  const scopes = auth?.token.scopes as Record<string, unknown> | undefined;
+  const scope = scopes?.[key];
+  if (scope === "*") return true;
+  // نطاق غائب ليس «الكل»: علَمٌ بلا نطاق لا يمنح شيئاً.
+  if (!Array.isArray(scope) || !departmentId) return false;
+  return scope.map((d) => String(d)).includes(departmentId);
+}
+
+/**
+ * من يبتّ في كل نوع من الطلبات.
+ *
+ * **تسجيل الأعضاء** و**تعديل المواعيد النهائية** يبقيان حصراً لمسؤول النظام
+ * ولا يفتحهما أي مفتاح — لم يطلب مسؤول النظام فتحهما.
+ *
+ * أما **إضافة المشاريع** فقد قرّر فتحها صراحةً عبر مفتاح بيده: `apr` تُمنح
+ * لفرد بعينه ضمن نطاق إدارات، وهي مغلقة افتراضياً وقابلة للسحب. والنطاق
+ * يُقاس بإدارة **الطلب نفسه** كما هي في مستنده على الخادم، لا كما يرسلها
+ * العميل.
+ *
+ * و**إضافة الأعمال** نوع جديد ليس من البوابات: يعتمده مدير الإدارة صاحبته،
+ * أو صاحب `mpr` في نطاقها.
+ */
+function checkApprovalPermission(
+  type: string,
+  auth: CallableRequest["auth"],
+  departmentId: string | null,
+) {
   const callerRole = auth?.token.role as string | undefined;
   const perms = auth?.token.perms as Record<string, boolean> | undefined;
-  // بوابات الموافقة الثلاث (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي) تبقى
-  // حصراً لمسؤول النظام ولا يمكن لأي دور مخصص تجاوزها مهما كانت صلاحياته.
-  const allowed =
-    type === "decision"
-      ? callerRole === "systemAdmin" || callerRole === "executiveViewer" || perms?.agd === true
-      : callerRole === "systemAdmin";
+  const isAdmin = callerRole === "systemAdmin";
+
+  let allowed: boolean;
+  switch (type) {
+    case "decision":
+      allowed = isAdmin || callerRole === "executiveViewer" || perms?.agd === true;
+      break;
+    case "projectCreate":
+      allowed = isAdmin || tokenScopeCovers(auth, "apr", departmentId);
+      break;
+    case "workCreate": {
+      const myDepts = callerRole === "departmentManager" ?
+        ((auth?.token.departmentIds as string[] | undefined) ?? []) :
+        [];
+      allowed = isAdmin ||
+        (departmentId !== null && myDepts.includes(departmentId)) ||
+        tokenScopeCovers(auth, "mpr", departmentId);
+      break;
+    }
+    // registration و deadlineChange: مسؤول النظام وحده، بلا استثناء.
+    default:
+      allowed = isAdmin;
+  }
   if (!allowed) {
     throw new HttpsError("permission-denied", "ليست لديك صلاحية البت في هذا النوع من الطلبات");
   }
@@ -237,7 +364,7 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
   const data = snap.data()!;
   if (data.status !== "pending") throw new HttpsError("failed-precondition", "تم البت في هذا الطلب مسبقاً");
 
-  checkApprovalPermission(data.type, auth);
+  checkApprovalPermission(data.type, auth, (data.departmentId as string | null) ?? null);
 
   const payload = (data.payload ?? {}) as Record<string, unknown>;
 
@@ -328,13 +455,9 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       // وغيابها كان عطلاً صامتاً: الحساب المعتمَد حديثاً يخرج بلا حقل `perms`
       // إطلاقاً، فكل `perm(key)` في القواعد يعود false مهما منح مسؤول النظام
       // لدوره — ولا يُصلَح إلا بإعادة ختم لاحقة قد لا تقع أبداً.
-      const perms = applyOverrides(
-        await loadCustomRolePerms(role, null),
-        userSnap.data()?.permissionOverrides,
-      );
       await admin.auth().setCustomUserClaims(uid, {
         role, departmentId, departmentIds, approved: true,
-        ...(perms ? {perms} : {}),
+        ...claimPermissions(await loadCustomRolePerms(role, null), userSnap.data(), departmentId),
       });
       // القسم يُحفظ في السجل ولا يدخل بطاقة الدخول: لا قاعدة أمان تحتكم إليه،
       // وبطاقة الدخول لها حدّ حجم صارم فلا تُثقَل بما لا يُفحص عليها.
@@ -358,6 +481,25 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         managerUid: null,
         // القسم داخل الإدارة كما اختاره مقدّم الطلب (null = تحت الإدارة مباشرةً).
         sectionId: payload.sectionId ?? null,
+      });
+      break;
+    }
+    case "workCreate": {
+      // العمل التشغيلي ليس من بوابات الاعتماد: يعتمده مدير الإدارة صاحبته.
+      // والإدارة تُؤخذ من **مستند الطلب** لا من الحمولة، فهي التي فُحص عليها
+      // نطاق المعتمِد قبل قليل — وإلا لأمكن أن يُفحص نطاقٌ ويُكتب غيره.
+      await db().collection("works").doc().set({
+        departmentId: data.departmentId ?? null,
+        title: payload.title,
+        description: payload.description ?? "",
+        assigneeUid: payload.assigneeUid ?? null,
+        assigneeName: payload.assigneeName ?? "",
+        priority: payload.priority ?? "medium",
+        progressPercent: 0,
+        dueDate: admin.firestore.Timestamp.fromDate(new Date(payload.dueDate as string)),
+        completedDate: null,
+        createdByUid: data.requestedByUid,
+        createdAt: now(),
       });
       break;
     }
@@ -400,7 +542,7 @@ export const rejectRequest = onCall({secrets: notificationSecrets}, async (reque
   const data = snap.data()!;
   if (data.status !== "pending") throw new HttpsError("failed-precondition", "تم البت في هذا الطلب مسبقاً");
 
-  checkApprovalPermission(data.type, auth);
+  checkApprovalPermission(data.type, auth, (data.departmentId as string | null) ?? null);
 
   if (data.type === "registration") {
     const uid = (data.payload as Record<string, unknown>)?.uid as string;
@@ -441,17 +583,18 @@ export const adminCreateUser = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "الرجاء تعبئة جميع الحقول المطلوبة");
   }
 
-  const perms = await loadCustomRolePerms(role, customRoleId);
+  const rolePerms = await loadCustomRolePerms(role, customRoleId);
   // مدير الإدارة قد يدير أكثر من إدارة (departmentIds)؛ بقية الأدوار تستخدم departmentId مفرد.
   const deptIds = role === "departmentManager" ? departmentIds ?? [] : [];
 
   const userRecord = await admin.auth().createUser({email, password, displayName: name});
+  // حسابٌ جديد بلا منح نطاقات — تُمنح لاحقاً من شاشة صلاحيات المستخدم.
   await admin.auth().setCustomUserClaims(userRecord.uid, {
     role,
     departmentId: departmentId ?? null,
     departmentIds: deptIds,
     approved: true,
-    ...(perms ? {perms} : {}),
+    ...claimPermissions(rolePerms, undefined, departmentId ?? null),
   });
   await db()
     .collection("users")
@@ -489,7 +632,8 @@ export const setUserRole = onCall(async (request) => {
   if (!userDoc.exists) throw new HttpsError("not-found", "المستخدم غير موجود");
   const current = userDoc.data()!;
 
-  const perms = applyOverrides(await loadCustomRolePerms(role, customRoleId), current.permissionOverrides);
+  const claimPerms = claimPermissions(
+    await loadCustomRolePerms(role, customRoleId), current, departmentId ?? null);
   const deptIds = role === "departmentManager" ? departmentIds ?? [] : [];
 
   await userRef.update({
@@ -503,7 +647,7 @@ export const setUserRole = onCall(async (request) => {
     departmentId: departmentId ?? null,
     departmentIds: deptIds,
     approved: current.status === "approved",
-    ...(perms ? {perms} : {}),
+    ...claimPerms,
   });
 
   await logAudit(auth.token.name ?? "مسؤول النظام", "تعديل دور مستخدم", `تم تغيير دور المستخدم "${current.name}"`);
@@ -524,16 +668,16 @@ export const setUserStatus = onCall(async (request) => {
   await userRef.update({status});
 
   const approved = status === "approved";
-  const perms = applyOverrides(
-    await loadCustomRolePerms(current.role, current.customRoleId),
-    current.permissionOverrides,
-  );
   await admin.auth().setCustomUserClaims(uid, {
     role: current.role,
     departmentId: current.departmentId ?? null,
     departmentIds: current.departmentIds ?? [],
     approved,
-    ...(perms ? {perms} : {}),
+    ...claimPermissions(
+      await loadCustomRolePerms(current.role, current.customRoleId),
+      current,
+      (current.departmentId as string | null) ?? null,
+    ),
   });
   await admin.auth().updateUser(uid, {disabled: !approved});
   if (!approved) {
@@ -569,14 +713,13 @@ export const refreshRolePermissions = onCall(async (request) => {
     const u = doc.data();
     // الاستثناء الفردي يُطبَّق لكل حساب على حدة، وإلا محا تعديلُ صلاحيات
     // الدور استثناءاتٍ منحها مسؤول النظام لأشخاص بأعيانهم.
-    const perms = applyOverrides(rolePerms, u.permissionOverrides);
     try {
       await admin.auth().setCustomUserClaims(doc.id, {
         role,
         departmentId: u.departmentId ?? null,
         departmentIds: u.departmentIds ?? [],
         approved: u.status === "approved",
-        ...(perms ? {perms} : {}),
+        ...claimPermissions(rolePerms, u, (u.departmentId as string | null) ?? null),
       });
       updated++;
     } catch (err) {
@@ -663,10 +806,6 @@ async function restampClaims(uid: string): Promise<Record<string, unknown>> {
   if (!doc.exists) throw new HttpsError("not-found", "لا يوجد سجل لهذا المستخدم");
   const u = doc.data()!;
   const role = (u.role as string | undefined) ?? "projectOfficer";
-  const perms = applyOverrides(
-    await loadCustomRolePerms(role, (u.customRoleId as string | null) ?? null),
-    u.permissionOverrides,
-  );
   const claims = {
     role,
     departmentId: (u.departmentId as string | null) ?? null,
@@ -676,7 +815,11 @@ async function restampClaims(uid: string): Promise<Record<string, unknown>> {
       u.departmentIds :
       (role === "departmentManager" && u.departmentId ? [u.departmentId] : []),
     approved: u.status === "approved",
-    ...(perms ? {perms} : {}),
+    ...claimPermissions(
+      await loadCustomRolePerms(role, (u.customRoleId as string | null) ?? null),
+      u,
+      (u.departmentId as string | null) ?? null,
+    ),
   };
   await admin.auth().setCustomUserClaims(uid, claims);
   return claims;
@@ -723,6 +866,70 @@ export const setUserPermissionOverrides = onCall(async (request) => {
     (Object.keys(clean).length === 0 ?
       "بلا استثناءات (يتبع دوره)" :
       Object.entries(clean).map(([k, v]) => `${k}=${v ? "ممنوحة" : "ممنوعة"}`).join("، ")),
+  );
+
+  return {ok: true, claims};
+});
+
+/**
+ * يمنح مستخدماً بعينه صلاحيةً مقيَّدة بنطاق، أو يسحبها منه.
+ *
+ * وهاتان الصلاحيتان (`mpr` الإنشاء المباشر، و`apr` اعتماد طلبات إضافة
+ * المشاريع) لا تُمنحان من شاشة «صلاحيات الأدوار» ولا يرثهما دور — بل من هنا
+ * وحدها، لفرد، بنطاق. و`apr` منهما تفتح بوابةً كانت محصورة بمسؤول النظام
+ * بقرار صريح منه، فيُسجَّل كل منح وسحب في سجل التدقيق باسم المانح والنطاق.
+ *
+ * ونطاق فارغ = سحب: لا يُكتب علَمٌ بلا نطاق أبداً.
+ */
+export const setScopedGrant = onCall(async (request) => {
+  const auth = requireAdmin(request);
+  const {uid, key, all, departmentIds, own} = (request.data ?? {}) as {
+    uid?: string; key?: string; all?: boolean; departmentIds?: unknown; own?: boolean;
+  };
+  if (!uid) throw new HttpsError("invalid-argument", "الرجاء تحديد المستخدم");
+  if (!key || !SCOPED_PERM_KEYS.includes(key)) {
+    throw new HttpsError("invalid-argument", "هذه الصلاحية لا تُمنح بنطاق");
+  }
+
+  const userRef = db().collection("users").doc(uid);
+  const userDoc = await userRef.get();
+  if (!userDoc.exists) throw new HttpsError("not-found", "المستخدم غير موجود");
+  const user = userDoc.data()!;
+
+  const ids = Array.isArray(departmentIds) ? departmentIds.map((d) => String(d)).filter(Boolean) : [];
+  // الإدارات تُتحقَّق من وجودها: نطاقٌ يشير إلى إدارة محذوفة يبدو منحاً وهو
+  // لا يسري على شيء، ولا شيء يخبر مسؤول النظام بذلك.
+  for (const id of ids) {
+    const dept = await db().collection("departments").doc(id).get();
+    if (!dept.exists) throw new HttpsError("invalid-argument", `إدارة غير موجودة: ${id}`);
+  }
+  if (own === true && !user.departmentId) {
+    throw new HttpsError("failed-precondition", "لا توجد إدارة مرتبطة بهذا الحساب لتكون نطاقاً له");
+  }
+
+  const grants = {...(user.scopedGrants ?? {})} as Record<string, unknown>;
+  let summary: string;
+  if (all === true) {
+    grants[key] = {all: true};
+    summary = "كل الإدارات";
+  } else if (own === true) {
+    grants[key] = {all: false, own: true};
+    summary = "إدارته وحدها";
+  } else if (ids.length > 0) {
+    grants[key] = {all: false, departmentIds: ids};
+    summary = `${ids.length} إدارة`;
+  } else {
+    delete grants[key];
+    summary = "سُحبت";
+  }
+
+  await userRef.update({scopedGrants: grants});
+  const claims = await restampClaims(uid);
+
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "منح صلاحية بنطاق",
+    `الصلاحية "${key}" للمستخدم "${user.name ?? uid}": ${summary}`,
   );
 
   return {ok: true, claims};

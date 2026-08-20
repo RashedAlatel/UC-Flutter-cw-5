@@ -122,14 +122,32 @@ class _UserPermissionsDialogState extends State<UserPermissionsDialog> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Text(
-                  'تسجيل الأعضاء وإضافة المشاريع وتعديل المواعيد النهائية لا تُفوَّض لأحد، '
-                  'وتبقى لمسؤول النظام وحده.',
+                  'تسجيل الأعضاء وتعديل المواعيد النهائية لا تُفوَّض لأحد وتبقى لمسؤول '
+                  'النظام وحده. أما إضافة المشاريع فتُفوَّض من القسم أدناه بنطاق محدَّد، '
+                  'ويمكن سحبها متى شئت.',
                   style: TextStyle(fontSize: 11.5, height: 1.7, color: AppColors.textPrimary),
                 ),
               ),
               const SizedBox(height: 6),
+              if (!admin) ...[
+                const Divider(height: 26),
+                const Text('صلاحيات بنطاق إدارات',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+                const SizedBox(height: 2),
+                const Text(
+                  'لا يرثها دور ولا تُضبط من «صلاحيات الأدوار» — تُمنح لهذا الحساب وحده، '
+                  'وتسري في الإدارات التي تختارها فقط.',
+                  style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.6),
+                ),
+                for (final p in RolePermission.scoped)
+                  _ScopedGrantEditor(
+                    permission: p,
+                    user: widget.user,
+                    enabled: !_busy,
+                  ),
+              ],
               if (!admin)
-                for (final p in RolePermission.values) ...[
+                for (final p in RolePermission.roleAssignable) ...[
                   const Divider(height: 22),
                   Text(p.label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
                   const SizedBox(height: 2),
@@ -169,6 +187,111 @@ class _UserPermissionsDialogState extends State<UserPermissionsDialog> {
                 : const Text('حفظ'),
           ),
       ],
+    );
+  }
+}
+
+/// محرّر منحة صلاحية بنطاق إدارات.
+///
+/// النطاق ليس تفصيلاً تجميلياً: مفتاحٌ بلا نطاق لا يسري على شيء، ومنحةٌ
+/// بنطاق «كل الإدارات» تفتح المنصة كلها. فيُعرض الاختيار صريحاً بثلاث
+/// حالات لا يخفى فرقها.
+class _ScopedGrantEditor extends StatefulWidget {
+  final RolePermission permission;
+  final AppUser user;
+  final bool enabled;
+
+  const _ScopedGrantEditor({required this.permission, required this.user, required this.enabled});
+
+  @override
+  State<_ScopedGrantEditor> createState() => _ScopedGrantEditorState();
+}
+
+class _ScopedGrantEditorState extends State<_ScopedGrantEditor> {
+  late GrantScope _scope = widget.user.scopeOf(widget.permission);
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _save(GrantScope next) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final error = await context.read<AppStore>().setScopedGrant(widget.user.id, widget.permission, next);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = error;
+      if (error == null) _scope = next;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final departments = store.departments;
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.permission.label,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+          Text(widget.permission.description,
+              style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.6)),
+          const SizedBox(height: 8),
+          SegmentedButton<int>(
+            showSelectedIcon: false,
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+            segments: const [
+              ButtonSegment(value: 0, label: Text('مغلقة')),
+              ButtonSegment(value: 1, label: Text('إدارات محدَّدة')),
+              ButtonSegment(value: 2, label: Text('كل الإدارات')),
+            ],
+            selected: {_scope.isEmpty ? 0 : (_scope.allDepartments ? 2 : 1)},
+            onSelectionChanged: !widget.enabled || _busy
+                ? null
+                : (s) {
+                    final choice = s.first;
+                    if (choice == 0) {
+                      _save(GrantScope.none);
+                      return;
+                    }
+                    if (choice == 2) {
+                      _save(GrantScope.all);
+                      return;
+                    }
+                    // «إدارات محدَّدة» بلا اختيار بعدُ: تُعرض المربعات ولا
+                    // يُحفظ شيء حتى تُختار إدارة — فلا تُكتب منحة لا تسري.
+                    setState(() => _scope = const GrantScope(departmentIds: []));
+                  },
+          ),
+          if (!_scope.allDepartments && !(_scope.isEmpty && _scope.departmentIds.isEmpty)) ...[
+            const SizedBox(height: 6),
+            ...departments.map((d) => CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  value: _scope.departmentIds.contains(d.id),
+                  title: Text(d.name, style: const TextStyle(fontSize: 12.5)),
+                  onChanged: !widget.enabled || _busy
+                      ? null
+                      : (v) {
+                          final next = List<String>.from(_scope.departmentIds);
+                          if (v == true) {
+                            next.add(d.id);
+                          } else {
+                            next.remove(d.id);
+                          }
+                          _save(GrantScope(departmentIds: next));
+                        },
+                )),
+          ],
+          if (_busy) const LinearProgressIndicator(minHeight: 2),
+          if (_error != null)
+            Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 11.5)),
+        ],
+      ),
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'enums.dart';
+import 'role_permissions.dart';
 
 class AppUser {
   final String id; // Firebase Auth UID
@@ -30,9 +31,20 @@ class AppUser {
   /// مفتاح كل صلاحية هو `RolePermission.key`.
   ///
   /// لا يكتبها إلا مسؤول النظام عبر دالة سحابية تعيد ختم بطاقة الدخول —
-  /// فالخادم يحتكم إلى البطاقة لا إلى هذا السجل. وهي **لا تشمل** بوابات
-  /// الاعتماد الثلاث: تلك ليست في `RolePermission` أصلاً ولن تكون.
+  /// فالخادم يحتكم إلى البطاقة لا إلى هذا السجل.
   final Map<String, bool> permissionOverrides;
+
+  /// الصلاحيات الممنوحة لهذا الفرد **مع نطاق الإدارات** التي تسري فيه —
+  /// مفتاح `RolePermission.key` ← [GrantScope].
+  ///
+  /// وهي المكان الوحيد الذي تُمنح منه `mpr` و`apr`: لا يرثهما دور، ولا
+  /// تُضبطان من شاشة «صلاحيات الأدوار». ولا يكتب هذا الحقل إلا مسؤول النظام
+  /// عبر دالة سحابية تعيد ختم البطاقة — فالقواعد تحتكم إلى البطاقة وحدها.
+  final Map<String, GrantScope> scopedGrants;
+
+  /// نطاق صلاحية ممنوحة لهذا المستخدم، أو نطاق فارغ إن لم تُمنح.
+  GrantScope scopeOf(RolePermission permission) =>
+      scopedGrants[permission.key] ?? GrantScope.none;
 
   final UserStatus status;
   final DateTime createdAt;
@@ -49,6 +61,7 @@ class AppUser {
     this.sectionId,
     this.emailVerificationExempt = false,
     this.permissionOverrides = const {},
+    this.scopedGrants = const {},
     required this.status,
     required this.createdAt,
   });
@@ -66,6 +79,7 @@ class AppUser {
     String? sectionId,
     bool? emailVerificationExempt,
     Map<String, bool>? permissionOverrides,
+    Map<String, GrantScope>? scopedGrants,
     UserStatus? status,
     bool clearSection = false,
   }) {
@@ -81,6 +95,7 @@ class AppUser {
       sectionId: clearSection ? null : (sectionId ?? this.sectionId),
       emailVerificationExempt: emailVerificationExempt ?? this.emailVerificationExempt,
       permissionOverrides: permissionOverrides ?? this.permissionOverrides,
+      scopedGrants: scopedGrants ?? this.scopedGrants,
       status: status ?? this.status,
       createdAt: createdAt,
     );
@@ -97,6 +112,7 @@ class AppUser {
         'sectionId': sectionId,
         'emailVerificationExempt': emailVerificationExempt,
         'permissionOverrides': permissionOverrides,
+        'scopedGrants': {for (final e in scopedGrants.entries) e.key: e.value.toMap()},
         'status': status.name,
         'createdAt': Timestamp.fromDate(createdAt),
       };
@@ -114,6 +130,10 @@ class AppUser {
       departmentIds: List<String>.from(json['departmentIds'] as List? ?? const []),
       sectionId: (json['sectionId'] as String?)?.isEmpty ?? true ? null : json['sectionId'] as String?,
       emailVerificationExempt: json['emailVerificationExempt'] == true,
+      scopedGrants: {
+        for (final e in (json['scopedGrants'] as Map? ?? const {}).entries)
+          e.key.toString(): GrantScope.fromMap(e.value),
+      },
       permissionOverrides: {
         for (final e in (json['permissionOverrides'] as Map? ?? const {}).entries)
           if (e.value is bool) e.key.toString(): e.value as bool,

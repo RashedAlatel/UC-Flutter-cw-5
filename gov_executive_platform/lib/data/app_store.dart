@@ -721,7 +721,20 @@ class AppStore extends ChangeNotifier {
         // النظام يمنح صلاحية فتُختم على الخادم، بينما يبقى المستخدم حاملاً
         // بطاقته القديمة حتى ينتهي أجل رمزه (قد يبلغ ساعة). فيرى الصلاحية
         // ممنوحة في الشاشة ولا تعمل، ولا شيء يفسّر له السبب.
-        return expectedPermissionKeys.difference(tokenPermissionKeys(claims)).isNotEmpty;
+        if (expectedPermissionKeys.difference(tokenPermissionKeys(claims)).isNotEmpty) return true;
+        // والنطاقات كذلك: صلاحية مقيَّدة بنطاق قد تكون بصمتها في البطاقة
+        // موجودة والنطاق فيها قديماً (وُسِّع أو ضُيِّق بعد آخر ختم). ومقارنة
+        // العلَم وحده تقول «متّفق» بينما الخادم يقيس بنطاقٍ آخر.
+        //
+        // ومسؤول النظام خارج هذه المقارنة كما هو خارج مقارنة الصلاحيات:
+        // `scopeFor` ترجع له «كل الإدارات» وبطاقته بلا نطاقات أصلاً، فمقارنته
+        // تُنتج اختلافاً وهمياً دائماً ومزامنة لا تنتهي.
+        if (!isAdmin) {
+          for (final p in RolePermission.scoped) {
+            if (scopeFor(p) != tokenScopeFor(claims, p)) return true;
+          }
+        }
+        return false;
       } catch (_) {
         return false;
       }
@@ -1289,6 +1302,12 @@ class AppStore extends ChangeNotifier {
     // دون تغيير دوره ولا صلاحيات زملائه.
     final override = currentUser?.permissionOverrides[permission.key];
     if (override != null) return override;
+    // الصلاحيتان المقيَّدتان بنطاق تُقرآن من منحة الفرد وحدها: لا يرثهما
+    // دور، ولا تُضبطان من شاشة «صلاحيات الأدوار». و«يملكها» هنا تعني أن
+    // لها نطاقاً غير فارغ — أما **أين** تسري فيقرّره `scopeFor`.
+    if (RolePermission.scoped.contains(permission)) {
+      return !(currentUser?.scopeOf(permission) ?? GrantScope.none).isEmpty;
+    }
     // رفع الشكوى أو الاقتراح **حق لكل حساب معتمد**، لا صلاحية تُمنح لدور.
     //
     // ولم يكن جعله كذلك بتعديل الإعداد المبدئي كافياً: مستند
@@ -1315,6 +1334,9 @@ class AppStore extends ChangeNotifier {
         case RolePermission.sendNotifications:
         case RolePermission.submitFeedback:
         case RolePermission.manageFeedback:
+        // والمقيَّدتان بنطاق لا تُمنحان لدور إطلاقاً — لا أساسي ولا مخصص.
+        case RolePermission.manageProjects:
+        case RolePermission.approveProjectRequests:
           // صلاحيات لا مقابل لها في مستند الدور المخصص؛ تُمنح لحامله
           // بالاستثناء الفردي أعلاه إن أراد مسؤول النظام.
           return false;
@@ -1339,6 +1361,27 @@ class AppStore extends ChangeNotifier {
     } on FirebaseFunctionsException catch (e) {
       return (updated: 0, error: e.message ?? 'تعذر تطبيق الصلاحيات');
     }
+  }
+
+  /// نطاق صلاحية مقيَّدة بنطاق للمستخدم الحالي.
+  ///
+  /// مسؤول النظام يشمل كل الإدارات دائماً — صلاحياته عبر `isAdmin()` في
+  /// القواعد لا عبر منحة مكتوبة، فلا يُنتظر منه أن يمنح نفسه.
+  GrantScope scopeFor(RolePermission permission) {
+    if (isAdmin) return GrantScope.all;
+    return currentUser?.scopeOf(permission) ?? GrantScope.none;
+  }
+
+  /// هل يستطيع المستخدم إنشاء مشروع أو عمل في هذه الإدارة مباشرةً؟
+  bool canCreateIn(String? departmentId) {
+    if (isAdmin) return true;
+    return scopeFor(RolePermission.manageProjects).covers(departmentId);
+  }
+
+  /// هل يستطيع البتّ في طلب إضافة مشروع لهذه الإدارة؟
+  bool canApproveProjectIn(String? departmentId) {
+    if (isAdmin) return true;
+    return scopeFor(RolePermission.approveProjectRequests).covers(departmentId);
   }
 
   /// مفاتيح الصلاحيات التي **يُفترض** أن يحملها المستخدم حسب إعدادات دوره.
@@ -1369,6 +1412,14 @@ class AppStore extends ChangeNotifier {
     } catch (_) {
       return const [];
     }
+  }
+
+  /// نطاق صلاحية كما هو مختوم في بطاقة الدخول فعلاً.
+  @visibleForTesting
+  GrantScope tokenScopeFor(Map<String, dynamic> claims, RolePermission permission) {
+    final scopes = claims['scopes'];
+    if (scopes is! Map) return GrantScope.none;
+    return GrantScope.fromClaim(scopes[permission.key]);
   }
 
   /// مفاتيح الصلاحيات الموجودة فعلاً في بطاقة الدخول.
@@ -1417,6 +1468,26 @@ class AppStore extends ChangeNotifier {
   ///
   /// الخريطة الفارغة تعني «يتبع دوره». والدالة الخلفية ترفض المفاتيح المجهولة
   /// بدل إهمالها، فلا تبدو صلاحية ممنوحة وهي لا تعمل.
+  /// يمنح مستخدماً بعينه صلاحيةً بنطاق، أو يسحبها بنطاق فارغ.
+  ///
+  /// الكتابة تمرّ بدالة سحابية لا بمستند المستخدم مباشرةً: القواعد تحتكم
+  /// إلى بطاقة الدخول، والدالة وحدها تستطيع إعادة ختمها.
+  Future<String?> setScopedGrant(String uid, RolePermission permission, GrantScope scope) async {
+    try {
+      await _functions.httpsCallable('setScopedGrant').call({
+        'uid': uid,
+        'key': permission.key,
+        'all': scope.allDepartments,
+        'departmentIds': scope.departmentIds,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر ضبط الصلاحية';
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
   Future<String?> setPermissionOverrides(String uid, Map<String, bool> overrides) async {
     try {
       await _functions.httpsCallable('setUserPermissionOverrides').call({
@@ -1472,9 +1543,24 @@ class AppStore extends ChangeNotifier {
   /// يملك صلاحية "اعتماد القرارات التنفيذية العامة" صراحة.
   /// أما تسجيل عضو / إضافة مشروع / تعديل موعد نهائي فلا يعتمدها إلا مسؤول النظام حصرياً،
   /// ولا يمكن لأي دور مخصص تجاوز هذا القيد مهما كانت صلاحياته.
+  /// من يبتّ في هذا الطلب — مرآةٌ لما تفرضه الدالة الخلفية، والحَكَم هي.
+  ///
+  /// **تسجيل الأعضاء وتعديل المواعيد النهائية** يبقيان لمسؤول النظام وحده.
+  /// أما **إضافة المشاريع** فقد قرّر فتحها بمفتاح بيده: `apr` ضمن نطاق.
+  /// و**إضافة الأعمال** ليست بوابة: يعتمدها مدير الإدارة صاحبتها.
   bool canApprove(ApprovalRequest r) {
-    if (r.type == ApprovalType.decision) return hasPermission(RolePermission.approveGeneralDecisions);
-    return isAdmin;
+    if (isAdmin) return true;
+    switch (r.type) {
+      case ApprovalType.decision:
+        return hasPermission(RolePermission.approveGeneralDecisions);
+      case ApprovalType.projectCreate:
+        return canApproveProjectIn(r.departmentId);
+      case ApprovalType.workCreate:
+        return (isManager && myDepartmentIds.contains(r.departmentId)) || canCreateIn(r.departmentId);
+      case ApprovalType.registration:
+      case ApprovalType.deadlineChange:
+        return false;
+    }
   }
 
   /// إدارة/إدارات مدير الإدارة الحالي (دور departmentManager فقط قد يملك أكثر من إدارة).
@@ -1503,10 +1589,15 @@ class AppStore extends ChangeNotifier {
 
   bool canSubmitDailyUpdate(Project project) => canEditProject(project);
 
+  /// هل يستطيع المستخدم **طلب** إضافة مشروع في هذه الإدارة؟
+  ///
+  /// الطلب ليس منحاً: كل من ينتمي للإدارة يستطيع أن يطلب، والبتّ محكوم
+  /// بـ [canApprove]. وقصرُ الطلب على مدير الإدارة كان يمنع الموظف من
+  /// اقتراح مشروع أصلاً — وهو ما طُلب فتحه.
   bool canRequestNewProject(String departmentId) {
     if (currentUser == null) return false;
-    if (isAdmin) return true;
-    return isManager && myDepartmentIds.contains(departmentId);
+    if (isAdmin || canCreateIn(departmentId)) return true;
+    return myDepartmentIds.contains(departmentId) || currentUser!.departmentId == departmentId;
   }
 
   bool canViewDepartment(String departmentId) {
@@ -1985,6 +2076,51 @@ class AppStore extends ChangeNotifier {
   }
 
   // ------------------------- طلبات الموافقة -------------------------
+
+  /// طلب إضافة **عمل** — يعتمده مدير الإدارة صاحبته، لا مسؤول النظام.
+  ///
+  /// والعمل ليس من بوابات الاعتماد الثلاث، فلا قيد عليه: أقرب من يعرف
+  /// أولويات الإدارة هو من يبتّ فيه.
+  Future<void> submitWorkRequest({
+    required String departmentId,
+    required String title,
+    required String description,
+    required DateTime dueDate,
+    required PriorityLevel priority,
+    String? assigneeUid,
+    String? assigneeName,
+  }) async {
+    final now = DateTime.now();
+    await _db.collection('approvalRequests').add(ApprovalRequest(
+          id: '',
+          type: ApprovalType.workCreate,
+          status: DecisionStatus.pending,
+          title: 'طلب إضافة عمل جديد: $title',
+          description: description,
+          priority: priority,
+          delayImpactDays: 0,
+          departmentId: departmentId,
+          requestedByUid: currentUser?.id ?? '',
+          requestedByName: currentUser?.name ?? '',
+          requestedDate: now,
+          payload: {
+            'title': title,
+            'description': description,
+            'dueDate': dueDate.toIso8601String(),
+            'priority': priority.name,
+            'assigneeUid': assigneeUid,
+            'assigneeName': assigneeName,
+          },
+        ).toMap());
+    await _log('طلب إضافة عمل', 'قدّم ${currentUser?.name} طلب إضافة عمل "$title"');
+  }
+
+  /// هل يستطيع المستخدم **طلب** إضافة عمل في هذه الإدارة؟
+  bool canRequestNewWork(String? departmentId) {
+    if (currentUser == null || departmentId == null) return false;
+    if (isAdmin || canCreateIn(departmentId) || canManageWorks) return true;
+    return myDepartmentIds.contains(departmentId) || currentUser!.departmentId == departmentId;
+  }
 
   Future<void> submitProjectRequest({
     required String departmentId,

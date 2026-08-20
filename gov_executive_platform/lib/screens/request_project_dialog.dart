@@ -62,9 +62,11 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
       _error = null;
     });
     final store = context.read<AppStore>();
-    final isAdmin = store.isAdmin;
     final departmentId = _selectedDepartmentId ?? '';
-    if (isAdmin) {
+    // المعيار هو النطاق لا الدور: مسؤول النظام يُنشئ في أي إدارة، وصاحب
+    // منحة «إنشاء المشاريع» يُنشئ داخل نطاقه، ومن سواهما يقدّم طلباً.
+    final direct = store.canCreateIn(departmentId);
+    if (direct) {
       await store.createProjectDirect(
         departmentId: departmentId,
         sectionId: _sectionId,
@@ -91,15 +93,19 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
     if (!mounted) return;
     Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(isAdmin ? 'تمت إضافة المشروع بنجاح' : 'تم إرسال طلب إضافة المشروع لمسؤول النظام للاعتماد')),
+      SnackBar(
+        content: Text(direct
+            ? 'تمت إضافة المشروع بنجاح'
+            : 'تم إرسال طلب إضافة المشروع للاعتماد'),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final isAdmin = store.isAdmin;
     final departmentId = _selectedDepartmentId;
+    final isAdmin = store.canCreateIn(departmentId);
     final officers = store.users.where((u) => u.role == UserRole.projectOfficer).toList();
     return AlertDialog(
       title: Text(isAdmin ? 'إضافة مشروع جديد' : 'طلب إضافة مشروع جديد'),

@@ -200,6 +200,7 @@ enum ReportPeriod {
 enum ApprovalType {
   registration, // تسجيل عضو جديد
   projectCreate, // إضافة مشروع جديد
+  workCreate, // إضافة عمل تشغيلي جديد
   deadlineChange, // تعديل موعد نهائي لمشروع
   decision; // قرار تنفيذي عام مطلوب من القيادة
 
@@ -209,6 +210,8 @@ enum ApprovalType {
         return 'تسجيل عضو جديد';
       case ApprovalType.projectCreate:
         return 'إضافة مشروع جديد';
+      case ApprovalType.workCreate:
+        return 'إضافة عمل جديد';
       case ApprovalType.deadlineChange:
         return 'تعديل موعد نهائي';
       case ApprovalType.decision:

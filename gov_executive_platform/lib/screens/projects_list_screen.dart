@@ -86,6 +86,26 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
     messenger.showSnackBar(SnackBar(content: Text('طوبقت حالة $count مشروعاً.')));
   }
 
+  /// عنوان الفراغ — **يسمّي النطاق** بدل عبارة عامة.
+  ///
+  /// «لا توجد مشاريع» جوابٌ لا يفرّق بين ثلاث حالات مختلفة تماماً: حسابٌ
+  /// بلا إدارة، وإدارةٌ لا مشاريع فيها، وتصفيةٌ لم تطابق. وذكرُ اسم الإدارة
+  /// يحسم الأمر بنظرة: إن كان الاسم صحيحاً فالإدارة فارغة، وإن كان غيره
+  /// فالحساب مرتبط بإدارة أخرى — وكلاهما يُقرأ من الشاشة بلا سؤال وجواب.
+  String _emptyHeadline(AppStore store) {
+    if (store.canViewAllDepartments) {
+      return store.projects.isEmpty ? 'لا توجد مشاريع مسجّلة بعد' : 'لا توجد مشاريع مطابقة لبحثك';
+    }
+    if (store.myDepartmentIds.isEmpty) return 'لا توجد إدارة مرتبطة بحسابك';
+    if (store.visibleProjects.isNotEmpty) return 'لا توجد مشاريع مطابقة لبحثك';
+    final names = store.myDepartmentIds
+        .map((id) => store.departmentById(id)?.name)
+        .whereType<String>()
+        .toList();
+    if (names.isEmpty) return 'لا توجد مشاريع في نطاقك بعد';
+    return 'إدارتك: ${names.join('، ')} — لا مشاريع مسجّلة فيها بعد';
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
@@ -142,11 +162,18 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                 ),
                 const SizedBox(width: 10),
               ],
-              if (store.isAdmin)
+              // الزر لكل من ينتمي لإدارة، لا لمسؤول النظام وحده: الموظف
+              // **يطلب** والطلب ليس منحاً، والبتّ محكوم بـ canApprove.
+              // ومن مُنِح «إنشاء المشاريع» في نطاق هذه الإدارة يُنشئ مباشرةً.
+              if (store.canRequestNewProject(store.currentUser?.departmentId ?? ''))
                 ElevatedButton.icon(
                   onPressed: () => showDialog(context: context, builder: (_) => const RequestProjectDialog()),
                   icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('إضافة مشروع'),
+                  label: Text(
+                    store.canCreateIn(store.currentUser?.departmentId) || store.isAdmin
+                        ? 'إضافة مشروع'
+                        : 'طلب إضافة مشروع',
+                  ),
                 ),
             ],
           ),
@@ -231,11 +258,8 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                     Icon(Icons.folder_off_outlined, size: 34, color: AppColors.textSecondary.withValues(alpha: 0.5)),
                     const SizedBox(height: 10),
                     Text(
-                      store.myDepartmentIds.isEmpty && !store.canViewAllDepartments
-                          ? 'لا توجد إدارة مرتبطة بحسابك'
-                          : (store.visibleProjects.isEmpty
-                              ? 'لا توجد مشاريع في نطاقك بعد'
-                              : 'لا توجد مشاريع مطابقة لبحثك'),
+                      _emptyHeadline(store),
+                      textAlign: TextAlign.center,
                       style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700),
                     ),
                     if (store.myDepartmentIds.isEmpty && !store.canViewAllDepartments) ...[

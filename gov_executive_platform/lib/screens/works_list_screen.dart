@@ -75,11 +75,17 @@ class _WorksListScreenState extends State<WorksListScreen> {
                   ],
                 ),
               ),
-              if (store.canManageWorks)
+              // الزر لكل من ينتمي لإدارة: من يملك الإنشاء المباشر يُنشئ،
+              // ومن سواه يقدّم طلباً يعتمده مدير إدارته.
+              if (store.canManageWorks || store.canRequestNewWork(store.currentUser?.departmentId))
                 ElevatedButton.icon(
                   onPressed: () => showDialog(context: context, builder: (_) => const WorkFormDialog()),
                   icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('إضافة عمل'),
+                  label: Text(
+                    store.canManageWorks || store.canCreateIn(store.currentUser?.departmentId)
+                        ? 'إضافة عمل'
+                        : 'طلب إضافة عمل',
+                  ),
                 ),
             ],
           ),
@@ -417,11 +423,25 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
       _busy = true;
       _error = null;
     });
+    var requested = false;
     try {
       final assignee = store.users.where((u) => u.id == _assigneeUid);
       final assigneeName = assignee.isEmpty ? (widget.editing?.assigneeName ?? '') : assignee.first.name;
 
-      if (widget.editing == null) {
+      // من لا يملك الإنشاء المباشر في هذه الإدارة يقدّم **طلباً** يعتمده
+      // مدير الإدارة — نفس النموذج، ومخرجٌ مختلف.
+      if (widget.editing == null && !store.canCreateIn(_departmentId) && !store.canManageWorks) {
+        requested = true;
+        await store.submitWorkRequest(
+          departmentId: _departmentId,
+          title: _titleCtrl.text.trim(),
+          description: _descCtrl.text.trim(),
+          dueDate: _dueDate,
+          priority: _priority,
+          assigneeUid: _assigneeUid.isEmpty ? null : _assigneeUid,
+          assigneeName: assigneeName,
+        );
+      } else if (widget.editing == null) {
         await store.addWork(WorkItem(
           id: '',
           title: _titleCtrl.text.trim(),
@@ -454,6 +474,11 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
       }
       if (!mounted) return;
       Navigator.pop(context);
+      if (requested) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم إرسال طلب إضافة العمل لمدير الإدارة للاعتماد')),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {

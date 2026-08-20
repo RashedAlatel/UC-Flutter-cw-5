@@ -28,6 +28,32 @@ service cloud.firestore {
              && request.auth.token.perms[key] == true;
     }
     function canViewAll() { return isAdmin() || isExecutive() || perm('vad'); }
+
+    // ــــ الصلاحيات المقيَّدة بنطاق ــــ
+    //
+    // `mpr` (إنشاء المشاريع والأعمال وإسناد المستخدمين) و`apr` (اعتماد طلبات
+    // إضافة المشاريع) لا تُمنحان لدور ولا يرثهما أحد: تُختمان على بطاقة فرد
+    // بعينه ومعهما نطاق الإدارات التي تسريان فيه.
+    //
+    // و`apr` تفتح بوابةً كانت محصورة بمسؤول النظام (اعتماد إضافة المشاريع)
+    // بقرار صريح منه. أما **تسجيل الأعضاء** و**تعديل المواعيد النهائية**
+    // فتبقيان محصورتين به وحده ولا مفتاح لهما هنا.
+    //
+    // ونطاق غائب ليس «الكل»: علَمٌ بلا نطاق لا يمنح شيئاً — وهذا هو الفرق
+    // الذي لو انعكس لصار كل منحٍ منقوصٍ منحاً شاملاً.
+    // `get` بقيمة افتراضية لا الوصول المباشر: البطاقة قد لا تحمل `scopes`
+    // إطلاقاً (كل البطاقات المختومة قبل هذه الميزة كذلك)، والوصول المباشر
+    // إلى مفتاح غائب **يُخطئ** فيُرفض الطلب. والرفض هنا صحيح بالمصادفة لا
+    // بالقصد: حراسةٌ قائمة على خطأٍ ضمني لا يمكن اختبارها ولا الوثوق ببقائها.
+    function scopeOf(key) {
+      return request.auth.token.get('scopes', {}).get(key, null);
+    }
+    function inScope(key, deptId) {
+      return perm(key)
+             && deptId != null
+             && scopeOf(key) != null
+             && (scopeOf(key) == '*' || deptId in scopeOf(key));
+    }
     function myDept() { return request.auth.token.departmentId; }
     function isMyDept(deptId) { return isApproved() && deptId != null && myDept() == deptId; }
     function isDeptManager() { return isApproved() && role() == 'departmentManager'; }
@@ -163,10 +189,10 @@ service cloud.firestore {
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
                                       || isMyDeptAny(deptOf(resource.data)));
-      // مسؤول النظام يملك صلاحية إضافة مشروع مباشرة (موافقته الذاتية كافية).
-      // أي دور آخر لا يُنشئ مشروعاً مباشرة؛ الإنشاء عندها يتم فقط عبر Cloud
-      // Function بعد اعتماد طلب "إضافة مشروع" من مسؤول النظام.
-      allow create: if isAdmin();
+      // مسؤول النظام يُنشئ مباشرةً، ومعه من مُنِح `mpr` **داخل نطاقه**.
+      // ومن لا يملكها يمرّ بطلب اعتماد كما كان — وهذا هو الوضع الافتراضي
+      // لكل المستخدمين، فالمنحة لا يرثها دور ولا تُفتح إلا بقرار فردي.
+      allow create: if isAdmin() || inScope('mpr', deptOf(request.resource.data));
       // يمكن لمدير الإدارة أو مدير المشروع المُسنَد إليه تحديث حقول التقدم والحالة
       // فقط، دون المساس بالموعد النهائي أو نقل المشروع لإدارة أخرى أو تغيير
       // مديره - أي تغيير في الموعد النهائي يمر عبر طلب موافقة منفصل، وتغيير
@@ -176,8 +202,9 @@ service cloud.firestore {
                         && !request.resource.data.diff(resource.data).affectedKeys()
                               .hasAny(['dueDate', 'departmentId', 'createdByUid',
                                        'managerUid', 'managerUids', 'executorUids']))
-                    // مدير الإدارة يعدّل فريق مشاريع إدارته كاملاً.
-                    || (canEditDept(deptOf(resource.data))
+                    // مدير الإدارة يعدّل فريق مشاريع إدارته كاملاً، ومعه
+                    // صاحب `mpr` داخل نطاقه — وهو شقّ «إسناد المستخدمين».
+                    || ((canEditDept(deptOf(resource.data)) || inScope('mpr', deptOf(resource.data)))
                         && onlyMembershipKeys()
                         && legacyManagerConsistent())
                     // والموظف يسجّل **نفسه فقط** — راجع selfOnlyDelta.
@@ -268,7 +295,8 @@ service cloud.firestore {
       // الإنشاء والإسناد لمن يملك صلاحية "إدارة الأعمال" ضمن نطاقه.
       allow create: if isAdmin()
                     || (perm('mw')
-                        && (canViewAll() || isMyDeptAny(deptOf(request.resource.data))));
+                        && (canViewAll() || isMyDeptAny(deptOf(request.resource.data))))
+                    || inScope('mpr', deptOf(request.resource.data));
       // الموظف المُسنَد إليه يحدّث تقدّم عمله وحالته فقط، دون إعادة إسناده
       // لنفسه أو نقله لإدارة أخرى.
       allow update: if isAdmin()

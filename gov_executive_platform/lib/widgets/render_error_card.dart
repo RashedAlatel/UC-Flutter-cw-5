@@ -111,7 +111,7 @@ class RenderErrorCard extends StatelessWidget {
                 ),
               const SizedBox(height: 18),
               Text(
-                'إصدار $kBuildStamp',
+                'إصدار $buildLabel',
                 style: const TextStyle(
                   fontFamily: AppTheme.fontFamily,
                   color: Color(0x73FFFFFF),

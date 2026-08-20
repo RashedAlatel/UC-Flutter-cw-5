@@ -27,6 +27,14 @@ enum RolePermission {
 
   const RolePermission(this.key, this.label, this.description);
 
+  /// حقوق أساسية لكل حساب معتمد: لا تُمنح لدور ولا تظهر في شبكة
+  /// «صلاحيات الأدوار»، ولا تُسحب إلا من فرد بعينه عبر استثناءات المستخدم.
+  static const Set<RolePermission> baseline = {RolePermission.submitFeedback};
+
+  /// ما يضبطه مسؤول النظام لكل دور — أي ما ليس حقاً أساسياً.
+  static List<RolePermission> get roleAssignable =>
+      RolePermission.values.where((p) => !baseline.contains(p)).toList();
+
   static RolePermission? fromKey(String key) {
     for (final p in RolePermission.values) {
       if (p.key == key) return p;

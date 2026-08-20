@@ -118,7 +118,7 @@ class _PreparingScreenState extends State<PreparingScreen> {
                 // بصمة البناء تظهر دائماً: هي ما يحسم أي نسخة منشورة فعلاً حين
                 // يتعذّر على المستخدم الوصول إلى الشريط الجانبي.
                 Text(
-                  'إصدار $kBuildStamp',
+                  'إصدار $buildLabel',
                   style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 10.5),
                 ),
               ],

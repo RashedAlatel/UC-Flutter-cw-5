@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:web/web.dart' as web;
 
 import '../build_stamp.dart';
-export '../build_stamp.dart' show kBuildStamp;
+export '../build_stamp.dart' show kBuildStamp, kBuildCommit, buildLabel;
 
 import '../theme/app_theme.dart';
 

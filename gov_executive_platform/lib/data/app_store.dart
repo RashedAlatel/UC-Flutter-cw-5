@@ -1289,6 +1289,13 @@ class AppStore extends ChangeNotifier {
     // دون تغيير دوره ولا صلاحيات زملائه.
     final override = currentUser?.permissionOverrides[permission.key];
     if (override != null) return override;
+    // رفع الشكوى أو الاقتراح **حق لكل حساب معتمد**، لا صلاحية تُمنح لدور.
+    //
+    // ولم يكن جعله كذلك بتعديل الإعداد المبدئي كافياً: مستند
+    // `settings/rolePermissions` مكتوبٌ فعلاً في المنصة الحيّة، والمخزَّن
+    // يُقدَّم على أي إعداد في الشيفرة — فكان التبويب يبقى مخفياً عن الجميع.
+    // ومن أراد مسؤول النظام حرمانه يُسحب منه فرداً بالاستثناء أعلاه.
+    if (permission == RolePermission.submitFeedback) return true;
     if (role == UserRole.custom) {
       final r = myCustomRole;
       if (r == null) return false;

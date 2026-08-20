@@ -77,7 +77,10 @@ void main() {
         });
       expect(store.canManageFeedback, isTrue);
       expect(store.hasPermission(RolePermission.selfAssignProjects), isTrue);
-      expect(store.canSubmitFeedback, isFalse);
+      // ورفع الشكوى حق أساسي لا يتأثّر باستثناء صلاحية أخرى.
+      expect(store.canSubmitFeedback, isTrue);
+      expect(store.hasPermission(RolePermission.manageWorks), isFalse,
+          reason: 'ما لم يُمنح ولم يكن حقاً أساسياً يبقى ممنوعاً');
     });
 
     // البوابة التي لا تُمسّ: مسؤول النظام صلاحياته كاملة، ولا استثناء يقيّده.

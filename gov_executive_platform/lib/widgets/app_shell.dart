@@ -434,7 +434,7 @@ class _Sidebar extends StatelessWidget {
                   const SizedBox(height: 8),
                   // بصمة البناء: تجعل سؤال "هل النسخة محدّثة؟" قابلاً للإجابة
                   // بنظرة واحدة بدل التخمين.
-                  Text('إصدار $kBuildStamp',
+                  Text('إصدار $buildLabel',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white.withValues(alpha: 0.40), fontSize: 9.5)),
                   const SizedBox(height: 8),

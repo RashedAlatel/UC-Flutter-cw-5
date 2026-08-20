@@ -227,7 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: 6),
           Center(
             child: Text(
-              'إصدار $kBuildStamp',
+              'إصدار $buildLabel',
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 10.5),
             ),
           ),

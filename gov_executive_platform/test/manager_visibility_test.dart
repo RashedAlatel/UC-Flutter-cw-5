@@ -137,7 +137,8 @@ void main() {
         ..rolePermissions = const RolePermissionsConfig({
           'departmentManager': {'mw', 'sap'},
         });
-      expect(store.expectedPermissionKeys, {'mw', 'sap'});
+      // و`sfb` حق أساسي لكل حساب معتمد، فهو في المتوقَّع دائماً بلا منح.
+      expect(store.expectedPermissionKeys, {'mw', 'sap', 'sfb'});
     });
 
     test('بطاقة تنقصها صلاحية ممنوحة تُكشف', () {
@@ -147,9 +148,9 @@ void main() {
           'departmentManager': {'mw', 'sap'},
         });
       final inToken = store.tokenPermissionKeys({
-        'perms': {'mw': true, 'sap': false},
+        'perms': {'mw': true, 'sap': false, 'sfb': true},
       });
-      expect(inToken, {'mw'});
+      expect(inToken, {'mw', 'sfb'});
       expect(store.expectedPermissionKeys.difference(inToken), {'sap'},
           reason: 'الصلاحية ممنوحة في الإعدادات وغائبة عن البطاقة — وهذا ما يجب أن يُكشف');
     });

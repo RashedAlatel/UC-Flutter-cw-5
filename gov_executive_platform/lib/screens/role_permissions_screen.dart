@@ -121,7 +121,19 @@ class _RolePermissionsScreenState extends State<RolePermissionsScreen> {
                           ],
                         ),
                         const Divider(height: 22),
-                        ...RolePermission.values.map((p) => SwitchListTile(
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(
+                            '${RolePermission.baseline.map((p) => '«${p.label}»').join(' و')} '
+                            'حقٌّ لكل حساب معتمد لا يحتاج منحاً. ولسحبه من موظف بعينه '
+                            'افتح «المستخدمون» ← صلاحيات المستخدم.',
+                            style: const TextStyle(fontSize: 11, height: 1.7, color: AppColors.textSecondary),
+                          ),
+                        ),
+                        // الحقوق الأساسية خارج الشبكة: مفتاحٌ لا أثر له يخدع
+                        // أكثر مما يفيد — يظنّه مسؤول النظام هو ما يمنع
+                        // الميزة، فيقلّبه بلا نتيجة.
+                        ...RolePermission.roleAssignable.map((p) => SwitchListTile(
                               contentPadding: EdgeInsets.zero,
                               dense: true,
                               value: config.has(role, p),

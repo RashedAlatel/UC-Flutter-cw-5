@@ -64,7 +64,8 @@ fi
 
 flutter build web --release \
   --no-web-resources-cdn \
-  --dart-define=BUILD_STAMP="$STAMP"
+  --dart-define=BUILD_STAMP="$STAMP" \
+  --dart-define=BUILD_COMMIT="$COMMIT"
 
 # تُقرأ من المتصفح بمُبطِّل تخزين لاكتشاف توفّر إصدار أحدث، ولمعرفة أي شيفرة
 # منشورة فعلاً — الالتزام هو الحقيقة، والتاريخ مجرّد وقت الضغط على الزر.

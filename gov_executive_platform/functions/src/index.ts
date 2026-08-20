@@ -96,9 +96,23 @@ const DEFAULT_ROLE_PERMS: Record<string, string[]> = {
   employee: [],
 };
 
-function emptyPerms(): Record<string, boolean> {
+/**
+ * صلاحيات **حق أساسي** لكل حساب معتمد، لا تُمنح لدور ولا تُطلب.
+ *
+ * `sfb` (رفع شكوى أو اقتراح) منها: لا معنى لأن يُحرَم موظف من إيصال صوته
+ * إلى مسؤول النظام حتى يُؤذن له. ولم يكن جعلها كذلك بتعديل
+ * DEFAULT_ROLE_PERMS كافياً، لأن مستند settings/rolePermissions مكتوبٌ فعلاً
+ * في المنصة الحيّة والمخزَّن يُقدَّم على المبدئي — فتبقى مطفأة إلى الأبد.
+ *
+ * ومسؤول النظام يسحبها من فرد بعينه عبر permissionOverrides، فتُطفأ في
+ * applyOverrides بعد أن تُشعَل هنا.
+ */
+const BASELINE_PERM_KEYS: readonly string[] = ["sfb"];
+
+/** أعلام الصلاحيات في حالتها الأساسية: كلها مطفأة إلا الحقوق الأساسية. */
+function basePerms(): Record<string, boolean> {
   const perms: Record<string, boolean> = {};
-  for (const key of CUSTOM_ROLE_PERM_KEYS) perms[key] = false;
+  for (const key of CUSTOM_ROLE_PERM_KEYS) perms[key] = BASELINE_PERM_KEYS.includes(key);
   return perms;
 }
 
@@ -142,7 +156,7 @@ async function loadCustomRolePerms(role: string, customRoleId?: string | null): 
     const doc = await db().collection("roles").doc(customRoleId).get();
     if (!doc.exists) throw new HttpsError("not-found", "الدور المخصص غير موجود");
     const data = doc.data()!;
-    const perms = emptyPerms();
+    const perms = basePerms();
     perms.vad = data.viewAllDepartments === true;
     perms.mr = data.manageReports === true;
     perms.md = data.manageDashboard === true;
@@ -156,7 +170,7 @@ async function loadCustomRolePerms(role: string, customRoleId?: string | null): 
   const doc = await db().collection("settings").doc("rolePermissions").get();
   const data = doc.exists ? doc.data() ?? {} : {};
   const granted: string[] = Array.isArray(data[role]) ? data[role] : DEFAULT_ROLE_PERMS[role] ?? [];
-  const perms = emptyPerms();
+  const perms = basePerms();
   for (const key of granted) {
     if (key in perms) perms[key] = true;
   }

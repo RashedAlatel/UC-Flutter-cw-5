@@ -13,6 +13,18 @@ class AppUser {
   // للاستخدام مع مدير الإدارة تحديداً: إدارة واحدة أو أكثر يديرها هذا الحساب.
   // بقية الأدوار (ضابط/مدير مشروع، دور مخصص) تستمر باستخدام departmentId المفرد أعلاه.
   final List<String> departmentIds;
+
+  /// القسم (أو القسم الفرعي) الذي ينتمي إليه الموظف داخل إدارته — راجع
+  /// [DepartmentSection]. يختاره الموظف عند التسجيل ويعتمده مسؤول النظام،
+  /// و null يعني موظفاً تحت الإدارة مباشرةً بلا قسم.
+  final String? sectionId;
+
+  /// استثناء من شرط تأكيد البريد الوزاري.
+  ///
+  /// لا يكتبه إلا مسؤول النظام (قاعدة `/users/{uid}` تمنع المستخدم من تعديل
+  /// سجلّه)، ويُستعمل لمن لا يملك بريداً وزارياً عاملاً أو لحساب خدمة.
+  final bool emailVerificationExempt;
+
   final UserStatus status;
   final DateTime createdAt;
 
@@ -25,6 +37,8 @@ class AppUser {
     this.customRoleId,
     this.departmentId,
     this.departmentIds = const [],
+    this.sectionId,
+    this.emailVerificationExempt = false,
     required this.status,
     required this.createdAt,
   });
@@ -39,7 +53,10 @@ class AppUser {
     String? customRoleId,
     String? departmentId,
     List<String>? departmentIds,
+    String? sectionId,
+    bool? emailVerificationExempt,
     UserStatus? status,
+    bool clearSection = false,
   }) {
     return AppUser(
       id: id,
@@ -50,6 +67,8 @@ class AppUser {
       customRoleId: customRoleId ?? this.customRoleId,
       departmentId: departmentId ?? this.departmentId,
       departmentIds: departmentIds ?? this.departmentIds,
+      sectionId: clearSection ? null : (sectionId ?? this.sectionId),
+      emailVerificationExempt: emailVerificationExempt ?? this.emailVerificationExempt,
       status: status ?? this.status,
       createdAt: createdAt,
     );
@@ -63,6 +82,8 @@ class AppUser {
         'customRoleId': customRoleId,
         'departmentId': departmentId,
         'departmentIds': departmentIds,
+        'sectionId': sectionId,
+        'emailVerificationExempt': emailVerificationExempt,
         'status': status.name,
         'createdAt': Timestamp.fromDate(createdAt),
       };
@@ -78,6 +99,8 @@ class AppUser {
       customRoleId: json['customRoleId'] as String?,
       departmentId: json['departmentId'] as String?,
       departmentIds: List<String>.from(json['departmentIds'] as List? ?? const []),
+      sectionId: (json['sectionId'] as String?)?.isEmpty ?? true ? null : json['sectionId'] as String?,
+      emailVerificationExempt: json['emailVerificationExempt'] == true,
       status: UserStatus.fromName(json['status'] as String? ?? UserStatus.pending.name),
       createdAt: (json['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );

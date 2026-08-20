@@ -204,11 +204,55 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       const uid = payload.uid as string;
       const role = payload.requestedRole as string;
       const departmentId = (payload.requestedDepartmentId as string | null) ?? null;
+      const sectionId = (payload.requestedSectionId as string | null) ?? null;
+
+      // شرط البريد الوزاري المؤكَّد يُفحص **هنا** لا في المتصفح: هذه هي
+      // بوابة الاعتماد الفعلية، وأي فحص في الواجهة يمكن تجاوزه. ومسؤول
+      // النظام يستثني من يشاء بحقل على سجل المستخدم لا يكتبه غيره.
+      const policySnap = await db().collection("settings").doc("registration").get();
+      const policy = policySnap.exists ? policySnap.data() ?? {} : {};
+      const requireVerification = policy.requireEmailVerification !== false;
+      if (requireVerification) {
+        const userSnap = await db().collection("users").doc(uid).get();
+        const exempt = userSnap.exists && userSnap.data()?.emailVerificationExempt === true;
+        if (!exempt) {
+          const account = await admin.auth().getUser(uid);
+          if (!account.emailVerified) {
+            throw new HttpsError(
+              "failed-precondition",
+              "لم يؤكّد هذا الموظف بريده الوزاري بعد. اطلب منه فتح رسالة التأكيد، " +
+              "أو امنحه استثناءً من شاشة إدارة المستخدمين ثم أعد المحاولة.",
+            );
+          }
+        }
+      }
+
+      // النطاق المسموح يُفحص هنا أيضاً: نموذج التسجيل يفحصه لطفاً بالموظف،
+      // لكن الاعتماد لا يجوز أن يعتمد على فحص جرى في متصفحه.
+      const domains: string[] = Array.isArray(policy.allowedEmailDomains) ?
+        policy.allowedEmailDomains.map((d: unknown) => String(d).trim().toLowerCase()) :
+        [];
+      if (domains.length > 0) {
+        const email = String(payload.email ?? "").trim().toLowerCase();
+        const at = email.lastIndexOf("@");
+        const domain = at >= 0 ? email.slice(at + 1) : "";
+        const userSnap = await db().collection("users").doc(uid).get();
+        const exempt = userSnap.exists && userSnap.data()?.emailVerificationExempt === true;
+        if (!exempt && !domains.includes(domain)) {
+          throw new HttpsError(
+            "failed-precondition",
+            `بريد هذا الموظف خارج النطاقات الوزارية المقبولة (${domains.map((d) => "@" + d).join(" أو ")}).`,
+          );
+        }
+      }
       // التسجيل الذاتي يسمح باختيار إدارة واحدة فقط؛ مسؤول النظام يمكنه لاحقاً
       // توسيع إدارات مدير الإدارة عبر setUserRole إن احتاج أكثر من إدارة.
       const departmentIds = role === "departmentManager" && departmentId ? [departmentId] : [];
       await admin.auth().setCustomUserClaims(uid, {role, departmentId, departmentIds, approved: true});
-      await db().collection("users").doc(uid).update({role, departmentId, departmentIds, status: "approved"});
+      // القسم يُحفظ في السجل ولا يدخل بطاقة الدخول: لا قاعدة أمان تحتكم إليه،
+      // وبطاقة الدخول لها حدّ حجم صارم فلا تُثقَل بما لا يُفحص عليها.
+      await db().collection("users").doc(uid)
+        .update({role, departmentId, departmentIds, sectionId, status: "approved"});
       break;
     }
     case "projectCreate": {

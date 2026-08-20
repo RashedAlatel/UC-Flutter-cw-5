@@ -14,6 +14,7 @@ import 'firebase_options.dart';
 import 'models/enums.dart';
 import 'screens/login_screen.dart';
 import 'screens/pending_approval_screen.dart';
+import 'screens/verify_email_screen.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_shell.dart';
 import 'screens/preparing_screen.dart';
@@ -226,6 +227,13 @@ class _RootGateState extends State<_RootGate> {
     if (user == null) {
       signalStage('login');
       return const LoginScreen();
+    }
+    // تأكيد البريد يسبق شاشة الانتظار: طلب لم يُؤكَّد بريده يرفض الخادم
+    // اعتماده، فإظهار «بانتظار الموافقة» له يوهم الموظف أن دوره انتهى بينما
+    // هو لم يبدأ. ولا يُحبس خلفه حساب معتمد أصلاً — الشرط لمن لم يُعتمد بعد.
+    if (user.status != UserStatus.approved && store.needsEmailVerification) {
+      signalStage('verify-email');
+      return const VerifyEmailScreen();
     }
     if (user.status != UserStatus.approved) {
       signalStage('pending');

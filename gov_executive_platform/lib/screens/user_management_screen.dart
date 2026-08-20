@@ -179,6 +179,21 @@ class _UserRowState extends State<_UserRow> {
   bool _busy = false;
   bool _restamping = false;
 
+  Future<void> _toggleExempt() async {
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final next = !widget.user.emailVerificationExempt;
+    final error = await context.read<AppStore>().setEmailVerificationExempt(widget.user, next);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    messenger.showSnackBar(SnackBar(
+      content: Text(error ??
+          (next
+              ? 'استُثني "${widget.user.name}" من شرط تأكيد البريد الوزاري.'
+              : 'عاد شرط تأكيد البريد الوزاري على "${widget.user.name}".')),
+    ));
+  }
+
   Future<void> _restampClaims() async {
     setState(() => _restamping = true);
     final messenger = ScaffoldMessenger.of(context);
@@ -256,6 +271,20 @@ class _UserRowState extends State<_UserRow> {
           // قديمة أو غير مختومة يرى منصة خالية تماماً رغم أن سجلّه سليم. هذا
           // الزر ينسخ السجل إلى البطاقة **دون تغيير دوره أو حالته أو إداراته**،
           // فهو علاج لا صلاحية جديدة.
+          // استثناء تأكيد البريد الوزاري — لمن لا يملك بريداً وزارياً عاملاً.
+          IconButton(
+            icon: Icon(
+              widget.user.emailVerificationExempt
+                  ? Icons.mark_email_read_rounded
+                  : Icons.mark_email_unread_outlined,
+              size: 19,
+              color: widget.user.emailVerificationExempt ? AppColors.success : null,
+            ),
+            tooltip: widget.user.emailVerificationExempt
+                ? 'مستثنى من تأكيد البريد — اضغط لإعادة الشرط'
+                : 'استثناء من شرط تأكيد البريد الوزاري',
+            onPressed: _busy ? null : _toggleExempt,
+          ),
           IconButton(
             icon: _restamping
                 ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))

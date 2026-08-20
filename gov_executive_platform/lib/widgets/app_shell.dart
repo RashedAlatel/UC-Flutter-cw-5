@@ -14,6 +14,7 @@ import '../screens/departments_list_screen.dart';
 import '../screens/project_detail_screen.dart';
 import '../screens/people_tracking_screen.dart';
 import '../screens/projects_list_screen.dart';
+import '../screens/registration_settings_screen.dart';
 import '../screens/reports_screen.dart';
 import '../screens/role_permissions_screen.dart';
 import '../screens/roles_management_screen.dart';
@@ -123,6 +124,11 @@ class _AppShellState extends State<AppShell> {
       entries.add(const _NavEntry(label: 'صلاحيات الأدوار', icon: Icons.key_rounded, page: RolePermissionsScreen()));
     }
     if (store.isAdmin) {
+      entries.add(const _NavEntry(
+        label: 'سياسة التسجيل',
+        icon: Icons.how_to_reg_outlined,
+        page: RegistrationSettingsScreen(),
+      ));
       entries.add(const _NavEntry(label: 'إعدادات المظهر', icon: Icons.palette_outlined, page: AppearanceSettingsScreen()));
     }
     return entries;

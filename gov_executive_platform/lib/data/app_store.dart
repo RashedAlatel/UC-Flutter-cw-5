@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
 import '../models/alert_rules.dart';
+import '../models/registration_policy.dart';
 import '../models/announcement.dart';
 import '../models/app_user.dart';
 import '../models/approval_request.dart';
@@ -73,6 +74,7 @@ class AppStore extends ChangeNotifier {
   List<DashboardWidgetConfig> projectsPageWidgets = [];
   List<PlatformAnnouncement> announcements = [];
   AlertRulesConfig alertRules = const AlertRulesConfig();
+  RegistrationPolicy registrationPolicy = const RegistrationPolicy();
   List<CustomRole> customRoles = [];
 
   StreamSubscription<fb_auth.User?>? _authSub;
@@ -245,6 +247,78 @@ class AppStore extends ChangeNotifier {
   Future<void> saveAlertRules(AlertRulesConfig config) async {
     await _db.collection('settings').doc('alertRules').set(config.toMap());
     await _log('تحديث التنبيهات الذكية', 'قام ${currentUser?.name} بتحديث إعدادات التنبيهات التلقائية');
+  }
+
+  Future<void> saveRegistrationPolicy(RegistrationPolicy policy) async {
+    await _db.collection('settings').doc('registration').set(policy.toMap());
+    await _log('تحديث سياسة التسجيل',
+        'قام ${currentUser?.name} بتحديث نطاقات البريد المقبولة للتسجيل');
+  }
+
+  /// يقرأ سياسة التسجيل **قبل تسجيل الدخول**.
+  ///
+  /// شاشة التسجيل لا مستخدم فيها بعد، فلا اشتراك بيانات ولا `registrationPolicy`
+  /// محمَّلة. وقاعدة `settings` تسمح بالقراءة للجميع، فتُقرأ مباشرةً هنا.
+  Future<RegistrationPolicy> loadRegistrationPolicy() async {
+    try {
+      final doc = await _db.collection('settings').doc('registration').get();
+      return RegistrationPolicy.fromMap(doc.data());
+    } catch (_) {
+      // تعذّرت القراءة: لا نمنع التسجيل بسبب عطل في قراءة إعداد اختياري.
+      return const RegistrationPolicy();
+    }
+  }
+
+  // ------------------------- تأكيد البريد -------------------------
+
+  /// هل أكّد المستخدم الحالي بريده؟ يقرأ حالة الحساب من خادم المصادقة.
+  bool get isEmailVerified => _auth.currentUser?.emailVerified ?? false;
+
+  /// هل يلزم هذا المستخدمَ تأكيدُ بريده قبل عرض طلبه على مسؤول النظام؟
+  ///
+  /// الاستثناء يمنحه مسؤول النظام على سجل المستخدم، ولا يستطيع المستخدم
+  /// منحه لنفسه (قاعدة `/users/{uid}` تمنعه من تعديل سجلّه).
+  bool get needsEmailVerification {
+    if (currentUser?.emailVerificationExempt == true) return false;
+    if (!registrationPolicy.requireEmailVerification) return false;
+    return !isEmailVerified;
+  }
+
+  /// يرسل رسالة تأكيد البريد للمستخدم الحالي.
+  Future<String?> sendEmailVerification() async {
+    try {
+      await _auth.currentUser?.sendEmailVerification();
+      return null;
+    } on fb_auth.FirebaseAuthException catch (e) {
+      // كثرة الطلب أشهر أسباب الفشل، ورسالتها الافتراضية إنجليزية غامضة.
+      if (e.code == 'too-many-requests') {
+        return 'أُرسلت رسائل كثيرة خلال وقت قصير. انتظر دقائق ثم أعد المحاولة.';
+      }
+      return e.message ?? 'تعذّر إرسال رسالة التأكيد';
+    }
+  }
+
+  /// يعيد تحميل حالة الحساب من الخادم بعد أن يضغط المستخدم رابط التأكيد.
+  Future<bool> refreshEmailVerified() async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+    await user.reload();
+    // التوكن يحمل `email_verified`، فيجب تجديده وإلا بقيت القواعد ترى القديم.
+    await user.getIdToken(true);
+    notifyListeners();
+    return _auth.currentUser?.emailVerified ?? false;
+  }
+
+  /// يمنح مستخدماً استثناءً من تأكيد البريد أو يسحبه — لمسؤول النظام.
+  Future<String?> setEmailVerificationExempt(AppUser user, bool exempt) async {
+    try {
+      await _db.collection('users').doc(user.id).update({'emailVerificationExempt': exempt});
+      await _log('استثناء تأكيد البريد',
+          '${exempt ? 'مُنح' : 'سُحب'} استثناء تأكيد البريد للمستخدم "${user.name}"');
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
   }
 
   // ------------------------- الأعمال التشغيلية -------------------------
@@ -565,6 +639,7 @@ class AppStore extends ChangeNotifier {
     projectsPageWidgets = [];
     announcements = [];
     alertRules = const AlertRulesConfig();
+    registrationPolicy = const RegistrationPolicy();
     works = [];
     myFocusProjectIds = [];
     myFocusWorkIds = [];
@@ -729,6 +804,10 @@ class AppStore extends ChangeNotifier {
       alertRules = AlertRulesConfig.fromMap(doc.data());
       notifyListeners();
     });
+    _listen('settings/registration', _db.collection('settings').doc('registration').snapshots(), (doc) {
+      registrationPolicy = RegistrationPolicy.fromMap(doc.data());
+      notifyListeners();
+    });
     _listen('works', _db.collection('works').snapshots(), (snap) {
       works = snap.docs.map(WorkItem.fromDoc).toList()
         ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
@@ -801,6 +880,7 @@ class AppStore extends ChangeNotifier {
     required String password,
     required UserRole requestedRole,
     String? requestedDepartmentId,
+    String? requestedSectionId,
   }) async {
     try {
       final cred = await _auth.createUserWithEmailAndPassword(email: email.trim(), password: password);
@@ -813,10 +893,18 @@ class AppStore extends ChangeNotifier {
         phone: phone,
         role: UserRole.projectOfficer,
         departmentId: requestedDepartmentId,
+        sectionId: requestedSectionId,
         status: UserStatus.pending,
         createdAt: now,
       );
       await _db.collection('users').doc(uid).set(user.toMap());
+      // رسالة التأكيد تُرسل فور إنشاء الحساب لا عند فتح شاشة التأكيد: قد
+      // يغلق الموظف المتصفح قبلها، فتصله الرسالة على أي حال.
+      try {
+        await cred.user?.sendEmailVerification();
+      } catch (_) {
+        // فشل الإرسال لا يُبطل التسجيل — للموظف زر إعادة إرسال في شاشة التأكيد.
+      }
       await _db.collection('approvalRequests').add(ApprovalRequest(
             id: '',
             type: ApprovalType.registration,
@@ -836,6 +924,7 @@ class AppStore extends ChangeNotifier {
               'phone': phone,
               'requestedRole': requestedRole.name,
               'requestedDepartmentId': requestedDepartmentId,
+              'requestedSectionId': requestedSectionId,
             },
           ).toMap());
       return null;

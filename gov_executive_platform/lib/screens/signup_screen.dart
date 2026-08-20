@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/department.dart';
+import '../models/department_section.dart';
 import '../models/enums.dart';
+import '../models/registration_policy.dart';
 import '../theme/app_theme.dart';
 import '../theme/brand.dart';
 import '../widgets/ministry_logo.dart';
@@ -24,6 +26,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _confirmCtrl = TextEditingController();
   UserRole _requestedRole = UserRole.projectOfficer;
   String? _departmentId;
+  String? _sectionId;
   String? _error;
   bool _busy = false;
 
@@ -33,6 +36,26 @@ class _SignupScreenState extends State<SignupScreen> {
   /// استعلام Firestore مع كل setState (تغيير الدور، ظهور رسالة خطأ...) —
   /// وهو استهلاك بلا داعٍ يتضاعف مع مئات الموظفين أثناء فترة التسجيل.
   late final Future<List<Department>> _departmentsFuture = _loadDepartments();
+
+  /// الأقسام تُحمَّل كاملةً مرة واحدة وتُصفّى محلياً بالإدارة المختارة: عددها
+  /// عشرات لا آلاف، واستعلام جديد مع كل تغيير للإدارة استهلاك بلا فائدة.
+  late final Future<List<DepartmentSection>> _sectionsFuture = _loadSections();
+
+  /// سياسة التسجيل تُقرأ مرة واحدة: نطاقات البريد المقبولة تُعرض للموظف
+  /// **قبل** أن يكتب بريده، فلا يُرفض طلبه بعد تعبئة النموذج كاملاً.
+  RegistrationPolicy _policy = const RegistrationPolicy();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPolicy();
+  }
+
+  Future<void> _loadPolicy() async {
+    final policy = await context.read<AppStore>().loadRegistrationPolicy();
+    if (!mounted) return;
+    setState(() => _policy = policy);
+  }
 
   @override
   void dispose() {
@@ -57,6 +80,13 @@ class _SignupScreenState extends State<SignupScreen> {
       setState(() => _error = 'الرجاء اختيار الإدارة');
       return;
     }
+    // فحص النطاق هنا لطفٌ بالموظف لا حراسة: الحراسة الفعلية على الخادم عند
+    // الاعتماد، لأن أي فحص في المتصفح يمكن تجاوزه.
+    if (!_policy.allows(_emailCtrl.text)) {
+      setState(() => _error =
+          'يلزم التسجيل ببريدك الوزاري (${_policy.domainsLabel}). البريد المُدخل خارج النطاقات المقبولة.');
+      return;
+    }
     if (_passwordCtrl.text != _confirmCtrl.text) {
       setState(() => _error = 'كلمتا المرور غير متطابقتين');
       return;
@@ -72,6 +102,7 @@ class _SignupScreenState extends State<SignupScreen> {
           password: _passwordCtrl.text,
           requestedRole: _requestedRole,
           requestedDepartmentId: needsDept ? _departmentId : null,
+          requestedSectionId: needsDept ? _sectionId : null,
         );
     if (!mounted) return;
     if (error != null) {
@@ -129,7 +160,13 @@ class _SignupScreenState extends State<SignupScreen> {
                     TextField(
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(labelText: 'البريد الإلكتروني'),
+                      decoration: InputDecoration(
+                        labelText: 'البريد الإلكتروني الوزاري',
+                        helperText: _policy.allowedEmailDomains.isEmpty
+                            ? null
+                            : 'يجب أن ينتهي بـ ${_policy.domainsLabel}',
+                        helperMaxLines: 2,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -150,6 +187,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       onChanged: (v) => setState(() {
                         _requestedRole = v ?? _requestedRole;
                         _departmentId = null;
+                        _sectionId = null;
                       }),
                     ),
                     if (needsDept) ...[
@@ -163,7 +201,41 @@ class _SignupScreenState extends State<SignupScreen> {
                             isExpanded: true,
                             decoration: const InputDecoration(labelText: 'الإدارة'),
                             items: depts.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
-                            onChanged: (v) => setState(() => _departmentId = v),
+                            // تغيير الإدارة يُسقط القسم: قسمٌ من إدارة أخرى
+                            // لا معنى له، وتركه يُرسل بياناتٍ متناقضة.
+                            onChanged: (v) => setState(() {
+                              _departmentId = v;
+                              _sectionId = null;
+                            }),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      FutureBuilder<List<DepartmentSection>>(
+                        future: _sectionsFuture,
+                        builder: (context, snapshot) {
+                          final all = snapshot.data ?? const <DepartmentSection>[];
+                          final mine = _departmentId == null
+                              ? const <DepartmentSection>[]
+                              : (all.where((x) => x.departmentId == _departmentId).toList()
+                                ..sort((a, b) => a.order.compareTo(b.order)));
+                          return DropdownButtonFormField<String?>(
+                            initialValue: _sectionId,
+                            isExpanded: true,
+                            decoration: InputDecoration(
+                              labelText: 'القسم (اختياري)',
+                              helperText: _departmentId == null
+                                  ? 'اختر الإدارة أولاً'
+                                  : (mine.isEmpty ? 'لا توجد أقسام مسجّلة لهذه الإدارة' : null),
+                            ),
+                            items: [
+                              const DropdownMenuItem<String?>(value: null, child: Text('بدون قسم')),
+                              ...mine.map((x) => DropdownMenuItem<String?>(
+                                    value: x.id,
+                                    child: Text(_sectionLabel(x, all), overflow: TextOverflow.ellipsis),
+                                  )),
+                            ],
+                            onChanged: mine.isEmpty ? null : (v) => setState(() => _sectionId = v),
                           );
                         },
                       ),
@@ -192,5 +264,18 @@ class _SignupScreenState extends State<SignupScreen> {
   Future<List<Department>> _loadDepartments() async {
     final snap = await FirebaseFirestore.instance.collection('departments').orderBy('name').get();
     return snap.docs.map(Department.fromDoc).toList();
+  }
+
+  Future<List<DepartmentSection>> _loadSections() async {
+    final snap = await FirebaseFirestore.instance.collection('sections').get();
+    return snap.docs.map(DepartmentSection.fromDoc).toList();
+  }
+
+  /// اسم القسم مسبوقاً بقسمه الأعلى إن كان فرعياً، فيميّز الموظف بين قسمين
+  /// متشابهي الاسم تحت قسمين مختلفين.
+  String _sectionLabel(DepartmentSection section, List<DepartmentSection> all) {
+    if (section.parentId == null) return section.name;
+    final parent = all.where((x) => x.id == section.parentId);
+    return parent.isEmpty ? section.name : '${parent.first.name} ← ${section.name}';
   }
 }

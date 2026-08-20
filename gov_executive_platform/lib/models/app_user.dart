@@ -25,6 +25,15 @@ class AppUser {
   /// سجلّه)، ويُستعمل لمن لا يملك بريداً وزارياً عاملاً أو لحساب خدمة.
   final bool emailVerificationExempt;
 
+  /// استثناءات صلاحيات **فردية** تعلو على إعدادات الدور، في الاتجاهين معاً:
+  /// `true` تمنح صلاحيةً لا يملكها دوره، و`false` تمنعه صلاحيةً يملكها دوره.
+  /// مفتاح كل صلاحية هو `RolePermission.key`.
+  ///
+  /// لا يكتبها إلا مسؤول النظام عبر دالة سحابية تعيد ختم بطاقة الدخول —
+  /// فالخادم يحتكم إلى البطاقة لا إلى هذا السجل. وهي **لا تشمل** بوابات
+  /// الاعتماد الثلاث: تلك ليست في `RolePermission` أصلاً ولن تكون.
+  final Map<String, bool> permissionOverrides;
+
   final UserStatus status;
   final DateTime createdAt;
 
@@ -39,6 +48,7 @@ class AppUser {
     this.departmentIds = const [],
     this.sectionId,
     this.emailVerificationExempt = false,
+    this.permissionOverrides = const {},
     required this.status,
     required this.createdAt,
   });
@@ -55,6 +65,7 @@ class AppUser {
     List<String>? departmentIds,
     String? sectionId,
     bool? emailVerificationExempt,
+    Map<String, bool>? permissionOverrides,
     UserStatus? status,
     bool clearSection = false,
   }) {
@@ -69,6 +80,7 @@ class AppUser {
       departmentIds: departmentIds ?? this.departmentIds,
       sectionId: clearSection ? null : (sectionId ?? this.sectionId),
       emailVerificationExempt: emailVerificationExempt ?? this.emailVerificationExempt,
+      permissionOverrides: permissionOverrides ?? this.permissionOverrides,
       status: status ?? this.status,
       createdAt: createdAt,
     );
@@ -84,6 +96,7 @@ class AppUser {
         'departmentIds': departmentIds,
         'sectionId': sectionId,
         'emailVerificationExempt': emailVerificationExempt,
+        'permissionOverrides': permissionOverrides,
         'status': status.name,
         'createdAt': Timestamp.fromDate(createdAt),
       };
@@ -101,6 +114,10 @@ class AppUser {
       departmentIds: List<String>.from(json['departmentIds'] as List? ?? const []),
       sectionId: (json['sectionId'] as String?)?.isEmpty ?? true ? null : json['sectionId'] as String?,
       emailVerificationExempt: json['emailVerificationExempt'] == true,
+      permissionOverrides: {
+        for (final e in (json['permissionOverrides'] as Map? ?? const {}).entries)
+          if (e.value is bool) e.key.toString(): e.value as bool,
+      },
       status: UserStatus.fromName(json['status'] as String? ?? UserStatus.pending.name),
       createdAt: (json['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );

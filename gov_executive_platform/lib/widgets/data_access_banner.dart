@@ -3,15 +3,14 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/role_permissions.dart';
-import '../screens/account_diagnostics_screen.dart';
 import '../theme/app_theme.dart';
 
 /// لافتة تُعلن أن الخادم رفض قراءة بعض بيانات المستخدم.
 ///
 /// كانت مستمعات Firestore بلا معالج خطأ، فرفض الصلاحية يعود صامتاً وتبقى
 /// الشاشات فارغة بلا سبب — فيظن المستخدم أن لا بيانات لديه بينما هي محجوبة
-/// عنه. هذه اللافتة تقول الحقيقة، وتقود إلى شاشة «تشخيص حسابي» التي تكشف
-/// الاختلاف بين سجل المستخدم وبطاقة دخوله وتُصلحه بضغطة.
+/// عنه. هذه اللافتة تقول الحقيقة، وتسمّي الصلاحية الناقصة إن عُرفت، وتُصلح
+/// اختلاف بطاقة الدخول بضغطة واحدة.
 class DataAccessBanner extends StatefulWidget {
   const DataAccessBanner({super.key});
 
@@ -23,6 +22,22 @@ class _DataAccessBannerState extends State<DataAccessBanner> {
   /// الصلاحيات الممنوحة في الإعدادات والغائبة عن البطاقة. تُقرأ من البطاقة
   /// نفسها (عملية غير متزامنة) فتُحفظ في الحالة بدل إعادة قراءتها كل إطار.
   List<RolePermission> _pending = const [];
+
+  bool _syncing = false;
+  String? _syncError;
+
+  Future<void> _sync() async {
+    setState(() {
+      _syncing = true;
+      _syncError = null;
+    });
+    final error = await context.read<AppStore>().syncMyClaims();
+    if (!mounted) return;
+    setState(() {
+      _syncing = false;
+      _syncError = error;
+    });
+  }
 
   @override
   void initState() {
@@ -85,21 +100,28 @@ class _DataAccessBannerState extends State<DataAccessBanner> {
                   Text(
                     _pending.isEmpty
                         ? 'إن كان مسؤول النظام قد منحك صلاحية حديثاً فقد لا تكون بطاقة دخولك '
-                            'حُدِّثت بعد — افتح «تشخيص حسابي» واضغط «مزامنة صلاحيات حسابي».'
+                            'حُدِّثت بعد — اضغط «مزامنة صلاحيات حسابي» أدناه.'
                         : 'صلاحية ${_pending.map((p) => '«${p.label}»').join(' و')} ممنوحة لدورك '
-                            'لكنها لم تصل بطاقة دخولك بعد — افتح «تشخيص حسابي» واضغط '
-                            '«مزامنة صلاحيات حسابي».',
+                            'لكنها لم تصل بطاقة دخولك بعد — اضغط «مزامنة صلاحيات حسابي» أدناه.',
                     style: const TextStyle(fontSize: 12, height: 1.8, color: AppColors.textSecondary),
                   ),
                 ],
                 const SizedBox(height: 10),
+                // زر إصلاح لا شاشة تشخيص: أُزيلت شاشة التشخيص بطلب مسؤول
+                // النظام، ولا يجوز أن يذهب معها **طريق الخروج** من العطل.
+                // فبقي الفعل نفسه في ضغطة واحدة مكان الزر الذي كان يقود إليها.
                 OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const AccountDiagnosticsScreen()),
-                  ),
-                  icon: const Icon(Icons.medical_information_outlined, size: 16),
-                  label: const Text('تشخيص حسابي'),
+                  onPressed: _syncing ? null : _sync,
+                  icon: _syncing
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.sync_rounded, size: 16),
+                  label: Text(_syncing ? 'جارٍ المزامنة…' : 'مزامنة صلاحيات حسابي'),
                 ),
+                if (_syncError != null) ...[
+                  const SizedBox(height: 6),
+                  Text('تعذّرت المزامنة: $_syncError',
+                      style: const TextStyle(fontSize: 11.5, color: AppColors.danger)),
+                ],
               ],
             ),
           ),

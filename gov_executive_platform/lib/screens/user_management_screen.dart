@@ -6,6 +6,7 @@ import '../models/app_user.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
 import '../widgets/notify_dialog.dart';
+import '../widgets/user_permissions_dialog.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -284,6 +285,19 @@ class _UserRowState extends State<_UserRow> {
                 ? 'مستثنى من تأكيد البريد — اضغط لإعادة الشرط'
                 : 'استثناء من شرط تأكيد البريد الوزاري',
             onPressed: _busy ? null : _toggleExempt,
+          ),
+          // صلاحيات فردية تعلو على الدور — وهي ما يجعل المنح «لأي مستخدم»
+          // ممكناً دون تغيير دوره ولا مساس بزملائه فيه.
+          IconButton(
+            icon: Icon(
+              Icons.tune_rounded,
+              size: 19,
+              color: u.permissionOverrides.isEmpty ? null : AppColors.accent,
+            ),
+            tooltip: u.permissionOverrides.isEmpty
+                ? 'صلاحيات فردية لهذا الحساب'
+                : 'لهذا الحساب ${u.permissionOverrides.length} استثناء صلاحيات',
+            onPressed: () => showDialog(context: context, builder: (_) => UserPermissionsDialog(user: u)),
           ),
           IconButton(
             icon: _restamping

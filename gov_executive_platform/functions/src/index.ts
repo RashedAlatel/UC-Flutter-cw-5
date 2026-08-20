@@ -83,7 +83,7 @@ async function logAudit(userName: string, action: string, details: string): Prom
 // مفاتيح الصلاحيات القابلة للتفويض. لا تتضمن — ولن تتضمن — بوابات الاعتماد
 // الثلاث (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي)؛ تلك تبقى محصورة
 // بـ systemAdmin عبر requireAdmin وقواعد Firestore معاً.
-const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap"] as const;
+const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap", "sfb", "mfb"] as const;
 
 /** الأدوار الأساسية التي يضبط مسؤول النظام صلاحياتها من شاشة "صلاحيات الأدوار". */
 const CONFIGURABLE_ROLES = ["executiveViewer", "departmentManager", "projectOfficer", "employee"] as const;
@@ -100,6 +100,33 @@ function emptyPerms(): Record<string, boolean> {
   const perms: Record<string, boolean> = {};
   for (const key of CUSTOM_ROLE_PERM_KEYS) perms[key] = false;
   return perms;
+}
+
+/**
+ * يطبّق الاستثناءات الفردية فوق صلاحيات الدور.
+ *
+ * تعلو على الدور في الاتجاهين: `true` تمنح ما لا يمنحه الدور، و`false` تمنع
+ * ما يمنحه. ومصدرها حقل `permissionOverrides` على سجل المستخدم، وقاعدة
+ * `/users/{uid}` تقصر كتابته على مسؤول النظام وتمنع المسجِّل من زرعه لنفسه
+ * لحظة التسجيل. والمفاتيح المجهولة تُهمَل فلا تتضخّم البطاقة بما لا يُفحص.
+ *
+ * ولا تشمل بوابات الاعتماد الثلاث (تسجيل عضو / إضافة مشروع / تعديل موعد):
+ * تلك ليست مفاتيح صلاحيات أصلاً، وتبقى محصورة بـ systemAdmin.
+ */
+function applyOverrides(
+  perms: Record<string, boolean> | undefined,
+  overrides: unknown,
+): Record<string, boolean> | undefined {
+  if (!overrides || typeof overrides !== "object") return perms;
+  const entries = Object.entries(overrides as Record<string, unknown>)
+    .filter(([key, value]) => typeof value === "boolean" && (CUSTOM_ROLE_PERM_KEYS as readonly string[]).includes(key));
+  if (entries.length === 0) return perms;
+  // مسؤول النظام يدخل هنا بـ undefined ويخرج به: صلاحياته كاملة عبر isAdmin()
+  // لا عبر أعلام، فلا معنى لختم أعلام عليه.
+  if (perms === undefined) return undefined;
+  const merged = {...perms};
+  for (const [key, value] of entries) merged[key] = value as boolean;
+  return merged;
 }
 
 /**
@@ -282,7 +309,19 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       // التسجيل الذاتي يسمح باختيار إدارة واحدة فقط؛ مسؤول النظام يمكنه لاحقاً
       // توسيع إدارات مدير الإدارة عبر setUserRole إن احتاج أكثر من إدارة.
       const departmentIds = role === "departmentManager" && departmentId ? [departmentId] : [];
-      await admin.auth().setCustomUserClaims(uid, {role, departmentId, departmentIds, approved: true});
+      // بصمات الصلاحيات تُختم **هنا** مع بقية البطاقة.
+      //
+      // وغيابها كان عطلاً صامتاً: الحساب المعتمَد حديثاً يخرج بلا حقل `perms`
+      // إطلاقاً، فكل `perm(key)` في القواعد يعود false مهما منح مسؤول النظام
+      // لدوره — ولا يُصلَح إلا بإعادة ختم لاحقة قد لا تقع أبداً.
+      const perms = applyOverrides(
+        await loadCustomRolePerms(role, null),
+        userSnap.data()?.permissionOverrides,
+      );
+      await admin.auth().setCustomUserClaims(uid, {
+        role, departmentId, departmentIds, approved: true,
+        ...(perms ? {perms} : {}),
+      });
       // القسم يُحفظ في السجل ولا يدخل بطاقة الدخول: لا قاعدة أمان تحتكم إليه،
       // وبطاقة الدخول لها حدّ حجم صارم فلا تُثقَل بما لا يُفحص عليها.
       await db().collection("users").doc(uid)
@@ -436,7 +475,7 @@ export const setUserRole = onCall(async (request) => {
   if (!userDoc.exists) throw new HttpsError("not-found", "المستخدم غير موجود");
   const current = userDoc.data()!;
 
-  const perms = await loadCustomRolePerms(role, customRoleId);
+  const perms = applyOverrides(await loadCustomRolePerms(role, customRoleId), current.permissionOverrides);
   const deptIds = role === "departmentManager" ? departmentIds ?? [] : [];
 
   await userRef.update({
@@ -471,7 +510,10 @@ export const setUserStatus = onCall(async (request) => {
   await userRef.update({status});
 
   const approved = status === "approved";
-  const perms = await loadCustomRolePerms(current.role, current.customRoleId);
+  const perms = applyOverrides(
+    await loadCustomRolePerms(current.role, current.customRoleId),
+    current.permissionOverrides,
+  );
   await admin.auth().setCustomUserClaims(uid, {
     role: current.role,
     departmentId: current.departmentId ?? null,
@@ -505,12 +547,15 @@ export const refreshRolePermissions = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "هذا الدور لا تُضبط صلاحياته من هنا");
   }
 
-  const perms = await loadCustomRolePerms(role, null);
+  const rolePerms = await loadCustomRolePerms(role, null);
   const snap = await db().collection("users").where("role", "==", role).get();
 
   let updated = 0;
   for (const doc of snap.docs) {
     const u = doc.data();
+    // الاستثناء الفردي يُطبَّق لكل حساب على حدة، وإلا محا تعديلُ صلاحيات
+    // الدور استثناءاتٍ منحها مسؤول النظام لأشخاص بأعيانهم.
+    const perms = applyOverrides(rolePerms, u.permissionOverrides);
     try {
       await admin.auth().setCustomUserClaims(doc.id, {
         role,
@@ -604,7 +649,10 @@ async function restampClaims(uid: string): Promise<Record<string, unknown>> {
   if (!doc.exists) throw new HttpsError("not-found", "لا يوجد سجل لهذا المستخدم");
   const u = doc.data()!;
   const role = (u.role as string | undefined) ?? "projectOfficer";
-  const perms = await loadCustomRolePerms(role, (u.customRoleId as string | null) ?? null);
+  const perms = applyOverrides(
+    await loadCustomRolePerms(role, (u.customRoleId as string | null) ?? null),
+    u.permissionOverrides,
+  );
   const claims = {
     role,
     departmentId: (u.departmentId as string | null) ?? null,
@@ -619,6 +667,52 @@ async function restampClaims(uid: string): Promise<Record<string, unknown>> {
   await admin.auth().setCustomUserClaims(uid, claims);
   return claims;
 }
+
+/**
+ * يضبط **الاستثناءات الفردية** لصلاحيات مستخدم بعينه، ويعيد ختم بطاقته فوراً.
+ *
+ * وهذا هو ما يجعل المنح «لأي مستخدم» ممكناً: مسؤول النظام يمنح أو يمنع
+ * صلاحيةً لشخص واحد دون تغيير دوره ولا مساس بزملائه في الدور نفسه.
+ *
+ * القيمة `true` منحٌ، و`false` منعٌ، وحذف المفتاح رجوعٌ إلى إعدادات الدور.
+ * والمفاتيح المجهولة تُرفض صراحةً لا تُهمَل بصمت — فمفتاح أُسيء كتابته يبدو
+ * ممنوحاً في الشاشة ولا يعمل أبداً. ولا سبيل من هنا إلى بوابات الاعتماد
+ * الثلاث: ليست مفاتيح صلاحيات أصلاً.
+ */
+export const setUserPermissionOverrides = onCall(async (request) => {
+  const auth = requireAdmin(request);
+  const {uid, overrides} = (request.data ?? {}) as {uid?: string; overrides?: Record<string, unknown>};
+  if (!uid) throw new HttpsError("invalid-argument", "الرجاء تحديد المستخدم");
+
+  const clean: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(overrides ?? {})) {
+    if (!(CUSTOM_ROLE_PERM_KEYS as readonly string[]).includes(key)) {
+      throw new HttpsError("invalid-argument", `صلاحية غير معروفة: ${key}`);
+    }
+    if (typeof value !== "boolean") {
+      throw new HttpsError("invalid-argument", `قيمة غير صالحة للصلاحية ${key}`);
+    }
+    clean[key] = value;
+  }
+
+  const userRef = db().collection("users").doc(uid);
+  const userDoc = await userRef.get();
+  if (!userDoc.exists) throw new HttpsError("not-found", "المستخدم غير موجود");
+
+  await userRef.update({permissionOverrides: clean});
+  const claims = await restampClaims(uid);
+
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "ضبط صلاحيات فردية",
+    `تم ضبط استثناءات صلاحيات المستخدم "${userDoc.data()?.name ?? uid}": ` +
+    (Object.keys(clean).length === 0 ?
+      "بلا استثناءات (يتبع دوره)" :
+      Object.entries(clean).map(([k, v]) => `${k}=${v ? "ممنوحة" : "ممنوعة"}`).join("، ")),
+  );
+
+  return {ok: true, claims};
+});
 
 /** يزامن بطاقة **المتصل نفسه** فقط. */
 export const syncMyClaims = onCall(async (request) => {

@@ -106,8 +106,9 @@ void main() {
     });
 
     // جوهر هذه الجولة: رفض الصلاحية كان يعود صامتاً فتبقى الشاشة فارغة بلا
-    // سبب. اللافتة تقول صراحةً إن ما يراه المستخدم ناقص لا معدوم.
-    testWidgets('تسمّي البيانات المحجوبة وتقود إلى التشخيص', (tester) async {
+    // سبب. اللافتة تقول صراحةً إن ما يراه المستخدم ناقص لا معدوم، وتعرض
+    // فعل الإصلاح نفسه — لا رابطاً إلى شاشة أخرى.
+    testWidgets('تسمّي البيانات المحجوبة وتعرض فعل الإصلاح', (tester) async {
       final store = AppStore();
       store.dataErrors['projects'] = '[cloud_firestore/permission-denied] Missing or insufficient permissions.';
       store.dataErrors['announcements'] = '[cloud_firestore/permission-denied] Missing or insufficient permissions.';
@@ -115,7 +116,7 @@ void main() {
 
       expect(find.textContaining('صلاحيات حسابك غير مكتملة'), findsOneWidget);
       expect(find.textContaining('projects'), findsOneWidget);
-      expect(find.text('تشخيص حسابي'), findsOneWidget);
+      expect(find.text('مزامنة صلاحيات حسابي'), findsOneWidget);
     });
 
     testWidgets('عطل الشبكة لا يُلام على الصلاحيات', (tester) async {

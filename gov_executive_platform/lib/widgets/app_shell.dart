@@ -5,9 +5,9 @@ import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../models/role_permissions.dart';
 import '../screens/appearance_settings_screen.dart';
-import '../screens/account_diagnostics_screen.dart';
 import '../screens/audit_log_screen.dart';
 import '../screens/dashboard_screen.dart';
+import '../screens/feedback_screen.dart';
 import '../screens/decision_center_screen.dart';
 import '../screens/department_detail_screen.dart';
 import '../screens/departments_list_screen.dart';
@@ -112,6 +112,15 @@ class _AppShellState extends State<AppShell> {
       ));
     }
 
+    // الشكاوى والاقتراحات: يظهر المدخل لمن يرفع أو لمن يتابع الوارد. ومن
+    // رفع شيئاً سابقاً ثم سُحبت منه صلاحية الرفع يبقى المدخل ليتابع ردّه.
+    if (store.canSubmitFeedback || store.canManageFeedback || store.myFeedback.isNotEmpty) {
+      entries.add(const _NavEntry(
+        label: 'الشكاوى والاقتراحات',
+        icon: Icons.forum_outlined,
+        page: FeedbackScreen(),
+      ));
+    }
     if (store.canTrackPeople) {
       entries.add(const _NavEntry(label: 'متابعة الأشخاص', icon: Icons.groups_rounded, page: PeopleTrackingScreen()));
     }
@@ -430,24 +439,6 @@ class _Sidebar extends StatelessWidget {
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white.withValues(alpha: 0.40), fontSize: 9.5)),
                   const SizedBox(height: 8),
-                  // مدخل دائم لا يظهر عند العطل وحده: أول ما يسأله المستخدم
-                  // حين لا يرى بياناته هو «هل حسابي مضبوط؟»، ولا يجوز أن يكون
-                  // الجواب مخبوءاً خلف لافتة خطأ قد لا تظهر أصلاً.
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton.icon(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const AccountDiagnosticsScreen()),
-                      ),
-                      icon: const Icon(Icons.medical_information_outlined, size: 15),
-                      label: const Text('تشخيص حسابي'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white.withValues(alpha: 0.75),
-                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(

@@ -112,10 +112,18 @@ service cloud.firestore {
       allow list: if isApproved();
       // التسجيل الذاتي: يُنشئ المستخدم سجله الخاص فقط بحالة "بانتظار الموافقة" ودور أساسي،
       // لا يمكنه منح نفسه دوراً أعلى أو حالة معتمدة مباشرة.
+      //
+      // والحقلان الأخيران لا يقلّان خطراً عن الدور، وكلاهما يُقرأ على الخادم:
+      // `emailVerificationExempt` يتخطّى شرط البريد الوزاري عند الاعتماد،
+      // و`permissionOverrides` تُدمج في بطاقة الدخول عند ختمها. فمن كتبهما
+      // على سجله لحظة التسجيل منح نفسه ما لم يمنحه أحد. يبقيان لمسؤول
+      // النظام وحده عبر `allow update` أدناه.
       allow create: if isSignedIn()
                     && request.auth.uid == uid
                     && request.resource.data.status == 'pending'
-                    && request.resource.data.role == 'projectOfficer';
+                    && request.resource.data.role == 'projectOfficer'
+                    && request.resource.data.get('emailVerificationExempt', false) == false
+                    && request.resource.data.get('permissionOverrides', {}).keys().size() == 0;
       // أي تغيير على الدور/الحالة/الإدارة لا يتم إلا عبر مسؤول النظام (عادة عبر Cloud Function).
       allow update: if isAdmin();
       allow delete: if isAdmin();
@@ -269,6 +277,30 @@ service cloud.firestore {
                         && !request.resource.data.diff(resource.data).affectedKeys()
                               .hasAny(['departmentId', 'assigneeUid', 'createdByUid']));
       allow delete: if isAdmin() || perm('del');
+    }
+
+    // ------------------------- الشكاوى والاقتراحات -------------------------
+    // ما يرفعه الموظف إلى مسؤول النظام. صلاحيتان منفصلتان:
+    //   sfb — الرفع، ومتابعة ما رفعه هو.
+    //   mfb — الاطّلاع على كل الوارد والبتّ فيه.
+    // ويُمنحان لدور كامل أو لشخص بعينه (راجع permissionOverrides على المستخدم).
+    match /feedback/{id} {
+      // صاحبها يراها دائماً ولو سُحبت منه صلاحية الرفع لاحقاً — وإلا اختفى
+      // عنه ما رفعه هو وردُّ مسؤول النظام عليه.
+      allow read: if isApproved()
+                  && (isAdmin() || perm('mfb') || resource.data.submittedByUid == request.auth.uid);
+      // لا يرفع أحدٌ باسم غيره، ولا يرفع شكوى مبتوتاً فيها سلفاً.
+      allow create: if isApproved()
+                    && perm('sfb')
+                    && request.resource.data.submittedByUid == request.auth.uid
+                    && request.resource.data.status == 'submitted'
+                    && request.resource.data.get('responseNote', null) == null;
+      // البتّ لمن يتابعها. ونصُّ الشكوى نفسه لا يُعدَّل بعد رفعها — لا من
+      // صاحبها ولا ممن يبتّ فيها — فهي سجلٌّ لا مسوَّدة.
+      allow update: if (isAdmin() || perm('mfb'))
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status', 'responseNote', 'handledByName', 'handledAt']);
+      allow delete: if isAdmin();
     }
 
     // ------------------------- طلبات الموافقة (مركز القرارات التنفيذية) -------------------------

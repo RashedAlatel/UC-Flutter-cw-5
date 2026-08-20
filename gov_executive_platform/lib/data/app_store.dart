@@ -18,6 +18,7 @@ import '../models/dashboard_widget_config.dart';
 import '../models/department.dart';
 import '../models/department_section.dart';
 import '../models/enums.dart';
+import '../models/feedback_item.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
 import '../models/report.dart';
@@ -103,6 +104,8 @@ class AppStore extends ChangeNotifier {
   List<WorkItem> _worksByAssignment = [];
   List<ApprovalRequest> _requestsByScope = [];
   List<ApprovalRequest> _requestsByMine = [];
+  List<FeedbackItem> _feedbackAll = [];
+  List<FeedbackItem> _feedbackMine = [];
 
   /// هل رُفضت قراءة أي مجموعة؟ يُستخدم لإظهار اللافتة.
   bool get hasDataErrors => dataErrors.isNotEmpty;
@@ -336,6 +339,71 @@ class AppStore extends ChangeNotifier {
 
   /// بنود العمل التشغيلية المستقلة عن المشاريع (مجموعة `works`).
   List<WorkItem> works = [];
+
+  /// الشكاوى والاقتراحات (مجموعة `feedback`)، مرتّبة بالأحدث.
+  List<FeedbackItem> feedback = [];
+
+  bool get canSubmitFeedback => hasPermission(RolePermission.submitFeedback);
+  bool get canManageFeedback => hasPermission(RolePermission.manageFeedback);
+
+  /// ما رفعه المستخدم الحالي — يراه دائماً ولو لم يعد يملك صلاحية الرفع.
+  List<FeedbackItem> get myFeedback =>
+      feedback.where((f) => f.submittedByUid == currentUser?.id).toList();
+
+  /// الوارد لمن يتابع الشكاوى. مسؤول النظام وحامل «متابعة الشكاوى» فقط.
+  List<FeedbackItem> get incomingFeedback => canManageFeedback ? feedback : const [];
+
+  int get openFeedbackCount =>
+      canManageFeedback ? feedback.where((f) => f.isOpen).length : 0;
+
+  /// يرفع شكوى أو اقتراحاً باسم المستخدم الحالي.
+  ///
+  /// المعرّف يُؤخذ من الحساب لا من الواجهة، والقاعدة تشترط تطابقه مع المتصل —
+  /// فلا يُنسب أحدٌ شكوى إلى غيره.
+  Future<String?> submitFeedback({
+    required FeedbackKind kind,
+    required String title,
+    required String body,
+  }) async {
+    final me = currentUser;
+    if (me == null) return 'لا يوجد مستخدم مسجَّل';
+    try {
+      await _db.collection('feedback').add(FeedbackItem(
+            id: '',
+            kind: kind,
+            title: title.trim(),
+            body: body.trim(),
+            submittedByUid: me.id,
+            submittedByName: me.name,
+            departmentId: me.departmentId,
+            createdAt: DateTime.now(),
+          ).toMap());
+      return null;
+    } catch (e) {
+      return 'تعذّر إرسال ${kind.label}: $e';
+    }
+  }
+
+  /// يبتّ في شكوى أو اقتراح. نصّ الشكوى نفسه لا يُمسّ — القاعدة تمنع ذلك.
+  Future<String?> resolveFeedback(
+    FeedbackItem item, {
+    required FeedbackStatus status,
+    String? note,
+  }) async {
+    try {
+      await _db.collection('feedback').doc(item.id).update({
+        'status': status.name,
+        'responseNote': (note ?? '').trim().isEmpty ? null : note!.trim(),
+        'handledByName': currentUser?.name,
+        'handledAt': Timestamp.fromDate(DateTime.now()),
+      });
+      await _log('الشكاوى والاقتراحات',
+          'بتّ ${currentUser?.name} في ${item.kind.label} "${item.title}" — ${status.label}');
+      return null;
+    } catch (e) {
+      return 'تعذّر حفظ القرار: $e';
+    }
+  }
 
   /// الأعمال ضمن نطاق المستخدم الحالي:
   /// - من يرى كل الإدارات: كل الأعمال.
@@ -688,6 +756,9 @@ class AppStore extends ChangeNotifier {
     _worksByAssignment = [];
     _requestsByScope = [];
     _requestsByMine = [];
+    _feedbackAll = [];
+    _feedbackMine = [];
+    feedback = [];
     departments = [];
     sections = [];
     projects = [];
@@ -987,6 +1058,29 @@ class AppStore extends ChangeNotifier {
         });
       }
     }
+    // الشكاوى والاقتراحات بنطاقها كذلك: قاعدتها تعتمد على محتوى المستند
+    // (صاحبها) وعلى صلاحية المتابعة. فمن يتابعها يقرأ المجموعة كاملةً —
+    // وهي صلاحية لا تتعلق بمستند بعينه — ومن لا يتابعها يقرأ ما رفعه هو.
+    void publishFeedback() {
+      feedback = mergeById<FeedbackItem>((f) => f.id, [_feedbackAll, _feedbackMine])
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      notifyListeners();
+    }
+
+    if (isAdmin || canManageFeedback) {
+      _listen('feedback', _db.collection('feedback').snapshots(), (snap) {
+        _feedbackAll = snap.docs.map(FeedbackItem.fromDoc).toList();
+        publishFeedback();
+      });
+    }
+    if (myUid != null) {
+      _listen('feedback/ما رفعته',
+          _db.collection('feedback').where('submittedByUid', isEqualTo: myUid).snapshots(), (snap) {
+        _feedbackMine = snap.docs.map(FeedbackItem.fromDoc).toList();
+        publishFeedback();
+      });
+    }
+
     _listen('settings/rolePermissions', _db.collection('settings').doc('rolePermissions').snapshots(), (doc) {
       rolePermissions = RolePermissionsConfig.fromMap(doc.data());
       _rolePermissionsLoaded = true;
@@ -1150,13 +1244,20 @@ class AppStore extends ChangeNotifier {
 
   /// هل يملك المستخدم الحالي صلاحية معيّنة؟
   ///
-  /// مسؤول النظام يملك كل شيء دائماً. الدور المخصص يقرأ من مستند دوره، وبقية
-  /// الأدوار الأساسية تقرأ من خريطة [rolePermissions] القابلة للضبط.
+  /// مسؤول النظام يملك كل شيء دائماً. ثم **الاستثناء الفردي** إن وُجد، وهو
+  /// ما يكتبه مسؤول النظام على حساب بعينه ليمنحه أو يمنعه بمعزل عن دوره.
+  /// وما لم يوجد استثناء يُرجع إلى إعدادات الدور: الدور المخصص من مستنده،
+  /// والأدوار الأساسية من خريطة [rolePermissions].
   /// هذه الدالة **لا تشمل** بوابات الاعتماد الثلاث — راجع [canApprove].
   bool hasPermission(RolePermission permission) {
     if (isAdmin) return true;
     final role = currentUser?.role;
     if (role == null) return false;
+    // الاستثناء الفردي يعلو على الدور في الاتجاهين معاً: يمنح لمن لا يملكه
+    // دوره، ويمنع من يملكه دوره. وهذا هو ما يجعل المنح «لأي مستخدم» ممكناً
+    // دون تغيير دوره ولا صلاحيات زملائه.
+    final override = currentUser?.permissionOverrides[permission.key];
+    if (override != null) return override;
     if (role == UserRole.custom) {
       final r = myCustomRole;
       if (r == null) return false;
@@ -1174,6 +1275,10 @@ class AppStore extends ChangeNotifier {
         case RolePermission.manageWorks:
         case RolePermission.deleteRecords:
         case RolePermission.sendNotifications:
+        case RolePermission.submitFeedback:
+        case RolePermission.manageFeedback:
+          // صلاحيات لا مقابل لها في مستند الدور المخصص؛ تُمنح لحامله
+          // بالاستثناء الفردي أعلاه إن أراد مسؤول النظام.
           return false;
       }
     }
@@ -1265,6 +1370,24 @@ class AppStore extends ChangeNotifier {
       return null;
     } on FirebaseFunctionsException catch (e) {
       return e.message ?? 'تعذّرت مزامنة صلاحيات الحساب';
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// يضبط الاستثناءات الفردية لصلاحيات مستخدم بعينه ويعيد ختم بطاقته فوراً.
+  ///
+  /// الخريطة الفارغة تعني «يتبع دوره». والدالة الخلفية ترفض المفاتيح المجهولة
+  /// بدل إهمالها، فلا تبدو صلاحية ممنوحة وهي لا تعمل.
+  Future<String?> setPermissionOverrides(String uid, Map<String, bool> overrides) async {
+    try {
+      await _functions.httpsCallable('setUserPermissionOverrides').call({
+        'uid': uid,
+        'overrides': overrides,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر ضبط الصلاحيات الفردية';
     } catch (e) {
       return e.toString();
     }

@@ -82,4 +82,22 @@ class ApprovalRequest {
       payload: Map<String, dynamic>.from(json['payload'] as Map? ?? {}),
     );
   }
+
+  /// الدور الذي سيُمنح فعلاً عند اعتماد طلب التسجيل، مقروءاً من **الحمولة**.
+  ///
+  /// `title` و`description` نصّان يكتبهما العميل، والحمولة هي ما تقرأه الدالة
+  /// الخلفية وتكتبه في بطاقة الدخول. فلو تناقضا لَظهر لمسؤول النظام طلبٌ
+  /// بريء الوصف يمنح دوراً آخر. لذلك يُعرض هذا السطر في بطاقة الطلب مأخوذاً
+  /// من الحمولة لا من الوصف.
+  ///
+  /// واسمٌ غير معروف يُعاد **كما هو** لا مترجماً: `UserRole.fromName` ترجع
+  /// `projectOfficer` لكل مجهول، فترجمته هنا تُخفي الشذوذ بدل أن تكشفه.
+  String? get grantedRoleLabel {
+    if (type != ApprovalType.registration) return null;
+    final raw = payload['requestedRole'];
+    if (raw is! String || raw.trim().isEmpty) return null;
+    final name = raw.trim();
+    final known = UserRole.values.where((r) => r.name == name);
+    return known.isEmpty ? name : known.first.label;
+  }
 }

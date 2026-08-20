@@ -24,13 +24,27 @@ class _SignupScreenState extends State<SignupScreen> {
   final _phoneCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
-  UserRole _requestedRole = UserRole.projectOfficer;
+  UserRole _requestedRole = UserRole.employee;
   String? _departmentId;
   String? _sectionId;
   String? _error;
   bool _busy = false;
 
-  static const _selectableRoles = [UserRole.executiveViewer, UserRole.departmentManager, UserRole.projectOfficer];
+  /// الأدوار التي يطلبها الموظف عند التسجيل.
+  ///
+  /// «موظف» أولاً وهو الافتراضي: أكثر المسجّلين موظفون، وهو **أدنى** الأدوار
+  /// صلاحيةً — فمن سها عن تغيير الاختيار طلب أقلّها لا أكثرها.
+  ///
+  /// وهذا كله **طلب** لا منح: سجل المستخدم يُكتب دائماً بدور واحد ثابت
+  /// (راجع `signUp`)، وقاعدة `/users/{uid}` تمنع المسجِّل من ترقية نفسه.
+  /// الدور المطلوب يمرّ في طلب الاعتماد، ولا يصير دوراً فعلياً إلا بختم
+  /// مسؤول النظام.
+  static const _selectableRoles = [
+    UserRole.employee,
+    UserRole.departmentManager,
+    UserRole.executiveViewer,
+    UserRole.projectOfficer,
+  ];
 
   /// يُنشأ مرة واحدة فقط. لو تُرِك داخل build() لأعاد FutureBuilder إطلاق
   /// استعلام Firestore مع كل setState (تغيير الدور، ظهور رسالة خطأ...) —

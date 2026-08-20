@@ -207,25 +207,60 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       const departmentId = (payload.requestedDepartmentId as string | null) ?? null;
       const sectionId = (payload.requestedSectionId as string | null) ?? null;
 
+      // ------- حمولة الطلب لا يُوثَق بها -------
+      // مستند الطلب يكتبه العميل (قاعدة approvalRequests تسمح بالإنشاء لأي
+      // مستخدم مسجَّل، وهو لازم لأن المسجِّل الجديد غير معتمد بعد). ومسؤول
+      // النظام لا يرى في بطاقة الطلب إلا عنواناً ووصفاً كتبهما العميل أيضاً.
+      // فلو أُخذ الدور من الحمولة بلا فحص لأمكن تقديم طلب وصفه «موظف»
+      // وحمولته systemAdmin، فيُمنَح باعتمادٍ يبدو روتينياً. الفحوص الثلاثة
+      // التالية هي ما يجعل البوابة تحرس فعلاً لا شكلاً.
+
+      // ١) لا يُمنح عبر التسجيل إلا دور أساسي مضبوط الصلاحيات. وعلى رأس
+      // المستبعَد systemAdmin: مسؤول النظام لا يُصنع إلا بـ setUserRole.
+      if (!(CONFIGURABLE_ROLES as readonly string[]).includes(role)) {
+        throw new HttpsError(
+          "invalid-argument",
+          "الدور المطلوب في هذا الطلب غير مسموح به عند التسجيل. " +
+          "الأدوار المسموحة: مستخدم تنفيذي، مدير إدارة، مدير مشروع، موظف. " +
+          "لمنح دور آخر استخدم شاشة إدارة المستخدمين بعد الاعتماد.",
+        );
+      }
+
+      // ٢) الطلب يخصّ مقدّمه وحده، فلا يُقدَّم طلب تسجيل باسم حساب آخر.
+      if (!uid || uid !== data.requestedByUid) {
+        throw new HttpsError("invalid-argument", "حمولة طلب التسجيل لا تطابق مُقدّمه.");
+      }
+
+      // ٣) مسار التسجيل يعتمد حساباً منتظراً فقط. ولولا هذا الشرط لأمكن
+      // إعادة استعمال طلب تسجيل قديم لتغيير دور حساب معتمد.
+      const userSnap = await db().collection("users").doc(uid).get();
+      if (!userSnap.exists) {
+        throw new HttpsError("not-found", "سجل المستخدم المطلوب اعتماده غير موجود.");
+      }
+      if (userSnap.data()?.status !== "pending") {
+        throw new HttpsError(
+          "failed-precondition",
+          "هذا الحساب لم يعد بانتظار الاعتماد. لتغيير دوره استخدم شاشة إدارة المستخدمين.",
+        );
+      }
+      // استثناء مسؤول النظام من شرطَي التأكيد والنطاق — حقل لا يكتبه غيره.
+      const exempt = userSnap.data()?.emailVerificationExempt === true;
+
       // شرط البريد الوزاري المؤكَّد يُفحص **هنا** لا في المتصفح: هذه هي
       // بوابة الاعتماد الفعلية، وأي فحص في الواجهة يمكن تجاوزه. ومسؤول
       // النظام يستثني من يشاء بحقل على سجل المستخدم لا يكتبه غيره.
       const policySnap = await db().collection("settings").doc("registration").get();
       const policy = policySnap.exists ? policySnap.data() ?? {} : {};
       const requireVerification = policy.requireEmailVerification !== false;
-      if (requireVerification) {
-        const userSnap = await db().collection("users").doc(uid).get();
-        const exempt = userSnap.exists && userSnap.data()?.emailVerificationExempt === true;
-        if (!exempt) {
-          const account = await admin.auth().getUser(uid);
-          if (!account.emailVerified) {
-            throw new HttpsError(
-              "failed-precondition",
-              "لم يؤكّد هذا الموظف بريده الوزاري بعد. اطلب منه فتح رسالة التأكيد، " +
-              "أو امنحه استثناءً من شاشة إدارة المستخدمين ثم أعد المحاولة.",
-            );
-          }
-        }
+      // حساب المصادقة هو مرجع البريد: `payload.email` كتبه العميل ويمكن أن
+      // يخالف البريد الذي أُنشئ به الحساب فعلاً وأُرسلت إليه رسالة التأكيد.
+      const account = await admin.auth().getUser(uid);
+      if (requireVerification && !exempt && !account.emailVerified) {
+        throw new HttpsError(
+          "failed-precondition",
+          "لم يؤكّد هذا الموظف بريده الوزاري بعد. اطلب منه فتح رسالة التأكيد، " +
+          "أو امنحه استثناءً من شاشة إدارة المستخدمين ثم أعد المحاولة.",
+        );
       }
 
       // النطاق المسموح يُفحص هنا أيضاً: نموذج التسجيل يفحصه لطفاً بالموظف،
@@ -234,11 +269,9 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         policy.allowedEmailDomains.map((d: unknown) => String(d).trim().toLowerCase()) :
         [];
       if (domains.length > 0) {
-        const email = String(payload.email ?? "").trim().toLowerCase();
+        const email = String(account.email ?? "").trim().toLowerCase();
         const at = email.lastIndexOf("@");
         const domain = at >= 0 ? email.slice(at + 1) : "";
-        const userSnap = await db().collection("users").doc(uid).get();
-        const exempt = userSnap.exists && userSnap.data()?.emailVerificationExempt === true;
         if (!exempt && !domains.includes(domain)) {
           throw new HttpsError(
             "failed-precondition",

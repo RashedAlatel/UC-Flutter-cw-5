@@ -143,6 +143,32 @@ class _RequestCardState extends State<_RequestCard> {
             ),
             const SizedBox(height: 10),
             Text(r.description, style: const TextStyle(fontSize: 12.5, color: AppColors.textPrimary, height: 1.6)),
+            // الدور المعروض هنا مقروء من حمولة الطلب، أي من الحقل نفسه الذي
+            // ستكتبه الدالة الخلفية في بطاقة الدخول. العنوان والوصف أعلاه
+            // نصّان كتبهما مُقدّم الطلب، فلو خالفا الحمولة ظهر الخلاف هنا
+            // قبل الضغط على «موافقة».
+            if (r.grantedRoleLabel != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.accent.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.verified_user_outlined, size: 16, color: AppColors.textPrimary),
+                    const SizedBox(width: 6),
+                    Text(
+                      'سيُمنح عند الموافقة دور: ${r.grantedRoleLabel}',
+                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 18,

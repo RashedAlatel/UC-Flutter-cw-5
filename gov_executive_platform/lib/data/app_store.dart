@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:firebase_storage/firebase_storage.dart' as fb_storage;
 import 'package:flutter/material.dart';
 
 import '../models/alert_rules.dart';
 import '../models/registration_policy.dart';
 import '../models/announcement.dart';
 import '../models/app_user.dart';
+import '../models/attachment.dart';
 import '../models/approval_request.dart';
 import '../models/audit_log_entry.dart';
 import '../models/blocker.dart';
@@ -26,7 +28,9 @@ import '../models/role_permissions.dart';
 import '../models/risk.dart';
 import '../models/work_item.dart';
 import '../theme/app_theme.dart';
+import '../utils/file_picker.dart';
 import '../utils/formatters.dart';
+import '../utils/safe_file_name.dart';
 import 'default_departments.dart';
 import 'demo_data.dart';
 import 'ministry_import_data.dart';
@@ -1578,11 +1582,19 @@ class AppStore extends ChangeNotifier {
     return (one == null || one.isEmpty) ? const [] : [one];
   }
 
+  /// من يعدّل المشروع ويكتب تحديثاته اليومية.
+  ///
+  /// **العضوية لا الحقل المفرد.** `project.managerUid` يُشتقّ من **أول**
+  /// اسم في `managerUids`، فمنذ أن صار للمشروع أكثر من مدير كان المدير
+  /// الثاني — والمنفّذ المُسنَد — ممنوعَين من كتابة تحديث يومي بلا سبب
+  /// ظاهر. والمقارنة هنا صارت بالعضوية كما في قواعد الخادم.
   bool canEditProject(Project project) {
-    if (currentUser == null) return false;
+    final uid = currentUser?.id;
+    if (uid == null) return false;
     if (isAdmin) return true;
     if (isExecutive) return false;
-    if (isOfficer) return project.managerUid == currentUser!.id;
+    if (project.hasMember(uid)) return true;
+    if (isOfficer) return false;
     if (isManager) return myDepartmentIds.contains(project.departmentId);
     return currentUser!.departmentId == project.departmentId;
   }
@@ -1936,6 +1948,60 @@ class AppStore extends ChangeNotifier {
 
   // ------------------------- عمليات الكتابة (بيانات تشغيلية) -------------------------
 
+  /// يرفع مرفقاً إلى تخزين المنصة ويعيده جاهزاً للحفظ مع التحديث.
+  ///
+  /// يعيد **رسالة عربية** عند الفشل بدل رمي استثناء: أشيع أسباب الفشل أن
+  /// التخزين غير مفعَّل في مشروع Firebase أصلاً، وهو ليس عطلاً في المنصة بل
+  /// خطوةٌ لم يخطُها مسؤول النظام بعد — فيجب أن تُقال له كما هي، لا أن تظهر
+  /// كخطأ غامض ولا أن تفشل صامتة.
+  Future<({Attachment? file, String? error})> uploadAttachment({
+    required String projectId,
+    required PickedFile picked,
+  }) async {
+    const maxBytes = 10 * 1024 * 1024;
+    if (picked.sizeBytes > maxBytes) {
+      return (file: null, error: 'حجم الملف يتجاوز ١٠ ميغابايت. ارفعه على نظام الوزارة وألصق رابطه.');
+    }
+    try {
+      // الاسم يُنقّى قبل أن يصير مساراً: الأسماء العربية تُسقط الامتداد في
+      // Chromium عند التنزيل — راجع safe_file_name.dart.
+      final clean = safeFileName(picked.name, fallbackBase: 'attachment');
+      final path = 'projects/$projectId/dailyUpdates/${DateTime.now().millisecondsSinceEpoch}_$clean';
+      final ref = fb_storage.FirebaseStorage.instance.ref(path);
+      await ref.putData(
+        picked.bytes,
+        fb_storage.SettableMetadata(
+          contentType: picked.contentType.isEmpty ? 'application/octet-stream' : picked.contentType,
+          // الاسم الأصلي يبقى محفوظاً ليُعرض للمستخدم كما كتبه.
+          customMetadata: {'originalName': picked.name},
+        ),
+      );
+      final url = await ref.getDownloadURL();
+      return (
+        file: Attachment(
+          name: picked.name,
+          url: url,
+          kind: AttachmentKind.upload,
+          contentType: picked.contentType,
+          sizeBytes: picked.sizeBytes,
+          storagePath: path,
+        ),
+        error: null,
+      );
+    } on fb_storage.FirebaseException catch (e) {
+      if (e.code == 'unknown' || e.code == 'object-not-found' || e.code == 'unauthorized') {
+        return (
+          file: null,
+          error: 'تعذّر الرفع — قد لا يكون التخزين (Storage) مفعّلاً في المشروع بعد. '
+              'يمكنك إرفاق رابط الملف بدلاً من رفعه، أو اطلب من مسؤول النظام تفعيل التخزين.',
+        );
+      }
+      return (file: null, error: e.message ?? 'تعذّر رفع الملف');
+    } catch (e) {
+      return (file: null, error: 'تعذّر رفع الملف: $e');
+    }
+  }
+
   Future<void> addDailyUpdate({
     required Project project,
     required String achievements,
@@ -1944,6 +2010,8 @@ class AppStore extends ChangeNotifier {
     required List<String> blockersText,
     required List<String> decisionsRequired,
     required double progressPercent,
+    String notes = '',
+    List<Attachment> attachments = const [],
   }) async {
     final now = DateTime.now();
     final batch = _db.batch();
@@ -1965,6 +2033,8 @@ class AppStore extends ChangeNotifier {
           blockers: blockersText,
           decisionsRequired: decisionsRequired,
           progressPercent: progressPercent,
+          notes: notes,
+          attachments: attachments,
         ).toMap(),
         'managerUid': project.managerUid,
         'managerUids': project.managerUids,

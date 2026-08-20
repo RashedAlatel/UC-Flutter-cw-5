@@ -44,7 +44,7 @@ async function seed(project) {
 
 before(async () => {
   env = await initializeTestEnvironment({
-    projectId: 'rules-test',
+    projectId: 'rules-test-membership',
     firestore: {
       rules: readFileSync('../firestore.rules', 'utf8'),
       host: '127.0.0.1',

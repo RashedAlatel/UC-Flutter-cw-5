@@ -56,7 +56,7 @@ function newProject(departmentId) {
 
 before(async () => {
   env = await initializeTestEnvironment({
-    projectId: 'rules-test',
+    projectId: 'rules-test-grants',
     firestore: { rules: readFileSync('../firestore.rules', 'utf8'), host: '127.0.0.1', port: 8080 },
   });
   await env.clearFirestore();

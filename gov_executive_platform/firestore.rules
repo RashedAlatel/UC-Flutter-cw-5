@@ -123,6 +123,15 @@ service cloud.firestore {
     function realProject(projectId) {
       return get(/databases/$(database)/documents/projects/$(projectId)).data;
     }
+    // عضوية المشروع **الحقيقي** لا الحقل المنسوخ على المستند الجديد.
+    //
+    // كتابة التحديثات والمهام والمخاطر والعوائق كانت تُفحص بـ managerUid
+    // المنسوخ، وهو أوّل اسم في قائمة المديرين وحده. فمنذ تعدّد المديرين صار
+    // المدير الثاني — والمنفّذ المُسنَد — ممنوعَين من كتابة تحديث يومي على
+    // مشروعهم. والقراءة كانت تعرف العضوية أصلاً؛ الكتابة وحدها تخلّفت.
+    function isMemberOfRealProject(projectId) {
+      return isApproved() && isProjectMember(realProject(projectId));
+    }
     function matchesRealProject(projectId, deptId, managerUid) {
       let p = realProject(projectId);
       return deptOf(p) == deptId && managerOf(p) == managerUid;
@@ -218,7 +227,8 @@ service cloud.firestore {
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
                                       || isMyDeptAny(deptOf(resource.data)));
-      allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+      allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                        || isMemberOfRealProject(request.resource.data.projectId))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                     && !request.resource.data.diff(resource.data).affectedKeys()
@@ -232,7 +242,8 @@ service cloud.firestore {
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
                                       || isMyDeptAny(deptOf(resource.data)));
-      allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+      allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                        || isMemberOfRealProject(request.resource.data.projectId))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       // السجل غير قابل للتعديل إطلاقاً. الحذف مسموح لمسؤول النظام فقط، وهو
       // لازم لحذف مشروع أو إدارة حذفاً متسلسلاً دون ترك تحديثات يتيمة.
@@ -246,7 +257,8 @@ service cloud.firestore {
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
                                       || isMyDeptAny(deptOf(resource.data)));
-      allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+      allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                        || isMemberOfRealProject(request.resource.data.projectId))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                     && !request.resource.data.diff(resource.data).affectedKeys()
@@ -259,7 +271,8 @@ service cloud.firestore {
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
                                       || isMyDeptAny(deptOf(resource.data)));
-      allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+      allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                        || isMemberOfRealProject(request.resource.data.projectId))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                     && !request.resource.data.diff(resource.data).affectedKeys()

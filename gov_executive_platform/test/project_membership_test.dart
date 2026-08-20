@@ -111,6 +111,37 @@ void main() {
     });
   });
 
+  // الكتابة تتبع العضوية لا الحقل المفرد. وقبل هذا كان `project.managerUid`
+  // — وهو **أوّل** اسم في القائمة وحده — هو المعيار، فالمدير الثاني والمنفّذ
+  // المُسنَد ممنوعان من كتابة تحديث يومي على مشروعهما.
+  group('من يكتب على المشروع', () {
+    test('المدير الثاني يكتب كما يكتب الأول', () {
+      final p = _project('p', 'd1', managers: ['someone', 'me']);
+      final store = AppStore()..currentUser = _user(UserRole.projectOfficer, dept: 'd1');
+      expect(p.managerUid, 'someone', reason: 'الحقل المفرد أوّل القائمة');
+      expect(store.canEditProject(p), isTrue);
+      expect(store.canSubmitDailyUpdate(p), isTrue);
+    });
+
+    test('والمنفّذ المُسنَد كذلك', () {
+      final p = _project('p', 'd1', executors: ['me']);
+      final store = AppStore()..currentUser = _user(UserRole.employee, dept: 'd1');
+      expect(store.canSubmitDailyUpdate(p), isTrue);
+    });
+
+    test('ومدير مشروع ليس عضواً لا يكتب ولو كان في الإدارة', () {
+      final p = _project('p', 'd1', managers: ['someone']);
+      final store = AppStore()..currentUser = _user(UserRole.projectOfficer, dept: 'd1');
+      expect(store.canEditProject(p), isFalse);
+    });
+
+    test('ومدير الإدارة يكتب على مشاريع إدارته لا غيرها', () {
+      final store = AppStore()..currentUser = _user(UserRole.departmentManager, dept: 'd1');
+      expect(store.canEditProject(_project('p', 'd1')), isTrue);
+      expect(store.canEditProject(_project('p', 'd9')), isFalse);
+    });
+  });
+
   group('حدود الانضمام في الواجهة', () {
     test('بلا الصلاحية لا انضمام', () {
       final store = AppStore()

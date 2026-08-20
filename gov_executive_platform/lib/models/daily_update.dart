@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'attachment.dart';
+
 class DailyUpdate {
   final String id;
   final String projectId;
@@ -14,6 +16,12 @@ class DailyUpdate {
   final List<String> decisionsRequired; // القرارات المطلوبة من القيادة
   final double progressPercent; // نسبة التقدم عند التحديث
 
+  /// ملاحظات حرة يكتبها صاحب التحديث — ما لا يقع تحت الإنجازات ولا العوائق.
+  final String notes;
+
+  /// مرفقات اليوم: ملفات مرفوعة أو روابط إلى ملفات على أنظمة الوزارة.
+  final List<Attachment> attachments;
+
   const DailyUpdate({
     required this.id,
     required this.projectId,
@@ -27,6 +35,8 @@ class DailyUpdate {
     required this.blockers,
     required this.decisionsRequired,
     required this.progressPercent,
+    this.notes = '',
+    this.attachments = const [],
   });
 
   Map<String, dynamic> toMap() => {
@@ -41,6 +51,8 @@ class DailyUpdate {
         'blockers': blockers,
         'decisionsRequired': decisionsRequired,
         'progressPercent': progressPercent,
+        'notes': notes,
+        'attachments': [for (final a in attachments) a.toMap()],
       };
 
   factory DailyUpdate.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -58,6 +70,9 @@ class DailyUpdate {
       blockers: List<String>.from(json['blockers'] as List? ?? const []),
       decisionsRequired: List<String>.from(json['decisionsRequired'] as List? ?? const []),
       progressPercent: (json['progressPercent'] as num?)?.toDouble() ?? 0,
+      // التحديثات المكتوبة قبل هذين الحقلين تُقرأ بلا كسر.
+      notes: json['notes'] as String? ?? '',
+      attachments: Attachment.listFrom(json['attachments']),
     );
   }
 }

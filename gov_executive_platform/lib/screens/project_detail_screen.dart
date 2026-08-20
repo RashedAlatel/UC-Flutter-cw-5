@@ -3,9 +3,11 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/enums.dart';
+import '../models/attachment.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
 import '../theme/app_theme.dart';
+import '../utils/file_download.dart';
 import '../widgets/project_team_card.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
@@ -333,6 +335,24 @@ class ProjectDetailScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(u.achievements, style: const TextStyle(fontSize: 13, height: 1.5)),
+                        if (u.blockers.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          _UpdateLines(label: 'عوائق', lines: u.blockers, color: const Color(0xFFE0692B)),
+                        ],
+                        if (u.notes.trim().isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          _UpdateLines(label: 'ملاحظات', lines: [u.notes], color: AppColors.info),
+                        ],
+                        if (u.attachments.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final a in u.attachments) _AttachmentChip(attachment: a),
+                            ],
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         Text('نسبة التقدم عند التحديث: ${Formatters.percent(u.progressPercent)}',
                             style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary, fontWeight: FontWeight.w700)),
@@ -1102,6 +1122,57 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
           child: const Text('إضافة'),
         ),
       ],
+    );
+  }
+}
+
+/// سطور مُعنونة داخل بطاقة التحديث اليومي (العوائق، الملاحظات).
+class _UpdateLines extends StatelessWidget {
+  final String label;
+  final List<String> lines;
+  final Color color;
+
+  const _UpdateLines({required this.label, required this.lines, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: color)),
+        const SizedBox(height: 2),
+        ...lines.map((l) => Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text('• $l', style: const TextStyle(fontSize: 12.5, height: 1.6)),
+            )),
+      ],
+    );
+  }
+}
+
+/// مرفق على تحديث يومي: يُفتح في تبويب جديد.
+///
+/// الفتح داخل لمسة المستخدم مباشرة بلا أي انتظار — سفاري على الآيفون يمنع
+/// صامتاً كل فتح يقع بعد عملية غير متزامنة، وهو الدرس نفسه الذي كلّفنا
+/// جولةً في تنزيل التقارير.
+class _AttachmentChip extends StatelessWidget {
+  final Attachment attachment;
+
+  const _AttachmentChip({required this.attachment});
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      avatar: Icon(
+        attachment.kind == AttachmentKind.link ? Icons.link_rounded : Icons.attach_file_rounded,
+        size: 16,
+      ),
+      label: Text(
+        [attachment.name, if (attachment.readableSize.isNotEmpty) attachment.readableSize].join(' · '),
+        style: const TextStyle(fontSize: 12),
+      ),
+      onPressed: () => openDownloadedUrl(attachment.url),
+      tooltip: attachment.kind.label,
     );
   }
 }

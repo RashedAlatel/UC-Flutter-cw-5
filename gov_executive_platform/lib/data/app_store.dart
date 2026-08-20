@@ -93,6 +93,11 @@ class AppStore extends ChangeNotifier {
   /// بدل شاشة فارغة غامضة.
   final Map<String, String> dataErrors = {};
 
+  /// المشاريع من مصادرها الثلاثة قبل الدمج — راجع `publishProjects`.
+  List<Project> _projectsByScope = [];
+  List<Project> _projectsByMembership = [];
+  List<Project> _projectsByExecution = [];
+
   /// هل رُفضت قراءة أي مجموعة؟ يُستخدم لإظهار اللافتة.
   bool get hasDataErrors => dataErrors.isNotEmpty;
 
@@ -622,6 +627,9 @@ class AppStore extends ChangeNotifier {
     // أخطاء الاشتراك السابق لا تصف الاشتراك الجديد، فتُمسح معه — وإلا بقيت
     // لافتة خطأ معلّقة بعد أن صُحّحت صلاحيات الحساب فعلاً.
     dataErrors.clear();
+    _projectsByScope = [];
+    _projectsByMembership = [];
+    _projectsByExecution = [];
     departments = [];
     sections = [];
     projects = [];
@@ -738,10 +746,41 @@ class AppStore extends ChangeNotifier {
       return scopedDept == null ? col : col.where('departmentId', isEqualTo: scopedDept);
     }
 
-    _listen('projects', scoped('projects').snapshots(), (snap) {
-      projects = snap.docs.map(Project.fromDoc).toList();
+    // المشاريع تُقرأ بتدفّقين لا بواحد.
+    //
+    // Firestore لا يجمع شرطين مختلفين في استعلام واحد، وصاحب صلاحية
+    // «الانضمام لمشاريع الإدارة» يحتاج الاثنين معاً: المشاريع التي هو عضو
+    // فيها (قد تكون خارج إدارته إن نُقل)، ومشاريع إدارته كاملةً. ولو كُتب
+    // التدفّقان في نفس القائمة لداس أحدهما الآخر عند كل لقطة، فتظهر
+    // المشاريع وتختفي بلا سبب — لذلك لكلٍّ قائمته وتُدمجان في `projects`.
+    void publishProjects() {
+      final byId = <String, Project>{};
+      for (final p in [..._projectsByScope, ..._projectsByMembership, ..._projectsByExecution]) {
+        byId[p.id] = p;
+      }
+      projects = byId.values.toList();
       notifyListeners();
+    }
+
+    _listen('projects', scoped('projects').snapshots(), (snap) {
+      _projectsByScope = snap.docs.map(Project.fromDoc).toList();
+      publishProjects();
     });
+    final myUidForProjects = currentUser?.id;
+    if (myUidForProjects != null && !canViewAllDepartments) {
+      _listen('projects/عضويتي',
+          _db.collection('projects').where('managerUids', arrayContains: myUidForProjects).snapshots(),
+          (snap) {
+        _projectsByMembership = snap.docs.map(Project.fromDoc).toList();
+        publishProjects();
+      });
+      _listen('projects/تنفيذي',
+          _db.collection('projects').where('executorUids', arrayContains: myUidForProjects).snapshots(),
+          (snap) {
+        _projectsByExecution = snap.docs.map(Project.fromDoc).toList();
+        publishProjects();
+      });
+    }
     _listen('tasks', scoped('tasks').snapshots(), (snap) {
       tasks = snap.docs.map(ProjectTask.fromDoc).toList();
       notifyListeners();
@@ -994,6 +1033,8 @@ class AppStore extends ChangeNotifier {
           return r.manageDashboard;
         case RolePermission.approveGeneralDecisions:
           return r.approveGeneralDecisions;
+        case RolePermission.selfAssignProjects:
+          return r.selfAssignProjects;
         case RolePermission.manageWorks:
         case RolePermission.deleteRecords:
         case RolePermission.sendNotifications:
@@ -1151,9 +1192,17 @@ class AppStore extends ChangeNotifier {
   /// مشاريع إدارته أو إداراته (قد تكون أكثر من إدارة واحدة) فقط.
   List<Project> get visibleProjects {
     if (canViewAllDepartments) return projects;
-    if (isOfficer) return projects.where((p) => p.managerUid == currentUser?.id).toList();
+    final uid = currentUser?.id;
+    // صاحب صلاحية «الانضمام لمشاريع الإدارة» يرى إدارته كاملةً — وهذا شرط
+    // المطلب نفسه: لا يستطيع الموظف اختيار مشروع ينضمّ إليه إن لم يرَ إلا
+    // ما هو عضو فيه أصلاً.
+    if (hasPermission(RolePermission.selfAssignProjects)) {
+      final myDepts = {...myDepartmentIds, if (currentUser?.departmentId != null) currentUser!.departmentId!};
+      return projects.where((p) => myDepts.contains(p.departmentId) || p.hasMember(uid)).toList();
+    }
+    if (isOfficer) return projects.where((p) => p.hasMember(uid)).toList();
     if (isManager) return projects.where((p) => myDepartmentIds.contains(p.departmentId)).toList();
-    return projects.where((p) => p.departmentId == currentUser?.departmentId).toList();
+    return projects.where((p) => p.departmentId == currentUser?.departmentId || p.hasMember(uid)).toList();
   }
 
   List<Project> projectsForDepartment(String departmentId) =>
@@ -1490,6 +1539,7 @@ class AppStore extends ChangeNotifier {
           progressPercent: progressPercent,
         ).toMap(),
         'managerUid': project.managerUid,
+        'managerUids': project.managerUids,
       },
     );
 
@@ -1523,6 +1573,7 @@ class AppStore extends ChangeNotifier {
             dateRaised: now,
           ).toMap(),
           'managerUid': project.managerUid,
+          'managerUids': project.managerUids,
         },
       );
     }
@@ -1540,6 +1591,7 @@ class AppStore extends ChangeNotifier {
             dateRaised: now,
           ).toMap(),
           'managerUid': project.managerUid,
+          'managerUids': project.managerUids,
         },
       );
     }
@@ -1586,8 +1638,12 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> addTask(ProjectTask task) async {
-    final managerUid = projectById(task.projectId)?.managerUid;
-    await _db.collection('tasks').doc(task.id).set({...task.toMap(), 'managerUid': managerUid});
+    final project = projectById(task.projectId);
+    await _db.collection('tasks').doc(task.id).set({
+      ...task.toMap(),
+      'managerUid': project?.managerUid,
+      'managerUids': project?.managerUids ?? const <String>[],
+    });
     await _log('إضافة مهمة', 'تمت إضافة مهمة جديدة "${task.title}"');
   }
 
@@ -1658,16 +1714,113 @@ class AppStore extends ChangeNotifier {
       progressPercent: 0,
       executorNames: executorNames,
       createdByUid: currentUser?.id ?? '',
-      managerUid: managerUid,
+      managerUids: managerUid == null || managerUid.isEmpty ? const [] : [managerUid],
       sectionId: sectionId,
     ).toMap());
     await _log('إضافة مشروع', 'أضاف ${currentUser?.name} مشروعاً جديداً "$name" مباشرة');
   }
 
-  /// تعيين/تغيير "مدير المشروع" (مسؤول النظام فقط) — الحساب المعيَّن هنا هو
-  /// الوحيد الذي سيرى هذا المشروع إن كان دوره "مدير مشروع".
+  // ------------------------- عضوية المشروع -------------------------
+
+  /// يكتب قائمتَي عضوية المشروع معاً، ومعهما الحقل المفرد الموروث متسقاً.
+  ///
+  /// الكتابة في موضع واحد مقصودة: قاعدة الأمان تشترط أن يكون `managerUid`
+  /// عضواً في `managerUids`، فأي مسار كتابة يغفل عن ذلك يُرفض على الخادم —
+  /// أو أسوأ، يمرّ ويترك المستند متناقضاً.
+  Future<void> _writeMembership(Project project, List<String> managers, List<String> executors) async {
+    await _db.collection('projects').doc(project.id).update({
+      'managerUids': managers,
+      'executorUids': executors,
+      'managerUid': managers.isEmpty ? null : managers.first,
+    });
+  }
+
+  /// انضمام المستخدم الحالي إلى مشروع، أو تغيير صفته فيه.
+  ///
+  /// يعمل على **معرّف المستخدم نفسه فقط** — وهو ما تفرضه قاعدة الأمان أيضاً،
+  /// فلا يستطيع أحد إضافة غيره ولا إزاحة زميله عن مشروعه.
+  Future<String?> joinProject(Project project, {required bool asManager}) async {
+    final uid = currentUser?.id;
+    if (uid == null) return 'لا يوجد مستخدم مسجَّل';
+    if (!canSelfAssign(project)) return 'لا تملك صلاحية الانضمام لمشاريع هذه الإدارة';
+    final managers = project.managerUids.toList()..remove(uid);
+    final executors = project.executorUids.toList()..remove(uid);
+    if (asManager) {
+      managers.add(uid);
+    } else {
+      executors.add(uid);
+    }
+    try {
+      await _writeMembership(project, managers, executors);
+      await _log('انضمام لمشروع',
+          'سجّل ${currentUser?.name} نفسه ${asManager ? 'مديراً' : 'منفّذاً'} في مشروع "${project.name}"');
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// انسحاب المستخدم الحالي من مشروع.
+  Future<String?> leaveProject(Project project) async {
+    final uid = currentUser?.id;
+    if (uid == null) return 'لا يوجد مستخدم مسجَّل';
+    try {
+      await _writeMembership(
+        project,
+        project.managerUids.where((x) => x != uid).toList(),
+        project.executorUids.where((x) => x != uid).toList(),
+      );
+      await _log('انسحاب من مشروع', 'سحب ${currentUser?.name} نفسه من مشروع "${project.name}"');
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// نقل عضو بين صفتَي مدير ومنفّذ، أو إزالته — لمسؤول النظام ومدير الإدارة.
+  ///
+  /// `role` يقبل `manager` أو `executor` أو null للإزالة.
+  Future<String?> setProjectMemberRole(Project project, String uid, String? role) async {
+    if (!canManageProjectTeam(project)) return 'لا تملك صلاحية تعديل فريق هذا المشروع';
+    final managers = project.managerUids.where((x) => x != uid).toList();
+    final executors = project.executorUids.where((x) => x != uid).toList();
+    if (role == 'manager') managers.add(uid);
+    if (role == 'executor') executors.add(uid);
+    try {
+      await _writeMembership(project, managers, executors);
+      final name = users.where((u) => u.id == uid).map((u) => u.name).firstOrNull ?? uid;
+      await _log('تعديل فريق المشروع',
+          'عُدِّلت صفة "$name" في مشروع "${project.name}" إلى ${role == 'manager' ? 'مدير' : role == 'executor' ? 'منفّذ' : 'مُزال'}');
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// هل يستطيع المستخدم الحالي تسجيل نفسه على هذا المشروع؟
+  ///
+  /// الصلاحية قابلة للسحب من شاشة «صلاحيات الأدوار»، ومقيَّدة بإدارته: لا
+  /// معنى لأن ينضم موظف لمشروع إدارة لا يعمل فيها.
+  bool canSelfAssign(Project project) {
+    if (!hasPermission(RolePermission.selfAssignProjects)) return false;
+    return myDepartmentIds.contains(project.departmentId) ||
+        currentUser?.departmentId == project.departmentId;
+  }
+
+  /// هل يستطيع المستخدم الحالي تعديل فريق المشروع كاملاً (لا نفسه فقط)؟
+  bool canManageProjectTeam(Project project) {
+    if (isAdmin) return true;
+    return isManager && myDepartmentIds.contains(project.departmentId);
+  }
+
+  /// تعيين/تغيير "مدير المشروع" (مسؤول النظام فقط) — يُبقى للتوافق مع
+  /// المسارات التي تُسنِد مديراً واحداً، ويكتب القائمة متسقةً.
   Future<void> setProjectManager(Project project, String? managerUid) async {
-    await _db.collection('projects').doc(project.id).update({'managerUid': managerUid});
+    await _writeMembership(
+      project,
+      managerUid == null || managerUid.isEmpty ? const [] : [managerUid],
+      project.executorUids,
+    );
     await _log('تعيين مدير مشروع', 'تم تعيين مدير المشروع لمشروع "${project.name}"');
   }
 

@@ -6,6 +6,7 @@ import '../models/enums.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
 import '../theme/app_theme.dart';
+import '../widgets/project_team_card.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
 import '../widgets/custom_widgets_section.dart';
@@ -163,28 +164,16 @@ class ProjectDetailScreen extends StatelessWidget {
                           ],
                         ),
                       ),
+                      // العدد لا الاسم المفرد: للمشروع أكثر من مدير الآن،
+                      // والتعديل صار من بطاقة «فريق المشروع» أدناه.
                       _MetaBit(
                         icon: Icons.manage_accounts_outlined,
-                        label: 'مدير المشروع',
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              _managerName(store, project.managerUid),
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-                            ),
-                            if (store.isAdmin) ...[
-                              const SizedBox(width: 4),
-                              InkWell(
-                                onTap: () => showDialog(
-                                  context: context,
-                                  builder: (_) => _AssignManagerDialog(project: project),
-                                ),
-                                child: Icon(Icons.edit_outlined, size: 14, color: AppColors.primary),
-                              ),
-                            ],
-                          ],
-                        ),
+                        label: project.managerUids.length > 1 ? 'مديرو المشروع' : 'مدير المشروع',
+                        value: project.managerUids.isEmpty
+                            ? 'لم يُعيَّن بعد'
+                            : project.managerUids.length == 1
+                                ? _managerName(store, project.managerUids.first)
+                                : '${_managerName(store, project.managerUids.first)} و${project.managerUids.length - 1} غيره',
                       ),
                       _MetaBit(icon: Icons.event_outlined, label: 'تاريخ البدء', value: Formatters.shortDate(project.startDate)),
                       _MetaBit(
@@ -228,6 +217,8 @@ class ProjectDetailScreen extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 16),
+          ProjectTeamCard(project: project),
           const SizedBox(height: 16),
           _ProjectPipelineCard(project: project, tasks: tasks),
           const SizedBox(height: 16),
@@ -419,63 +410,6 @@ class _MetaBit extends StatelessWidget {
 
 /// تعيين/تغيير "مدير المشروع" (مسؤول النظام فقط) من قائمة الحسابات الحقيقية
 /// بدور "مدير مشروع" — الحساب المُختار هو الوحيد الذي سيرى هذا المشروع.
-class _AssignManagerDialog extends StatefulWidget {
-  final Project project;
-  const _AssignManagerDialog({required this.project});
-
-  @override
-  State<_AssignManagerDialog> createState() => _AssignManagerDialogState();
-}
-
-class _AssignManagerDialogState extends State<_AssignManagerDialog> {
-  String? _managerUid;
-  bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _managerUid = widget.project.managerUid;
-  }
-
-  Future<void> _save() async {
-    setState(() => _busy = true);
-    await context.read<AppStore>().setProjectManager(widget.project, _managerUid);
-    if (!mounted) return;
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final store = context.watch<AppStore>();
-    final officers = store.users.where((u) => u.role == UserRole.projectOfficer).toList();
-    return AlertDialog(
-      title: const Text('تعيين مدير المشروع'),
-      content: SizedBox(
-        width: 380,
-        child: DropdownButtonFormField<String?>(
-          initialValue: _managerUid,
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'مدير المشروع'),
-          items: [
-            const DropdownMenuItem(value: null, child: Text('بدون تعيين')),
-            ...officers.map((u) => DropdownMenuItem(value: u.id, child: Text(u.name))),
-          ],
-          onChanged: (v) => setState(() => _managerUid = v),
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
-        ElevatedButton(
-          onPressed: _busy ? null : _save,
-          child: _busy
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Text('حفظ'),
-        ),
-      ],
-    );
-  }
-}
-
 /// تعديل قائمة الأشخاص المنفذين للمشروع (يمكن أن يكون أكثر من شخص).
 class _EditExecutorsDialog extends StatefulWidget {
   final Project project;

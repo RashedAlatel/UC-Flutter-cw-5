@@ -42,9 +42,51 @@ service cloud.firestore {
     // بإدارته كاملة كما هو الحال لمدير الإدارة.
     function isOfficer() { return isApproved() && role() == 'projectOfficer'; }
     function isMyProject(managerUid) { return isOfficer() && managerUid != null && managerUid == request.auth.uid; }
+    // عضوية المشروع صارت قائمتين (تعدّد المديرين بقرار من مسؤول النظام).
+    // الحقل المفرد managerUid يبقى مكتوباً للتوافق، لكن الفحص يعتمد القائمة.
+    function managersOf(data) { return data.get('managerUids', []); }
+    function executorsOf(data) { return data.get('executorUids', []); }
+    function isProjectMember(data) {
+      return isApproved() &&
+             (request.auth.uid in managersOf(data) || request.auth.uid in executorsOf(data));
+    }
     // صلاحية القراءة/الكتابة على مستند مرتبط بمشروع (تقدّم عبر departmentId و managerUid المنسوخين عليه).
     function canEditDept(deptId) { return isAdmin() || (isDeptManager() && isMyDeptOfManager(deptId)); }
     function canAccessProjectDoc(deptId, managerUid) { return canEditDept(deptId) || isMyProject(managerUid); }
+    // صاحب صلاحية «الانضمام لمشاريع الإدارة» يقرأ مشاريع إدارته ومستنداتها
+    // التابعة. بدون التابعة يفتح مشروعاً يراه فلا يجد فيه شيئاً، فيبدو العطل
+    // بيانات مفقودة لا صلاحية ناقصة.
+    function canBrowseDeptProjects(deptId) { return perm('sap') && isMyDeptAny(deptId); }
+
+    // ــــ تسجيل الموظف نفسه على مشروع ــــ
+    //
+    // الفرق بين القائمة قبل التحديث وبعده يجب ألا يحوي إلا **معرّف المتصل**،
+    // في الاتجاهين معاً: فلا يضيف أحدٌ غيره، ولا يُزيح زميله عن مشروعه. وهذا
+    // مفروض على الخادم لا في الواجهة، لأن الواجهة يمكن تجاوزها.
+    function selfOnlyDelta(before, after) {
+      return after.toSet().difference(before.toSet()).hasOnly([request.auth.uid])
+          && before.toSet().difference(after.toSet()).hasOnly([request.auth.uid]);
+    }
+    function onlyMembershipKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['managerUids', 'executorUids', 'managerUid']);
+    }
+    // الحقل المفرد الموروث ضمن المفاتيح المسموح تعديلها لأن العميل يكتبه مع
+    // القائمة. وتركه بلا قيد ثغرة: يستطيع الموظف عندها ضبطه على **أي أحد**
+    // فيُسنِد المشروع لمن ليس عضواً فيه. فيُشترط أن يكون null أو عضواً.
+    function legacyManagerConsistent() {
+      return request.resource.data.get('managerUid', null) == null
+          || request.resource.data.get('managerUid', null) in managersOf(request.resource.data);
+    }
+    function isSelfMembershipChange() {
+      return isApproved()
+          && perm('sap')
+          && isMyDeptAny(deptOf(resource.data))
+          && onlyMembershipKeys()
+          && legacyManagerConsistent()
+          && selfOnlyDelta(managersOf(resource.data), managersOf(request.resource.data))
+          && selfOnlyDelta(executorsOf(resource.data), executorsOf(request.resource.data));
+    }
     // عند إنشاء مستند تابع لمشروع (مهمة/تحديث يومي/خطر/عائق)، نتحقق أن الحقول
     // المنسوخة (departmentId، managerUid) تطابق فعلاً مستند المشروع الحقيقي،
     // حتى لا يستطيع عميل خبيث انتحال managerUid لا يملكه للوصول لمشروع غيره.
@@ -102,7 +144,10 @@ service cloud.firestore {
 
     // ------------------------- المشاريع -------------------------
     match /projects/{id} {
-      allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
+      allow read: if isApproved() && (canViewAll()
+                                      || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                                      || isProjectMember(resource.data)
+                                      || canBrowseDeptProjects(deptOf(resource.data)));
       // مسؤول النظام يملك صلاحية إضافة مشروع مباشرة (موافقته الذاتية كافية).
       // أي دور آخر لا يُنشئ مشروعاً مباشرة؛ الإنشاء عندها يتم فقط عبر Cloud
       // Function بعد اعتماد طلب "إضافة مشروع" من مسؤول النظام.
@@ -114,13 +159,23 @@ service cloud.firestore {
       allow update: if isAdmin()
                     || (canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                         && !request.resource.data.diff(resource.data).affectedKeys()
-                              .hasAny(['dueDate', 'departmentId', 'createdByUid', 'managerUid']));
+                              .hasAny(['dueDate', 'departmentId', 'createdByUid',
+                                       'managerUid', 'managerUids', 'executorUids']))
+                    // مدير الإدارة يعدّل فريق مشاريع إدارته كاملاً.
+                    || (canEditDept(deptOf(resource.data))
+                        && onlyMembershipKeys()
+                        && legacyManagerConsistent())
+                    // والموظف يسجّل **نفسه فقط** — راجع selfOnlyDelta.
+                    || isSelfMembershipChange();
       allow delete: if isAdmin();
     }
 
     // ------------------------- مهام المشاريع -------------------------
     match /tasks/{id} {
-      allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
+      allow read: if isApproved() && (canViewAll()
+                                      || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                                      || isProjectMember(resource.data)
+                                      || canBrowseDeptProjects(deptOf(resource.data)));
       allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
@@ -131,7 +186,10 @@ service cloud.firestore {
 
     // ------------------------- التحديثات اليومية (سجل غير قابل للتعديل) -------------------------
     match /dailyUpdates/{id} {
-      allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
+      allow read: if isApproved() && (canViewAll()
+                                      || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                                      || isProjectMember(resource.data)
+                                      || canBrowseDeptProjects(deptOf(resource.data)));
       allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       // السجل غير قابل للتعديل إطلاقاً. الحذف مسموح لمسؤول النظام فقط، وهو
@@ -142,7 +200,10 @@ service cloud.firestore {
 
     // ------------------------- المخاطر والعوائق -------------------------
     match /risks/{id} {
-      allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
+      allow read: if isApproved() && (canViewAll()
+                                      || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                                      || isProjectMember(resource.data)
+                                      || canBrowseDeptProjects(deptOf(resource.data)));
       allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
@@ -152,7 +213,10 @@ service cloud.firestore {
     }
 
     match /blockers/{id} {
-      allow read: if isApproved() && (canViewAll() || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data)));
+      allow read: if isApproved() && (canViewAll()
+                                      || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                                      || isProjectMember(resource.data)
+                                      || canBrowseDeptProjects(deptOf(resource.data)));
       allow create: if canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))

@@ -32,7 +32,7 @@ void main() {
       priority: PriorityLevel.high,
       progressPercent: 40,
       executorNames: const ['فهد المطيري'],
-      managerUid: 'u-mgr',
+      managerUids: const ['u-mgr'],
     );
 
     final work = WorkItem(

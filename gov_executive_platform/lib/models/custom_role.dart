@@ -11,6 +11,7 @@ class CustomRole {
   final bool manageReports; // توليد التقارير وتحرير التعليقات عليها
   final bool manageDashboard; // تخصيص ودجات لوحة القيادة
   final bool approveGeneralDecisions; // اعتماد/رفض القرارات التنفيذية العامة
+  final bool selfAssignProjects; // الاطلاع على مشاريع إدارته وتسجيل نفسه عليها
 
   // ملاحظة: سجل التدقيق ("viewAuditLog") أُزيل عمداً من الصلاحيات القابلة
   // للتفويض — يبقى الاطلاع عليه حصراً لمسؤول النظام في كل الأحوال.
@@ -21,6 +22,7 @@ class CustomRole {
     this.manageReports = false,
     this.manageDashboard = false,
     this.approveGeneralDecisions = false,
+    this.selfAssignProjects = false,
   });
 
   /// مفاتيح مختصرة للتوافق مع حد حجم Custom Claims في Firebase Auth.
@@ -29,6 +31,7 @@ class CustomRole {
         'mr': manageReports,
         'md': manageDashboard,
         'agd': approveGeneralDecisions,
+        'sap': selfAssignProjects,
       };
 
   Map<String, dynamic> toMap() => {
@@ -37,6 +40,7 @@ class CustomRole {
         'manageReports': manageReports,
         'manageDashboard': manageDashboard,
         'approveGeneralDecisions': approveGeneralDecisions,
+        'selfAssignProjects': selfAssignProjects,
       };
 
   factory CustomRole.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -48,6 +52,7 @@ class CustomRole {
       manageReports: json['manageReports'] as bool? ?? false,
       manageDashboard: json['manageDashboard'] as bool? ?? false,
       approveGeneralDecisions: json['approveGeneralDecisions'] as bool? ?? false,
+      selfAssignProjects: json['selfAssignProjects'] as bool? ?? false,
     );
   }
 }

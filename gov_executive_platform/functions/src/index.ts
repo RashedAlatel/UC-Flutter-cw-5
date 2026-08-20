@@ -83,7 +83,7 @@ async function logAudit(userName: string, action: string, details: string): Prom
 // مفاتيح الصلاحيات القابلة للتفويض. لا تتضمن — ولن تتضمن — بوابات الاعتماد
 // الثلاث (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي)؛ تلك تبقى محصورة
 // بـ systemAdmin عبر requireAdmin وقواعد Firestore معاً.
-const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf"] as const;
+const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap"] as const;
 
 /** الأدوار الأساسية التي يضبط مسؤول النظام صلاحياتها من شاشة "صلاحيات الأدوار". */
 const CONFIGURABLE_ROLES = ["executiveViewer", "departmentManager", "projectOfficer", "employee"] as const;
@@ -120,6 +120,7 @@ async function loadCustomRolePerms(role: string, customRoleId?: string | null): 
     perms.mr = data.manageReports === true;
     perms.md = data.manageDashboard === true;
     perms.agd = data.approveGeneralDecisions === true;
+    perms.sap = data.selfAssignProjects === true;
     return perms;
   }
 

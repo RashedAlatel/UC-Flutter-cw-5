@@ -39,21 +39,31 @@ Future<PickedFile?> pickFile({List<String> accept = const []}) {
   // حارساً أخيراً — فلا ينتظر المستخدم شيئاً لن يأتي.
   input.oncancel = ((web.Event _) => finish(null)).toJS;
 
-  input.onchange = ((web.Event _) async {
+  // المعالج **متزامن** والقراءة تُطلق منه.
+  //
+  // `toJS` لا يقبل دالةً تعيد `Future`: التحويل يفشل عند البناء للويب بخطأ
+  // «invalid types in its function signature». وهذا لا يظهر في `flutter test`
+  // ولا في `flutter analyze` — بل عند بناء النسخة المنشورة وحدها.
+  void readSelected() {
     final files = input.files;
-    if (files == null || files.length == 0) return finish(null);
+    if (files == null || files.length == 0) {
+      finish(null);
+      return;
+    }
     final file = files.item(0)!;
-    try {
-      final buffer = await file.arrayBuffer().toDart;
+    file.arrayBuffer().toDart.then((buffer) {
       finish(PickedFile(
         name: file.name,
         contentType: file.type,
         bytes: buffer.toDart.asUint8List(),
       ));
-    } catch (_) {
+    }).catchError((Object _) {
       finish(null);
-    }
-  }).toJS;
+      return null;
+    });
+  }
+
+  input.onchange = ((web.Event _) => readSelected()).toJS;
 
   input.click();
   return completer.future;

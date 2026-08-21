@@ -33,6 +33,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   ProjectStatus? _statusFilter;
   String? _deptFilter;
 
+  bool _arranging = false;
+
+  /// الترتيب يُحفظ على **لوحة المستخدم نفسه** دائماً.
+  ///
+  /// وهذا مقصود: لو حُفظ على اللوحة العامة لغيّر مسؤولُ النظام لوحةَ كل من
+  /// لم يخصّص لوحته، بسحبةٍ ظنّها تخصّه وحده. أما اللوحة العامة ولوحات
+  /// الأدوار فتُضبطان من نافذة «تخصيص اللوحة» حيث يختار الطبقة صراحةً.
+  Future<void> _persist(AppStore store, List<DashboardWidgetConfig> next) async {
+    await store.saveMyDashboardWidgets(next);
+  }
+
+  static List<DashboardWidgetConfig> _moved(List<DashboardWidgetConfig> list, int from, int to) {
+    final next = List<DashboardWidgetConfig>.from(list);
+    if (from < 0 || from >= next.length) return next;
+    final item = next.removeAt(from);
+    next.insert(to.clamp(0, next.length), item);
+    return next;
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
@@ -76,18 +95,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
+          // الترويسة تنكسر على الجوال بدل أن تتزاحم.
+          //
+          // الأزرار بجانب العنوان تترك له على شاشة الهاتف عرضاً لا يتّسع
+          // لكلمة، فيُقطَّع «لوحة القيادة المركزية» كلمةً في كل سطر — وهذا ما
+          // كشفته معاينة التصيير، ولا يظهر بقراءة الشيفرة.
+          _ResponsiveHeader(
+            title: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       scoped ? 'لوحة قيادة إدارتي' : 'لوحة القيادة المركزية',
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                      style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 7),
+                    // خيط ذهبي رفيع تحت العنوان، كما في شاشة الدخول: يربط
+                    // الشاشات بهوية واحدة بدل عناوين عائمة في كل صفحة.
+                    Container(height: 2, width: 46, color: AppColors.accent),
+                    const SizedBox(height: 9),
                     Text(
                       scoped
                           ? 'مؤشرات فورية على أداء مشاريع إدارتك'
@@ -96,10 +121,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ],
                 ),
-              ),
+            actions: [
               // التخصيص متاح لكل مستخدم معتمَد: كلٌّ يعدّل لوحته هو. أما لوحات
               // الأدوار واللوحة العامة فلا تظهر في النافذة إلا لمن يملك
               // صلاحية "التحكم بلوحة القيادة".
+              // وضع الترتيب: السحب على الصفحة نفسها بدل قائمة في نافذة.
+              // ترتيب اللوحة قرارٌ بصري، ولا يُتّخذ إلا أمام ما يُرى.
+              OutlinedButton.icon(
+                onPressed: () => setState(() => _arranging = !_arranging),
+                icon: Icon(_arranging ? Icons.check_rounded : Icons.dashboard_customize_outlined, size: 17),
+                label: Text(_arranging ? 'إنهاء الترتيب' : 'ترتيب اللوحة'),
+                style: _arranging
+                    ? OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primaryDark,
+                        backgroundColor: AppColors.accent.withValues(alpha: 0.22),
+                        side: BorderSide(color: AppColors.accent),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 8),
               OutlinedButton.icon(
                 onPressed: () => showDialog(context: context, builder: (_) => const CustomizeDashboardDialog()),
                 icon: const Icon(Icons.tune_rounded, size: 17),
@@ -176,11 +216,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 18),
           _KpiGrid(store: store, projects: filteredProjects),
-          const SizedBox(height: 20),
-          ...store.dashboardWidgets.map((w) => Padding(
-                padding: const EdgeInsets.only(bottom: 18),
-                child: _buildWidget(context, w, store, scoped, ranking, statusCounts, statusColors, filteredProjects),
-              )),
+          const SizedBox(height: 26),
+          const _SectionTitle('لوحات التحليل'),
+          const SizedBox(height: 14),
+          if (_arranging) ...[
+            const _ArrangeHint(),
+            const SizedBox(height: 12),
+          ],
+          _WidgetBoard(
+            widgets: store.dashboardWidgets,
+            arranging: _arranging,
+            onReorder: (from, to) => _persist(store, _moved(store.dashboardWidgets, from, to)),
+            onWidth: (id, width) => _persist(
+              store,
+              [
+                for (final w in store.dashboardWidgets) w.id == id ? w.copyWith(width: width) : w,
+              ],
+            ),
+            onRemove: (id) => _persist(store, store.dashboardWidgets.where((w) => w.id != id).toList()),
+            builder: (w) =>
+                _buildWidget(context, w, store, scoped, ranking, statusCounts, statusColors, filteredProjects),
+          ),
         ],
       ),
     );
@@ -1192,5 +1248,290 @@ class _DemoDataBannerState extends State<_DemoDataBanner> {
         ),
       ),
     );
+  }
+}
+
+/// لافتة وضع الترتيب: تقول ما يستطيعه المستخدم الآن، وأين يُحفظ ما يفعله.
+class _ArrangeHint extends StatelessWidget {
+  const _ArrangeHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.12),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.45)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: const Text(
+        'اسحب أي بطاقة من مقبضها إلى مكانها، واضبط عرضها من القائمة عليها. '
+        'الترتيب يُحفظ في لوحتك أنت وحدك — ولضبط لوحة دور أو اللوحة العامة '
+        'استخدم «تخصيص اللوحة».',
+        style: TextStyle(fontSize: 12, height: 1.8, color: AppColors.textPrimary),
+      ),
+    );
+  }
+}
+
+/// منفذ معاينة للشبكة وحدها — راجع `test/render_board_preview.dart`.
+///
+/// الشبكة خاصة بهذا الملف، ومعاينتها بصرياً تحتاج بناءها بمعزل عن بيانات
+/// اللوحة كلها. وبديل ذلك تصيير اللوحة كاملةً بستين مشروعاً، وهو بطيء إلى
+/// حدّ تجاوز المهلة — فلا يُراجَع التخطيط بالعين إطلاقاً.
+@visibleForTesting
+class DashboardWidgetBoardPreview extends StatelessWidget {
+  final List<DashboardWidgetConfig> widgets;
+  final bool arranging;
+  final Widget Function(DashboardWidgetConfig) builder;
+
+  const DashboardWidgetBoardPreview({
+    super.key,
+    required this.widgets,
+    required this.arranging,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) => _WidgetBoard(
+        widgets: widgets,
+        arranging: arranging,
+        onReorder: (_, _) {},
+        onWidth: (_, _) {},
+        onRemove: (_) {},
+        builder: builder,
+      );
+}
+
+/// شبكة ودجات اللوحة: عروضٌ نسبية، وسحبٌ مباشر في وضع الترتيب.
+///
+/// `Wrap` لا `GridView.count`: العمود الثابت يفرض عرضاً واحداً على الجميع،
+/// وهو ما جعل جدول المشاريع يُعرض بنصف عرض الشاشة فلا تُقرأ أعمدته.
+class _WidgetBoard extends StatelessWidget {
+  final List<DashboardWidgetConfig> widgets;
+  final bool arranging;
+  final void Function(int from, int to) onReorder;
+  final void Function(String id, DashboardWidgetWidth width) onWidth;
+  final void Function(String id) onRemove;
+  final Widget Function(DashboardWidgetConfig) builder;
+
+  const _WidgetBoard({
+    required this.widgets,
+    required this.arranging,
+    required this.onReorder,
+    required this.onWidth,
+    required this.onRemove,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      const spacing = 18.0;
+      final total = constraints.maxWidth;
+
+      // العرض كسرٌ من السطر، لا عدد أعمدة من شبكة ثابتة: بطاقتان بنصف العرض
+      // تصطفّان لأن ٢×(١/٢) = سطر كامل بالضبط.
+      //
+      // وتُضيَّق الخيارات على الشاشات الصغيرة: الثلث على شاشة متوسطة لا يعرض
+      // شيئاً مقروءاً فيصير نصفاً، وعلى الجوال كل بطاقة بعرض كامل.
+      double widthOf(DashboardWidgetConfig w) {
+        if (total <= 720) return total;
+        var denominator = w.width.denominator;
+        if (total <= 1150 && denominator > 2) denominator = 2;
+        return (total - spacing * (denominator - 1)) / denominator;
+      }
+
+      return Wrap(
+        spacing: spacing,
+        runSpacing: spacing,
+        children: [
+          for (var i = 0; i < widgets.length; i++)
+            SizedBox(
+              width: widthOf(widgets[i]),
+              child: arranging
+                  ? _ArrangeableCard(
+                      index: i,
+                      config: widgets[i],
+                      onReorder: onReorder,
+                      onWidth: onWidth,
+                      onRemove: onRemove,
+                      child: builder(widgets[i]),
+                    )
+                  : builder(widgets[i]),
+            ),
+        ],
+      );
+    });
+  }
+}
+
+/// بطاقة في وضع الترتيب: مقبض سحب، وهدف إفلات، وضبط عرض، وحذف.
+class _ArrangeableCard extends StatelessWidget {
+  final int index;
+  final DashboardWidgetConfig config;
+  final void Function(int from, int to) onReorder;
+  final void Function(String id, DashboardWidgetWidth width) onWidth;
+  final void Function(String id) onRemove;
+  final Widget child;
+
+  const _ArrangeableCard({
+    required this.index,
+    required this.config,
+    required this.onReorder,
+    required this.onWidth,
+    required this.onRemove,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DragTarget<int>(
+      onWillAcceptWithDetails: (d) => d.data != index,
+      onAcceptWithDetails: (d) => onReorder(d.data, index),
+      builder: (context, candidate, _) {
+        final hovering = candidate.isNotEmpty;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: hovering ? AppColors.accent : AppColors.border,
+              width: hovering ? 2 : 1,
+            ),
+          ),
+          padding: const EdgeInsets.all(6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  // السحب من المقبض وحده: لو كانت البطاقة كلها قابلة للسحب
+                  // لتعذّر استعمال ما بداخلها من أزرار وتمرير.
+                  Draggable<int>(
+                    data: index,
+                    feedback: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(config.type.label,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                    childWhenDragging: const Icon(Icons.drag_indicator_rounded, color: AppColors.border),
+                    child: const MouseRegion(
+                      cursor: SystemMouseCursors.grab,
+                      child: Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(Icons.drag_indicator_rounded, size: 20, color: AppColors.textSecondary),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(config.type.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                  ),
+                  PopupMenuButton<DashboardWidgetWidth>(
+                    tooltip: 'عرض البطاقة',
+                    initialValue: config.width,
+                    onSelected: (w) => onWidth(config.id, w),
+                    itemBuilder: (_) => [
+                      for (final w in DashboardWidgetWidth.values)
+                        PopupMenuItem(value: w, child: Text(w.label)),
+                    ],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.aspect_ratio_rounded, size: 16, color: AppColors.textSecondary),
+                          const SizedBox(width: 4),
+                          Text(config.width.label,
+                              style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'إزالة من لوحتي',
+                    icon: const Icon(Icons.close_rounded, size: 17),
+                    onPressed: () => onRemove(config.id),
+                  ),
+                ],
+              ),
+              // لا تفاعل مع محتوى البطاقة أثناء الترتيب: الضغط هنا للترتيب
+              // لا للتنقل، وفتح شاشة أخرى في منتصف السحب يفقد المستخدم مكانه.
+              IgnorePointer(child: child),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// عنوان قسم داخل اللوحة: نص بوزن واحد يسبقه خيط ذهبي.
+///
+/// اللوحة كانت أقساماً متلاصقة بلا فواصل، فيقرؤها الناظر كتلةً واحدة. والخيط
+/// الذهبي هو العنصر نفسه المستعمل في شاشة الدخول وترويسة اللوحة — تكراره
+/// المقصود هو ما يجعل الشاشات تبدو منصةً واحدة لا شاشات جُمعت.
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(width: 3, height: 16, color: AppColors.accent),
+        const SizedBox(width: 8),
+        Text(text,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+        const SizedBox(width: 12),
+        const Expanded(child: Divider(height: 1, color: AppColors.border)),
+      ],
+    );
+  }
+}
+
+/// ترويسة صفحة تنكسر بدل أن تتزاحم.
+///
+/// الأزرار بجانب العنوان على الشاشة العريضة، وتحته على الجوال. ولولا ذلك
+/// لبقي للعنوان عرضٌ لا يتّسع لكلمة فيُقطَّع كلمةً في كل سطر — وهو ما ظهر
+/// في معاينة التصيير بمقاس الهاتف، ولا تكشفه قراءة الشيفرة.
+class _ResponsiveHeader extends StatelessWidget {
+  final Widget title;
+  final List<Widget> actions;
+
+  const _ResponsiveHeader({required this.title, required this.actions});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      if (constraints.maxWidth < 620) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            title,
+            const SizedBox(height: 14),
+            Wrap(spacing: 8, runSpacing: 8, children: actions),
+          ],
+        );
+      }
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: title),
+          ...actions,
+        ],
+      );
+    });
   }
 }

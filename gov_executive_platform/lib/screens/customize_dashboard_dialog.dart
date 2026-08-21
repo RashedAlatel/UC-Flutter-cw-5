@@ -306,6 +306,26 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                // العرض يُضبط هنا كما يُضبط من وضع الترتيب على
+                                // الصفحة: من ضبط لوحة دور أو اللوحة العامة لا
+                                // يراها أمامه، فلا سبيل له إلى العرض إلا هنا.
+                                PopupMenuButton<DashboardWidgetWidth>(
+                                  tooltip: 'عرض البطاقة',
+                                  initialValue: w.width,
+                                  onSelected: (width) =>
+                                      setState(() => _widgets[i] = w.copyWith(width: width)),
+                                  itemBuilder: (_) => [
+                                    for (final width in DashboardWidgetWidth.values)
+                                      PopupMenuItem(value: width, child: Text(width.label)),
+                                  ],
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                                    child: Text(
+                                      w.width.label,
+                                      style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                                    ),
+                                  ),
+                                ),
                                 IconButton(
                                   icon: const Icon(Icons.delete_outline_rounded, size: 19, color: AppColors.danger),
                                   onPressed: () => setState(() => _widgets.removeAt(i)),

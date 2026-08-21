@@ -57,6 +57,15 @@ class CommandBand extends StatelessWidget {
     final hairline = fg.withValues(alpha: 0.16);
 
     return Container(
+      // العرض الكامل **صراحةً**: الشاشات تضع الشريط في
+      // `Column(crossAxisAlignment: start)`، وهي لا تمدّ أبناءها — فيأخذ كلٌّ
+      // عرضه الطبيعي. و`app_shell` نفسه يمرّر الصفحة بقيود فضفاضة لا محكمة.
+      //
+      // ولوحة القيادة كانت تسلم بالمصادفة لا بالتصميم: مؤشراتها تمرّ على
+      // `_MetricGrid` وفيه `Row` بأبناء `Expanded` فيفرض العرض الكامل. فكل
+      // شاشة **بلا مؤشرات** كان شريطها ينكمش إلى عرض نصّه ويترك بياضاً
+      // بجانبه — وهو ما ظهر في لقطة من هاتف المستخدم.
+      width: double.infinity,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: AlignmentDirectional.topStart,

@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/approval_request.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 import '../utils/formatters.dart';
 import '../widgets/status_chip.dart';
 
@@ -36,17 +37,18 @@ class _DecisionCenterScreenState extends State<DecisionCenterScreen> {
     });
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('مركز القرارات التنفيذية', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-          const SizedBox(height: 4),
-          const Text(
-            'كل طلبات تسجيل الأعضاء وإضافة المشاريع وتعديل المواعيد النهائية والقرارات التنفيذية تمر من هنا، مرتبة حسب الأولوية وتأثير التأخير.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+          const CommandBand(
+            title: 'مركز القرارات التنفيذية',
+            subtitle: 'كل طلبات تسجيل الأعضاء وإضافة المشاريع وتعديل المواعيد النهائية والقرارات التنفيذية تمر من هنا، مرتبة حسب الأولوية وتأثير التأخير.',
           ),
-          const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -75,6 +77,9 @@ class _DecisionCenterScreenState extends State<DecisionCenterScreen> {
             )
           else
             ...requests.map((r) => _RequestCard(request: r)),
+              ],
+            ),
+          ),
         ],
       ),
     );

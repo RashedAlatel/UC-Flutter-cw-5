@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/app_user.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 import '../utils/formatters.dart';
 import '../widgets/kpi_card.dart';
 import '../widgets/notify_dialog.dart';
@@ -71,17 +72,18 @@ class _PeopleTrackingScreenState extends State<PeopleTrackingScreen> {
     people.sort((a, b) => _descending ? cmp(b, a) : cmp(a, b));
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('متابعة الأشخاص',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-          const SizedBox(height: 4),
-          Text('${people.length} شخص ضمن نطاقك · اضغط على أي اسم لعرض ملف أدائه',
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-          const SizedBox(height: 18),
-
+          CommandBand(
+            title: 'متابعة الأشخاص',
+            subtitle: '${people.length} شخص ضمن نطاقك · اضغط على أي اسم لعرض ملف أدائه',
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           Wrap(
             spacing: 12,
             runSpacing: 12,
@@ -142,6 +144,9 @@ class _PeopleTrackingScreenState extends State<PeopleTrackingScreen> {
                 itemBuilder: (context, i) => _PersonRow(user: people[i]),
               ),
             ),
+              ],
+            ),
+          ),
         ],
       ),
     );

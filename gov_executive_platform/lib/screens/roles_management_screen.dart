@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../data/app_store.dart';
 import '../models/custom_role.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 
 /// شاشة إدارة الأدوار المخصصة (مسؤول النظام فقط): إنشاء/تعديل/حذف أدوار
 /// بمجموعة صلاحيات يختارها بنفسه، إضافة إلى الأدوار الأساسية الأربعة الثابتة.
@@ -18,34 +19,26 @@ class RolesManagementScreen extends StatelessWidget {
     final store = context.watch<AppStore>();
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('إدارة الأدوار', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    SizedBox(height: 4),
-                    Text(
-                      'أدوار مخصصة إضافية بصلاحيات تختارها بنفسك. بوابات الموافقة الثلاث (تسجيل الأعضاء، المشاريع، المواعيد النهائية) تبقى دائماً حصراً لمسؤول النظام.',
-                      style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
-                    ),
-                  ],
-                ),
-              ),
-              ElevatedButton.icon(
+          CommandBand(
+            title: 'إدارة الأدوار',
+            subtitle: 'أدوار مخصصة إضافية بصلاحيات تختارها بنفسك. بوابات الموافقة الثلاث (تسجيل الأعضاء، المشاريع، المواعيد النهائية) تبقى دائماً حصراً لمسؤول النظام.',
+            actions: [
+              BandButton(
+                label: 'إضافة دور',
+                icon: Icons.add_rounded,
+                filled: true,
                 onPressed: () => showDialog(context: context, builder: (_) => const _RoleFormDialog()),
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('إضافة دور'),
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           if (store.customRoles.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 30),
@@ -53,6 +46,9 @@ class RolesManagementScreen extends StatelessWidget {
             )
           else
             ...store.customRoles.map((role) => _RoleCard(role: role)),
+              ],
+            ),
+          ),
         ],
       ),
     );

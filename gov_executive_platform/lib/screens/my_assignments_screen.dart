@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/project.dart';
 import '../models/work_item.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 import '../utils/formatters.dart';
 import '../widgets/data_access_banner.dart';
 import '../widgets/meta_row.dart';
@@ -29,20 +30,18 @@ class MyAssignmentsScreen extends StatelessWidget {
     final openWorks = works.where((w) => !w.isDone).length;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('المُسنَد إليّ',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-          const SizedBox(height: 7),
-          Container(height: 2, width: 46, color: AppColors.accent),
-          const SizedBox(height: 9),
-          const Text(
-            'كل مشروع أنت مديره أو منفّذه، وكل عمل مُسنَد إليك — ولو كان خارج إدارتك.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+          const CommandBand(
+            title: 'المُسنَد إليّ',
+            subtitle: 'كل مشروع أنت مديره أو منفّذه، وكل عمل مُسنَد إليك — ولو كان خارج إدارتك.',
           ),
-          const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           const DataAccessBanner(),
           _SectionTitle('مشاريعي', count: projects.length),
           const SizedBox(height: 10),
@@ -65,6 +64,9 @@ class MyAssignmentsScreen extends StatelessWidget {
             )
           else
             ...works.map((w) => _WorkTile(work: w)),
+              ],
+            ),
+          ),
         ],
       ),
     );

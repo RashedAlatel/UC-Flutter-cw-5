@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/alert_rules.dart';
 import '../models/announcement.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 
 /// شاشة إعدادات المظهر (مسؤول النظام فقط): تخصيص لوني الهوية (الأساسي
 /// والتمييز) عبر لوحة ألوان مقترحة أو إدخال يدوي حر (Hex)، مع معاينة فورية
@@ -104,17 +105,18 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('إعدادات المظهر', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-          const SizedBox(height: 4),
-          const Text(
-            'اختر لوني الهوية (الأساسي والتمييز) اللذين يُطبَّقان على كل شاشات المنصة فور الحفظ.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
+          CommandBand(
+            title: 'إعدادات المظهر',
+            subtitle: 'اختر لوني الهوية (الأساسي والتمييز) اللذين يُطبَّقان على كل شاشات المنصة فور الحفظ.',
           ),
-          const SizedBox(height: 22),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           _LivePreview(primary: _primary, accent: _accent),
           const SizedBox(height: 22),
           Row(
@@ -199,6 +201,9 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
           ),
           const SizedBox(height: 16),
           const _AlertRulesManager(),
+              ],
+            ),
+          ),
         ],
       ),
     );

@@ -6,6 +6,7 @@ import '../models/app_user.dart';
 import '../models/enums.dart';
 import '../models/work_item.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 import '../widgets/meta_row.dart';
 import '../utils/formatters.dart';
 import '../models/notify_templates.dart';
@@ -58,40 +59,31 @@ class _WorksListScreenState extends State<WorksListScreen> {
     }..removeWhere((k, v) => k.isEmpty);
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('الأعمال', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    SizedBox(height: 4),
-                    Text('بنود العمل التشغيلية والإدارية المستقلة عن المشاريع',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-                  ],
-                ),
-              ),
+          CommandBand(
+            title: 'الأعمال',
+            subtitle: 'بنود العمل التشغيلية والإدارية المستقلة عن المشاريع',
+            actions: [
               // الزر لكل من ينتمي لإدارة: من يملك الإنشاء المباشر يُنشئ،
               // ومن سواه يقدّم طلباً يعتمده مدير إدارته.
               if (store.canManageWorks || store.canRequestNewWork(store.currentUser?.departmentId))
-                ElevatedButton.icon(
+                BandButton(
+                  label: store.canManageWorks || store.canCreateIn(store.currentUser?.departmentId)
+                      ? 'إضافة عمل'
+                      : 'طلب إضافة عمل',
+                  icon: Icons.add_rounded,
+                  filled: true,
                   onPressed: () => showDialog(context: context, builder: (_) => const WorkFormDialog()),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: Text(
-                    store.canManageWorks || store.canCreateIn(store.currentUser?.departmentId)
-                        ? 'إضافة عمل'
-                        : 'طلب إضافة عمل',
-                  ),
                 ),
             ],
           ),
-          const SizedBox(height: 18),
-
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           LayoutBuilder(builder: (context, c) {
             final cols = c.maxWidth > 820 ? 4 : (c.maxWidth > 520 ? 2 : 1);
             const spacing = 14.0;
@@ -229,6 +221,9 @@ class _WorksListScreenState extends State<WorksListScreen> {
             )
           else
             ...works.map((w) => _WorkRow(work: w)),
+              ],
+            ),
+          ),
         ],
       ),
     );

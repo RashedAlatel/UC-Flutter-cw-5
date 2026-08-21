@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/registration_policy.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 
 /// إعدادات التسجيل الذاتي — نطاقات البريد الوزاري المقبولة.
 ///
@@ -71,16 +72,18 @@ class _RegistrationSettingsScreenState extends State<RegistrationSettingsScreen>
     final domains = _current(store);
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('سياسة التسجيل الذاتي',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-          const SizedBox(height: 4),
-          const Text('من يُسمح له بطلب حساب، وبأي بريد — ويبقى اعتماد كل طلب بيدك على أي حال.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-          const SizedBox(height: 20),
+          const CommandBand(
+            title: 'سياسة التسجيل الذاتي',
+            subtitle: 'من يُسمح له بطلب حساب، وبأي بريد — ويبقى اعتماد كل طلب بيدك على أي حال.',
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           Card(
             child: Padding(
               padding: const EdgeInsets.all(18),
@@ -157,6 +160,9 @@ class _RegistrationSettingsScreenState extends State<RegistrationSettingsScreen>
                 ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                 : const Icon(Icons.save_outlined, size: 18),
             label: const Text('حفظ السياسة'),
+          ),
+              ],
+            ),
           ),
         ],
       ),

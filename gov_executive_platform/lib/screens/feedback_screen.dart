@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/feedback_item.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 import '../utils/formatters.dart';
 import '../widgets/data_access_banner.dart';
 
@@ -40,44 +41,46 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const DataAccessBanner(),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('الشكاوى والاقتراحات',
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    SizedBox(height: 4),
-                    Text('قناة مباشرة لرفع ما يعترض العمل وما يقترحه الموظفون لتحسينه',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-                  ],
-                ),
-              ),
+          CommandBand(
+            title: 'الشكاوى والاقتراحات',
+            subtitle: 'قناة مباشرة لرفع ما يعترض العمل وما يقترحه الموظفون لتحسينه',
+            actions: [
               if (canSubmit)
-                ElevatedButton.icon(
+                BandButton(
+                  label: 'رفع شكوى أو اقتراح',
+                  icon: Icons.add_rounded,
+                  filled: true,
                   onPressed: () => showDialog(context: context, builder: (_) => const _SubmitDialog()),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('رفع شكوى أو اقتراح'),
                 ),
             ],
           ),
           const SizedBox(height: 18),
 
           if (canManage) ...[
-            SegmentedButton<bool>(
-              segments: [
-                const ButtonSegment(value: false, label: Text('ما رفعتُه'), icon: Icon(Icons.outbox_rounded, size: 16)),
-                ButtonSegment(
-                  value: true,
-                  label: Text('الوارد (${store.openFeedbackCount} مفتوحة)'),
-                  icon: const Icon(Icons.inbox_rounded, size: 16),
-                ),
-              ],
-              selected: {_showIncoming},
-              onSelectionChanged: (s) => setState(() => _showIncoming = s.first),
-            ),
+            // التسمية تقصر على الشاشة الضيّقة: «الوارد (٣ مفتوحة)» مع أيقونتها
+            // ومع الخانة المجاورة أعرض من شاشة الهاتف، فكان المفتاح يتجاوزها.
+            LayoutBuilder(builder: (context, c) {
+              final narrow = c.maxWidth < 420;
+              return SegmentedButton<bool>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(
+                    value: false,
+                    label: const Text('ما رفعتُه'),
+                    icon: narrow ? null : const Icon(Icons.outbox_rounded, size: 16),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    label: Text(narrow
+                        ? 'الوارد (${store.openFeedbackCount})'
+                        : 'الوارد (${store.openFeedbackCount} مفتوحة)'),
+                    icon: narrow ? null : const Icon(Icons.inbox_rounded, size: 16),
+                  ),
+                ],
+                selected: {_showIncoming},
+                onSelectionChanged: (s) => setState(() => _showIncoming = s.first),
+              );
+            }),
             const SizedBox(height: 14),
           ],
 

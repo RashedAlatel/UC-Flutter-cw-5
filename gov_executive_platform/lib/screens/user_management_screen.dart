@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/app_user.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 import '../widgets/notify_dialog.dart';
 import '../widgets/user_permissions_dialog.dart';
 
@@ -46,40 +47,32 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     final pending = store.users.where((u) => u.status == UserStatus.pending).length;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('إدارة المستخدمين', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    const SizedBox(height: 4),
-                    Text(
-                      'إجمالي ${store.users.length} حساب'
-                      '${pending > 0 ? ' · $pending بانتظار الاعتماد' : ''}',
-                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
-                    ),
-                  ],
-                ),
-              ),
-              OutlinedButton.icon(
+          CommandBand(
+            title: 'إدارة المستخدمين',
+            subtitle: 'إجمالي ${store.users.length} حساب'
+                '${pending > 0 ? ' · $pending بانتظار الاعتماد' : ''}',
+            actions: [
+              BandButton(
+                label: 'إشعار جماعي',
+                icon: Icons.forward_to_inbox_rounded,
                 onPressed: () => showDialog(context: context, builder: (_) => const NotifyDialog(initialUsers: [])),
-                icon: const Icon(Icons.forward_to_inbox_rounded, size: 18),
-                label: const Text('إشعار جماعي'),
               ),
-              const SizedBox(width: 10),
-              ElevatedButton.icon(
+              BandButton(
+                label: 'إضافة مستخدم مباشرة',
+                icon: Icons.person_add_alt_rounded,
+                filled: true,
                 onPressed: () => showDialog(context: context, builder: (_) => const _UserFormDialog()),
-                icon: const Icon(Icons.person_add_alt_rounded, size: 18),
-                label: const Text('إضافة مستخدم مباشرة'),
               ),
             ],
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           const SizedBox(height: 18),
           Card(
             child: Padding(
@@ -162,6 +155,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     itemBuilder: (context, i) => _UserRow(user: users[i]),
                   ),
           ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -235,19 +231,11 @@ class _UserRowState extends State<_UserRow> {
         ? u.departmentIds.map((id) => store.departmentById(id)?.name).whereType<String>().join('، ')
         : dept?.name;
 
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-        child: Text(u.name.isNotEmpty ? u.name.substring(0, 1) : '?', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800)),
-      ),
-      title: Text(u.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-      subtitle: Text(
-        '$roleLabel${(deptLabel != null && deptLabel.isNotEmpty) ? ' · $deptLabel' : ''} · ${u.email}',
-        style: const TextStyle(fontSize: 11.5),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+    // ليست `ListTile`: أفعال الصف سبعة أزرار، و`ListTile` تشترط أن يتّسع لها
+    // `trailing` في سطر واحد فترمي استثناءً على الجوال — وهذا ما كان يقع
+    // فعلاً، فتظهر الشاشة مكسورة لمن فتحها من هاتفه. وهنا تنزل الأفعال تحت
+    // الاسم على الشاشة الضيّقة بدل أن تُزاحمه.
+    final actions = <Widget>[
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
@@ -314,8 +302,59 @@ class _UserRowState extends State<_UserRow> {
               tooltip: active ? 'إيقاف الحساب' : 'إعادة التفعيل',
               onPressed: _busy ? null : _toggleStatus,
             ),
-        ],
-      ),
+    ];
+
+    final identity = Row(
+      children: [
+        CircleAvatar(
+          backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+          child: Text(u.name.isNotEmpty ? u.name.substring(0, 1) : '?',
+              style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800)),
+        ),
+        const SizedBox(width: AppSpace.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(u.name,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 2),
+              Text(
+                '$roleLabel${(deptLabel != null && deptLabel.isNotEmpty) ? ' · $deptLabel' : ''} · ${u.email}',
+                style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.md, vertical: AppSpace.xs),
+      child: LayoutBuilder(builder: (context, c) {
+        if (c.maxWidth < 640) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              identity,
+              const SizedBox(height: AppSpace.xs),
+              Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: actions),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: identity),
+            const SizedBox(width: AppSpace.xs),
+            Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: actions),
+          ],
+        );
+      }),
     );
   }
 }

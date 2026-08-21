@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../models/role_permissions.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 
 /// شاشة ضبط صلاحيات الأدوار الأساسية (مسؤول النظام فقط).
 ///
@@ -68,17 +69,18 @@ class _RolePermissionsScreenState extends State<RolePermissionsScreen> {
     final config = _current(store);
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('صلاحيات الأدوار',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-          const SizedBox(height: 4),
-          const Text('حدّد ما يستطيع كل دور فعله في المنصة. مسؤول النظام يملك كل الصلاحيات دائماً.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-          const SizedBox(height: 16),
-
+          const CommandBand(
+            title: 'صلاحيات الأدوار',
+            subtitle: 'حدّد ما يستطيع كل دور فعله في المنصة. مسؤول النظام يملك كل الصلاحيات دائماً.',
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           // قيد ثابت يجب أن يبقى ظاهراً للمسؤول حتى لا يبحث عنه بين المفاتيح.
           Card(
             child: Padding(
@@ -113,9 +115,12 @@ class _RolePermissionsScreenState extends State<RolePermissionsScreen> {
                           children: [
                             Icon(_roleIcon(role), size: 18, color: AppColors.primary),
                             const SizedBox(width: 8),
-                            Text(role.label,
-                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5)),
-                            const Spacer(),
+                            Expanded(
+                              child: Text(role.label,
+                                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis),
+                            ),
                             Text('${store.users.where((u) => u.role == role).length} حساب',
                                 style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
                           ],
@@ -163,7 +168,12 @@ class _RolePermissionsScreenState extends State<RolePermissionsScreen> {
             const SizedBox(height: 14),
           ],
 
-          Row(
+          // `Wrap` لا `Row`: «حفظ وتطبيق على المستخدمين» مع «تراجع عن
+          // التغييرات» أعرض من شاشة الهاتف، فكان الصفّ يتجاوزها بسبعة
+          // وسبعين بكسل.
+          Wrap(
+            spacing: AppSpace.xs,
+            runSpacing: AppSpace.xs,
             children: [
               ElevatedButton.icon(
                 onPressed: (!_dirty || _busy) ? null : _save,
@@ -173,13 +183,15 @@ class _RolePermissionsScreenState extends State<RolePermissionsScreen> {
                 label: Text(_busy ? 'جارٍ التطبيق على الحسابات...' : 'حفظ وتطبيق على المستخدمين'),
               ),
               if (_dirty && !_busy) ...[
-                const SizedBox(width: 10),
                 TextButton(
                   onPressed: () => setState(() => _draft = null),
                   child: const Text('تراجع عن التغييرات'),
                 ),
               ],
             ],
+          ),
+              ],
+            ),
           ),
         ],
       ),

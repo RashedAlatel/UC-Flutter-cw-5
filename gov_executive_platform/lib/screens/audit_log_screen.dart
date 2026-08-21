@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 import '../utils/formatters.dart';
 
 class AuditLogScreen extends StatelessWidget {
@@ -14,14 +15,18 @@ class AuditLogScreen extends StatelessWidget {
     final entries = store.auditLog;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('سجل التدقيق', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-          const SizedBox(height: 4),
-          const Text('سجل كامل لجميع العمليات والإجراءات التي تمت على المنصة', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-          const SizedBox(height: 20),
+          const CommandBand(
+            title: 'سجل التدقيق',
+            subtitle: 'سجل كامل لجميع العمليات والإجراءات التي تمت على المنصة',
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           Card(
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -55,6 +60,9 @@ class AuditLogScreen extends StatelessWidget {
                         );
                       },
                     ),
+            ),
+          ),
+              ],
             ),
           ),
         ],

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 import '../widgets/filter_bar.dart';
 import '../widgets/meta_row.dart';
 import '../utils/formatters.dart';
@@ -133,53 +134,44 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
     final executorOptions = store.visibleProjects.expand((p) => p.executorNames).toSet().toList()..sort();
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('المشاريع', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    SizedBox(height: 4),
-                    Text('كل المشاريع ضمن نطاقك، بمعزل عن التنقل عبر الإدارات', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-                  ],
-                ),
-              ),
+          CommandBand(
+            title: 'المشاريع',
+            subtitle: 'كل المشاريع ضمن نطاقك، بمعزل عن التنقل عبر الإدارات',
+            actions: [
               // مطابقة الحالات المخزّنة مع تواريخ الاستحقاق.
               //
               // العرض يستعمل الحالة الفعلية دائماً، فالمنصة متسقة بدون هذا
               // الزر. لكن الحقل المخزَّن يخرج مع التقارير المُصدَّرة ويقرؤه
               // أي نظام آخر، فمطابقته تمنع أن يقرأ الخارج حالةً غير التي
               // يراها المستخدم على الشاشة.
-              if (store.isAdmin && store.projectsWithStaleStatus.isNotEmpty) ...[
-                OutlinedButton.icon(
+              if (store.isAdmin && store.projectsWithStaleStatus.isNotEmpty)
+                BandButton(
+                  label: 'مطابقة ${store.projectsWithStaleStatus.length} حالة مخزّنة',
+                  icon: Icons.rule_rounded,
                   onPressed: () => _reconcileStatuses(context, store),
-                  icon: const Icon(Icons.rule_rounded, size: 18),
-                  label: Text('مطابقة ${store.projectsWithStaleStatus.length} حالة مخزّنة'),
                 ),
-                const SizedBox(width: 10),
-              ],
               // الزر لكل من ينتمي لإدارة، لا لمسؤول النظام وحده: الموظف
               // **يطلب** والطلب ليس منحاً، والبتّ محكوم بـ canApprove.
               // ومن مُنِح «إنشاء المشاريع» في نطاق هذه الإدارة يُنشئ مباشرةً.
               if (store.canRequestNewProject(store.currentUser?.departmentId ?? ''))
-                ElevatedButton.icon(
+                BandButton(
+                  label: store.canCreateIn(store.currentUser?.departmentId) || store.isAdmin
+                      ? 'إضافة مشروع'
+                      : 'طلب إضافة مشروع',
+                  icon: Icons.add_rounded,
+                  filled: true,
                   onPressed: () => showDialog(context: context, builder: (_) => const RequestProjectDialog()),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: Text(
-                    store.canCreateIn(store.currentUser?.departmentId) || store.isAdmin
-                        ? 'إضافة مشروع'
-                        : 'طلب إضافة مشروع',
-                  ),
                 ),
             ],
           ),
-          const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           FilterBar(
             fields: [
               (
@@ -285,6 +277,9 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
             widgets: store.projectsPageWidgets,
             onSave: store.saveProjectsPageWidgets,
             canManage: store.canManageDashboard,
+          ),
+              ],
+            ),
           ),
         ],
       ),

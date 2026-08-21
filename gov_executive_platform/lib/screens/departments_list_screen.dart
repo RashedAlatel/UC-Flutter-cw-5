@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/department.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 import '../theme/department_icons.dart';
 import '../widgets/focused_project_card.dart';
 import '../widgets/progress_bar.dart';
@@ -49,32 +50,27 @@ class _DepartmentsListScreenState extends State<DepartmentsListScreen> {
         : all.where((d) => _normalizeArabic(d.name).contains(q) || _normalizeArabic(d.headName).contains(q)).toList();
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('الإدارات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    const SizedBox(height: 4),
-                    Text('${all.length} إدارة · مؤشرات أداء مشاريع كل إدارة',
-                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-                  ],
-                ),
-              ),
+          CommandBand(
+            title: 'الإدارات',
+            subtitle: '${all.length} إدارة · مؤشرات أداء مشاريع كل إدارة',
+            actions: [
               if (store.canManageUsers)
-                ElevatedButton.icon(
+                BandButton(
+                  label: 'إضافة إدارة',
+                  icon: Icons.add_rounded,
+                  filled: true,
                   onPressed: () => showDialog(context: context, builder: (_) => const _AddDepartmentDialog()),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('إضافة إدارة'),
                 ),
             ],
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           if (all.length > 6) ...[
             const SizedBox(height: 16),
             SizedBox(
@@ -245,6 +241,9 @@ class _DepartmentsListScreenState extends State<DepartmentsListScreen> {
               ],
             );
           }),
+              ],
+            ),
+          ),
         ],
       ),
     );

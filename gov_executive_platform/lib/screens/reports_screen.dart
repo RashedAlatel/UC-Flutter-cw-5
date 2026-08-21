@@ -9,6 +9,7 @@ import '../models/project.dart';
 import '../models/report.dart';
 import '../models/work_item.dart';
 import '../theme/app_theme.dart';
+import '../widgets/command_band.dart';
 import '../utils/file_download.dart';
 import '../utils/formatters.dart';
 import '../utils/report_export.dart';
@@ -44,24 +45,9 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('التقارير التنفيذية', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    SizedBox(height: 4),
-                    Text('تقارير أسبوعية وشهرية مُولّدة تلقائياً مع ملخص تنفيذي وتحليلات',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-                  ],
-                ),
-              ),
-            ],
-          ),
+        const CommandBand(
+          title: 'التقارير التنفيذية',
+          subtitle: 'تقارير أسبوعية وشهرية مُولّدة تلقائياً مع ملخص تنفيذي وتحليلات',
         ),
         const SizedBox(height: 12),
         TabBar(

@@ -15,7 +15,11 @@ import 'ornament_border.dart';
 /// المستخدم، تُحذف وتُرتَّب كما كانت. الشريط يقرّر شكلها لا محتواها.
 class CommandBand extends StatelessWidget {
   /// سطر تمهيدي فوق العنوان (اسم الدولة والجهة).
-  final String eyebrow;
+  ///
+  /// للوحة القيادة وحدها: هي واجهة المنصة، وذكر الجهة فيها في محلّه. أما بقية
+  /// الصفحات فاسم الوزارة ظاهر في الشريط العلوي فوقها، وتكراره في كل صفحة
+  /// حشوٌ يُضعف أثره حيث يهمّ.
+  final String? eyebrow;
   final String title;
   final String subtitle;
 
@@ -28,7 +32,7 @@ class CommandBand extends StatelessWidget {
 
   const CommandBand({
     super.key,
-    required this.eyebrow,
+    this.eyebrow,
     required this.title,
     required this.subtitle,
     this.actions = const [],
@@ -74,7 +78,14 @@ class CommandBand extends StatelessWidget {
               child: OrnamentBorder(width: 26, color: AppColors.accent.withValues(alpha: 0.5)),
             ),
           Padding(
-            padding: const EdgeInsetsDirectional.fromSTEB(AppSpace.xl, 28, AppSpace.xl + 26, 26),
+            // شريطٌ بلا مؤشرات أقصر: صفحةٌ فرعية لا تحتاج مهابة اللوحة
+            // الرئيسية، وترويسةٌ طويلة فوق كل قائمة تسرق ارتفاعاً من المحتوى.
+            padding: EdgeInsetsDirectional.fromSTEB(
+              AppSpace.xl,
+              metrics.isEmpty ? 22 : 28,
+              AppSpace.xl + 26,
+              metrics.isEmpty ? 22 : 26,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -102,7 +113,7 @@ class CommandBand extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  final String eyebrow;
+  final String? eyebrow;
   final String title;
   final String subtitle;
   final List<Widget> actions;
@@ -123,9 +134,11 @@ class _Header extends StatelessWidget {
     final text = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(eyebrow, style: AppText.label.copyWith(color: muted, letterSpacing: 0.4)),
-        const SizedBox(height: 7),
-        Text(title, style: AppText.pageTitle.copyWith(color: fg)),
+        if (eyebrow != null) ...[
+          Text(eyebrow!, style: AppText.label.copyWith(color: muted, letterSpacing: 0.4)),
+          const SizedBox(height: 7),
+        ],
+        Text(title, style: AppText.pageTitle.copyWith(color: fg, fontSize: eyebrow == null ? 22 : 26)),
         const SizedBox(height: 11),
         // الخيط الذهبي نفسه المستعمل في شاشة الدخول والشريط الجانبي: تكراره
         // مقصود، وهو ما يجعل الشاشات تبدو منصةً واحدة لا شاشات جُمعت.
@@ -143,7 +156,19 @@ class _Header extends StatelessWidget {
             text,
             if (actions.isNotEmpty) ...[
               const SizedBox(height: AppSpace.md),
-              Wrap(spacing: AppSpace.xs, runSpacing: AppSpace.xs, children: actions),
+              // القيد حقيقي لا صوري: `constraints.maxWidth` هنا هو العرض
+              // المتاح فعلاً، فيجد الزرّ حدّاً يلتزمه بدل أن يُرسم بطوله.
+              Wrap(
+                spacing: AppSpace.xs,
+                runSpacing: AppSpace.xs,
+                children: [
+                  for (final action in actions)
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                      child: action,
+                    ),
+                ],
+              ),
             ],
           ],
         );
@@ -155,7 +180,15 @@ class _Header extends StatelessWidget {
           const SizedBox(width: AppSpace.md),
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Wrap(spacing: AppSpace.xs, runSpacing: AppSpace.xs, children: actions),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth * 0.5),
+              child: Wrap(
+                spacing: AppSpace.xs,
+                runSpacing: AppSpace.xs,
+                alignment: WrapAlignment.end,
+                children: actions,
+              ),
+            ),
           ),
         ],
       );
@@ -269,7 +302,19 @@ class BandButton extends StatelessWidget {
             children: [
               Icon(icon, size: 16, color: foreground),
               const SizedBox(width: 7),
-              Text(label, style: AppText.label.copyWith(color: foreground, fontSize: 12.5)),
+              // `Flexible` لا نصٌّ حرّ: `Row` بـ`MainAxisSize.min` يعطي النص
+              // عرضه الطبيعي مهما طال، و`Wrap` الحاوي **لا يُصغّر** ابناً
+              // أعرض من السطر — بل يضعه وحده ويتجاوز. فزرٌّ بتسمية طويلة
+              // يخرج من الشريط على الجوال. وهو العطل نفسه الذي عولج في
+              // `MetaRow`، عاد من باب آخر.
+              Flexible(
+                child: Text(
+                  label,
+                  style: AppText.label.copyWith(color: foreground, fontSize: 12.5),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ),

@@ -368,15 +368,28 @@
   <!--
     تحميل حزم Firebase من المنصة نفسها بدل www.gstatic.com.
 
-    إضافة firebase_core_web تحقن أربعة سكربتات من ذلك النطاق وقت التشغيل وقبل
-    أن يُرسم أي شيء، فإن حجبته الشبكة أو أبطأته تعلّقت المنصة قبل ظهورها. لكن
-    الإضافة تتخطّى الحقن كاملاً إن وجدت window.firebase_core مضبوطاً مسبقاً
-    (راجع firebase_core_web/lib/src/firebase_core_web.dart: إن لم يكن
-    firebase_core فارغاً عادت الدالة فوراً). فنضبطه هنا من ملفات محلية.
+    إضافة firebase_core_web تحقن سكربتاً لكل خدمة من ذلك النطاق وقت التشغيل
+    وقبل أن يُرسم أي شيء، فإن حجبته الشبكة أو أبطأته تعلّقت المنصة قبل ظهورها.
+    لكن الإضافة تتخطّى الحقن **كاملاً** إن وجدت window.firebase_core مضبوطاً
+    مسبقاً (راجع firebase_core_web/lib/src/firebase_core_web.dart:
+    `_initializeCore` — إن لم يكن firebase_core فارغاً عادت الدالة فوراً).
+    فنضبطه هنا من ملفات محلية.
 
-    الملفات يجلبها tool/fetch_firebase_sdk.sh وقت البناء. وإن غابت — أو فشل
-    استيرادها لأي سبب — لا يحدث شيء وتعمل المنصة بمسارها الحالي تماماً. أي
-    أن أسوأ الاحتمالات هو سلوك اليوم نفسه، لا انحدار.
+    ــــ ولماذا لا تُكتب أسماء الحزم هنا؟ ــــ
+
+    لأن كتابتها هنا كلّفتنا عطلاً: كانت أربعة أسطر صريحة (app, auth,
+    firestore, functions) صحيحةً يوم كُتبت، ثم أُضيفت firebase_storage
+    للمرفقات فلم يلحقها أحد. وبما أن ضبط firebase_core **يُلغي** حقن البقية
+    لا يُكمّله، بقي window.firebase_storage غير معرَّف، فانهار رفع الملفات
+    بخطأ نوعٍ مشوَّه من داخل Firebase لا يذكر التخزين أصلاً.
+
+    فالقائمة الآن في مكان واحد: tool/fetch_firebase_sdk.sh يشتقّها من
+    pubspec.yaml ويولّد loader.js بجانب الحزم التي جلبها. وهذه الصفحة تستورده
+    ولا تعرف عدد الحزم ولا أسماءها.
+
+    وإن غاب المجلد — أو فشل الاستيراد لأي سبب — لا يحدث شيء وتعود الإضافة
+    لجلب الحزم من الشبكة كما كانت. أي أن أسوأ الاحتمالات هو سلوك اليوم نفسه،
+    لا انحدار.
   -->
   <script type="module">
     // إقلاع Flutter يبدأ من هنا **بعد** محاولة ضبط الحزم المحلية، لا بوسم
@@ -385,18 +398,11 @@
     // لا — وهو أسوأ من عطل ثابت لأنه يظهر ويختفي.
     (async () => {
       try {
-        const [core, auth, firestore, functions] = await Promise.all([
-          import('./firebase_sdk/firebase-app.js'),
-          import('./firebase_sdk/firebase-auth.js'),
-          import('./firebase_sdk/firebase-firestore.js'),
-          import('./firebase_sdk/firebase-functions.js'),
-        ]);
-        // الأسماء الأربعة مطلوبة كلها: الفحص يقع على firebase_core وحده، فلو
-        // ضبطناه دون البقية لتخطّت الإضافة حقن الثلاثة الأخرى وفشل التطبيق.
-        window.firebase_core = core;
-        window.firebase_auth = auth;
-        window.firebase_firestore = firestore;
-        window.firebase_functions = functions;
+        // المُحمِّل مُولَّد: يستورد كل حزمة جُلبت ويضبط window.firebase_* لها.
+        // الفحص في الإضافة يقع على firebase_core وحده، فضبطُه دون البقية
+        // يُسقط الحزم الأخرى صامتةً — ولذلك يضبطها المُحمِّل كلها معاً.
+        const { default: installFirebaseSdk } = await import('./firebase_sdk/loader.js');
+        await installFirebaseSdk();
       } catch (e) {
         // لا شيء: تعود الإضافة لجلب الحزم من الشبكة كما كانت.
         console.info('حزم Firebase المحلية غير متوفرة، سيُعتمد على المصدر الافتراضي.', e);

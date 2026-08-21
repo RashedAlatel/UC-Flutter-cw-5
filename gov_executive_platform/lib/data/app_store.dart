@@ -32,6 +32,7 @@ import '../theme/app_theme.dart';
 import '../utils/file_picker.dart';
 import '../utils/formatters.dart';
 import '../utils/safe_file_name.dart';
+import '../utils/storage_ready.dart';
 import 'default_departments.dart';
 import 'demo_data.dart';
 import 'ministry_import_data.dart';
@@ -2057,6 +2058,21 @@ class AppStore extends ChangeNotifier {
     const maxBytes = 10 * 1024 * 1024;
     if (picked.sizeBytes > maxBytes) {
       return (file: null, error: 'حجم الملف يتجاوز ١٠ ميغابايت. ارفعه على نظام الوزارة وألصق رابطه.');
+    }
+    // قبل أي اتصال: هل حزمة التخزين محمَّلة في المتصفح أصلاً؟
+    //
+    // لو لم تكن، لم يفشل الرفع برسالة مفهومة بل بخطأ نوعٍ مشوَّه من داخل
+    // Firebase لا يذكر التخزين إطلاقاً — وهو ما رآه المستخدم فعلاً:
+    // «type 'minified:PB' is not a subtype of type 'minified:o'». والسبب أن
+    // قائمة الحزم المستضافة محلياً كانت ناقصةً حزمة التخزين، فبقي
+    // `window.firebase_storage` غير معرَّف. راجع utils/storage_ready.dart.
+    if (!storageSdkReady()) {
+      return (
+        file: null,
+        error: 'حزمة التخزين لم تُحمَّل في المتصفح، فتعذّر رفع الملفات. '
+            'أعد نشر المنصة بـ ./tool/deploy.sh لتصل الحزمة، '
+            'أو أرفق رابط الملف بدلاً من رفعه الآن.',
+      );
     }
     try {
       // الاسم يُنقّى قبل أن يصير مساراً: الأسماء العربية تُسقط الامتداد في

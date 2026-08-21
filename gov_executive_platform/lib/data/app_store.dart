@@ -418,12 +418,39 @@ class AppStore extends ChangeNotifier {
     final user = currentUser;
     if (user == null) return const [];
     if (canViewAllDepartments) return works;
-    if (isManager) return works.where((w) => myDepartmentIds.contains(w.departmentId)).toList();
-    return works
-        .where((w) =>
-            w.assigneeUid == user.id ||
-            (canManageWorks && w.departmentId == user.departmentId))
-        .toList();
+    // **المُسنَد إليه أولاً، مهما كانت إدارته.**
+    //
+    // وكان مدير الإدارة يرى أعمال إداراته وحدها، فعملٌ أُسنِد إليه شخصياً في
+    // إدارة أخرى يختفي عنه — يصله إشعارٌ بعملٍ لا يجده في المنصة. والقاعدة
+    // على الخادم كانت تسمح بقراءته أصلاً؛ التصفية في الواجهة وحدها هي التي
+    // كانت تُسقطه.
+    final mine = works.where((w) => w.assigneeUid == user.id);
+    final scoped = (isManager || canManageWorks)
+        ? works.where((w) => myDepartmentIds.contains(w.departmentId))
+        : const <WorkItem>[];
+    return mergeById<WorkItem>((w) => w.id, [mine.toList(), scoped.toList()]);
+  }
+
+  /// المشاريع المُسنَدة إلى المستخدم الحالي مديراً أو منفّذاً — **أينما كانت**.
+  List<Project> get myProjects {
+    final uid = currentUser?.id;
+    if (uid == null) return const [];
+    final list = projects.where((p) => p.hasMember(uid)).toList()
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+    return list;
+  }
+
+  /// الأعمال المُسنَدة إلى المستخدم الحالي — أينما كانت إدارتها.
+  List<WorkItem> get myWorks {
+    final uid = currentUser?.id;
+    if (uid == null) return const [];
+    final list = works.where((w) => w.assigneeUid == uid).toList()
+      ..sort((a, b) {
+        // غير المنجَز أولاً، ثم الأقرب موعداً — فما يحتاج عملاً في الأعلى.
+        if (a.isDone != b.isDone) return a.isDone ? 1 : -1;
+        return a.dueDate.compareTo(b.dueDate);
+      });
+    return list;
   }
 
   /// سجل الإنجاز: الأعمال المنجَزة مرتّبة بالأحدث إنجازاً.

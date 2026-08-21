@@ -11,8 +11,8 @@ import '../screens/feedback_screen.dart';
 import '../screens/decision_center_screen.dart';
 import '../screens/department_detail_screen.dart';
 import '../screens/departments_list_screen.dart';
-import '../screens/project_detail_screen.dart';
 import '../screens/people_tracking_screen.dart';
+import '../screens/my_assignments_screen.dart';
 import '../screens/projects_list_screen.dart';
 import '../screens/registration_settings_screen.dart';
 import '../screens/reports_screen.dart';
@@ -81,17 +81,21 @@ class _AppShellState extends State<AppShell> {
     entries.add(const _NavEntry(label: 'المشاريع', icon: Icons.folder_copy_rounded, page: ProjectsListScreen()));
     entries.add(const _NavEntry(label: 'الأعمال', icon: Icons.checklist_rounded, page: WorksListScreen()));
 
-    // مشاريع مدير المشروع المُسنَدة إليه: مدخل مباشر لكل منها كما كان، لكن
-    // **إضافةً** إلى بقية الشاشات لا بديلاً عنها.
-    if (store.isOfficer) {
-      for (final p in store.projects.where((p) => p.isManager(store.currentUser?.id))) {
-        entries.add(_NavEntry(
-          label: p.name,
-          icon: Icons.folder_special_outlined,
-          page: ProjectDetailScreen(projectId: p.id),
-        ));
-      }
+    // «المُسنَد إليّ»: بقية الشاشات مبنية على الإدارة، وهذه على **العضوية**.
+    // فمن أُسنِد إليه مشروع أو عمل في إدارة أخرى يجده هنا بدل أن يبحث عنه
+    // بين ما ليس له. وتظهر لمن يُسنَد إليه العمل فعلاً — لا لمن يرى كل
+    // الإدارات، فلوحته أصلاً هي كل شيء.
+    if (!store.canViewAllDepartments) {
+      entries.add(const _NavEntry(
+        label: 'المُسنَد إليّ',
+        icon: Icons.assignment_ind_outlined,
+        page: MyAssignmentsScreen(),
+      ));
     }
+
+    // مداخل مشاريع مدير المشروع المفردة أُزيلت: تبويب «المُسنَد إليّ» يجمعها
+    // كلها ومعها أعماله، ويشمل ما أُسنِد إليه خارج إدارته — بينما كانت
+    // القائمة الجانبية تطول باسم كل مشروع حتى تصير هي نفسها عائقاً.
 
     // مركز القرارات مخصص لمن يملك فعلياً صلاحية اعتماد قرار فيه (مسؤول النظام،
     // المستخدم التنفيذي، أو دور مخصص بصلاحية اعتماد القرارات العامة) — مدير

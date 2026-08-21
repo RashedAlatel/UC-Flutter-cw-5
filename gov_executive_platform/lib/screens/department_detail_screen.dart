@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/department_section.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
+import '../widgets/meta_row.dart';
 import '../utils/formatters.dart';
 import '../widgets/kpi_card.dart';
 import '../widgets/section_picker.dart';
@@ -398,24 +399,30 @@ class _ProjectCard extends StatelessWidget {
               const SizedBox(height: 14),
               LabeledProgressBar(value: project.progressPercent, label: 'نسبة الإنجاز'),
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 16,
-                runSpacing: 8,
+              MetaRow(
                 children: [
-                  _InfoBit(icon: Icons.flag_outlined, text: project.priority.label),
-                  if (project.executorNames.isNotEmpty)
-                    _InfoBit(icon: Icons.badge_outlined, text: 'المنفذ: ${project.executorLabel}'),
-                  _InfoBit(icon: Icons.event_outlined, text: 'الاستحقاق: ${Formatters.shortDate(project.dueDate)}'),
-                  _InfoBit(
+                  MetaChip(icon: Icons.flag_outlined, text: project.priority.label),
+                  MetaChip(icon: Icons.event_outlined, text: 'الاستحقاق: ${Formatters.shortDate(project.dueDate)}'),
+                  MetaChip(
                     icon: Icons.schedule_rounded,
                     text: project.delayDays > 0 ? 'متأخر ${project.delayDays} يوم' : 'ضمن الجدول الزمني',
                     color: project.delayDays > 0 ? AppColors.danger : AppColors.success,
                   ),
-                  _InfoBit(icon: Icons.checklist_rounded, text: 'المهام: $doneCount / $taskCount'),
+                  MetaChip(icon: Icons.checklist_rounded, text: 'المهام: $doneCount / $taskCount'),
                 ],
               ),
+              // المنفّذون سطرٌ مستقل: نصٌّ طويل بطبيعته، وحشره بين الحقائق
+              // القصيرة هو ما كان يُخرجه من إطار البطاقة.
+              if (project.executorNames.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                MetaLine(icon: Icons.badge_outlined, text: 'المنفذ: ${project.executorSummary}'),
+              ],
               const SizedBox(height: 14),
-              Row(
+              // `Wrap` لا `Row`: زرّان بعرضهما الطبيعي لا يتّسع لهما سطر
+              // البطاقة على شاشة الهاتف، فيخرج الثاني من الإطار.
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
                 children: [
                   OutlinedButton.icon(
                     onPressed: () => Navigator.of(context).push(MaterialPageRoute(
@@ -427,7 +434,6 @@ class _ProjectCard extends StatelessWidget {
                     icon: const Icon(Icons.view_kanban_outlined, size: 18),
                     label: const Text('لوحة المهام'),
                   ),
-                  const SizedBox(width: 10),
                   if (canEdit)
                     ElevatedButton.icon(
                       onPressed: () => showDialog(
@@ -447,22 +453,3 @@ class _ProjectCard extends StatelessWidget {
   }
 }
 
-class _InfoBit extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  final Color? color;
-  const _InfoBit({required this.icon, required this.text, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = color ?? AppColors.textSecondary;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: c),
-        const SizedBox(width: 5),
-        Text(text, style: TextStyle(fontSize: 11.5, color: c, fontWeight: FontWeight.w600)),
-      ],
-    );
-  }
-}

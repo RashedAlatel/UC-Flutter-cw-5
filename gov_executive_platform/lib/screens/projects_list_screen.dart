@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
+import '../widgets/filter_bar.dart';
+import '../widgets/meta_row.dart';
 import '../utils/formatters.dart';
 import '../widgets/custom_widgets_section.dart';
 import '../widgets/progress_bar.dart';
@@ -178,12 +180,10 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
             ],
           ),
           const SizedBox(height: 18),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              SizedBox(
-                width: 280,
+          FilterBar(
+            fields: [
+              (
+                preferredWidth: 280,
                 child: TextField(
                   controller: _searchCtrl,
                   onChanged: (v) => setState(() => _query = v),
@@ -204,8 +204,8 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                   ),
                 ),
               ),
-              SizedBox(
-                width: 220,
+              (
+                preferredWidth: 220,
                 child: DropdownButtonFormField<String?>(
                   initialValue: _departmentFilter,
                   isExpanded: true,
@@ -217,8 +217,8 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                   onChanged: (v) => setState(() => _departmentFilter = v),
                 ),
               ),
-              SizedBox(
-                width: 220,
+              (
+                preferredWidth: 220,
                 child: DropdownButtonFormField<String?>(
                   initialValue: _executorFilter,
                   isExpanded: true,
@@ -231,15 +231,18 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                 ),
               ),
               if (_departmentFilter != null || _executorFilter != null || _query.isNotEmpty)
-                TextButton.icon(
-                  onPressed: () => setState(() {
-                    _departmentFilter = null;
-                    _executorFilter = null;
-                    _searchCtrl.clear();
-                    _query = '';
-                  }),
-                  icon: const Icon(Icons.close_rounded, size: 16),
-                  label: const Text('مسح الفلاتر'),
+                (
+                  preferredWidth: 150,
+                  child: TextButton.icon(
+                    onPressed: () => setState(() {
+                      _departmentFilter = null;
+                      _executorFilter = null;
+                      _searchCtrl.clear();
+                      _query = '';
+                    }),
+                    icon: const Icon(Icons.close_rounded, size: 16),
+                    label: const Text('مسح الفلاتر'),
+                  ),
                 ),
             ],
           ),
@@ -322,15 +325,11 @@ class _ProjectRow extends StatelessWidget {
                       children: [
                         Text(project.name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5)),
                         const SizedBox(height: 3),
+                        // شارة الإدارة تُقتطع ولا تخرج: الشارة والأزرار على
+                        // يمين البطاقة لا تترك للعنوان على شاشة الهاتف إلا
+                        // نحو سبعين بكسل، فاسم إدارة عادي يتجاوزها.
                         if (dept != null)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(dept.icon, size: 12, color: dept.color),
-                              const SizedBox(width: 4),
-                              Text(dept.name, style: TextStyle(fontSize: 11.5, color: dept.color, fontWeight: FontWeight.w700)),
-                            ],
-                          )
+                          MetaChip(icon: dept.icon, text: dept.name, color: dept.color)
                         else
                           const Text('بدون إدارة', style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary, fontWeight: FontWeight.w700)),
                       ],
@@ -358,20 +357,21 @@ class _ProjectRow extends StatelessWidget {
               const SizedBox(height: 12),
               LabeledProgressBar(value: project.progressPercent, label: 'نسبة الإنجاز'),
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 16,
+              MetaRow(
                 runSpacing: 6,
                 children: [
-                  if (project.executorNames.isNotEmpty)
-                    _InfoBit(icon: Icons.badge_outlined, text: 'المنفذ: ${project.executorLabel}'),
-                  _InfoBit(icon: Icons.event_outlined, text: 'الاستحقاق: ${Formatters.shortDate(project.dueDate)}'),
-                  _InfoBit(
+                  MetaChip(icon: Icons.event_outlined, text: 'الاستحقاق: ${Formatters.shortDate(project.dueDate)}'),
+                  MetaChip(
                     icon: Icons.schedule_rounded,
                     text: project.delayDays > 0 ? 'متأخر ${project.delayDays} يوم' : 'ضمن الجدول الزمني',
                     color: project.delayDays > 0 ? AppColors.danger : AppColors.success,
                   ),
                 ],
               ),
+              if (project.executorNames.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                MetaLine(icon: Icons.badge_outlined, text: 'المنفذ: ${project.executorSummary}'),
+              ],
             ],
           ),
         ),
@@ -380,22 +380,3 @@ class _ProjectRow extends StatelessWidget {
   }
 }
 
-class _InfoBit extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  final Color? color;
-  const _InfoBit({required this.icon, required this.text, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = color ?? AppColors.textSecondary;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: c),
-        const SizedBox(width: 5),
-        Text(text, style: TextStyle(fontSize: 11.5, color: c, fontWeight: FontWeight.w600)),
-      ],
-    );
-  }
-}

@@ -56,10 +56,15 @@ class CustomWidgetsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        // `Wrap` لا `Row` مع `Spacer`: على شاشة الهاتف لا يتّسع السطر
+        // للعنوان والزر معاً، فينزل الزر سطراً بدل أن يخرج من الصفحة.
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 8,
           children: [
             Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-            const Spacer(),
             if (canManage)
               OutlinedButton.icon(
                 onPressed: () => _add(context),

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/app_user.dart';
+import '../models/dashboard_metric.dart';
 import '../models/dashboard_widget_config.dart';
 import '../models/department.dart';
 import '../models/enums.dart';
@@ -70,17 +72,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // نفسه (سيُظهر عندها عموداً واحداً فقط ويُفرغ البقية) — يتأثر بفلتر
     // الحالة فقط، بينما تبقى المقارنة شاملة كل الإدارات المرئية.
     final rankingProjects = projects.where((p) => _statusFilter == null || p.effectiveStatus == _statusFilter).toList();
-    final ranking = store.departments
-        .where((d) => store.canViewDepartment(d.id))
-        .map((d) {
-          final deptProjects = rankingProjects.where((p) => p.departmentId == d.id).toList();
-          final avg = deptProjects.isEmpty
-              ? 0.0
-              : deptProjects.map((p) => p.progressPercent).reduce((a, b) => a + b) / deptProjects.length;
-          return MapEntry(d, avg);
-        })
-        .toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
 
     final statusCounts = <String, int>{
       for (final s in ProjectStatus.values) s.label: filteredProjects.where((p) => p.effectiveStatus == s).length,
@@ -214,10 +205,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             onStatusChanged: (s) => setState(() => _statusFilter = s),
             onDeptChanged: (d) => setState(() => _deptFilter = d),
           ),
-          const SizedBox(height: 18),
-          _KpiGrid(store: store, projects: filteredProjects),
           const SizedBox(height: 26),
-          const _SectionTitle('لوحات التحليل'),
+          // العنوان يشمل المؤشرات أيضاً منذ صارت بطاقاتها ودجات على اللوحة
+          // نفسها، تُسحب وتُحذف كبقيتها بدل صفٍّ مثبَّت في الشيفرة.
+          const _SectionTitle('المؤشرات ولوحات التحليل'),
           const SizedBox(height: 14),
           if (_arranging) ...[
             const _ArrangeHint(),
@@ -233,13 +224,62 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 for (final w in store.dashboardWidgets) w.id == id ? w.copyWith(width: width) : w,
               ],
             ),
+            onMetric: (id, metric) => _persist(
+              store,
+              [
+                for (final w in store.dashboardWidgets) w.id == id ? w.copyWith(metric: metric) : w,
+              ],
+            ),
             onRemove: (id) => _persist(store, store.dashboardWidgets.where((w) => w.id != id).toList()),
-            builder: (w) =>
-                _buildWidget(context, w, store, scoped, ranking, statusCounts, statusColors, filteredProjects),
+            builder: (w) => _buildWidget(
+                context, w, store, scoped, rankingProjects, statusCounts, statusColors, filteredProjects),
           ),
         ],
       ),
     );
+  }
+
+  /// ترتيب الإدارات بمقياس هذا الودجت.
+  ///
+  /// يُحسب لكل ودجت على حدة لا مرةً واحدة للصفحة: صار في اللوحة أن توضع
+  /// «الإدارات حسب الإنجاز» و«الإدارات حسب التأخير» جنباً إلى جنب، فلا يوجد
+  /// «ترتيب» واحد للصفحة أصلاً.
+  static List<MapEntry<Department, double>> _departmentRanking(
+    AppStore store,
+    List<Project> scope,
+    DashboardMetric metric,
+  ) {
+    final list = store.departments
+        .where((d) => store.canViewDepartment(d.id))
+        .map((d) => MapEntry(
+              d,
+              AppStore.metricValue(metric, scope.where((p) => p.departmentId == d.id).toList()),
+            ))
+        .toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return list;
+  }
+
+  /// المشاريع التي تُعرض عند الضغط على عمود — تتبع المقياس.
+  ///
+  /// كان الضغط يعرض «المتأخرة» دائماً مهما كان العمود. ومع مقياسٍ يقيس
+  /// الاكتمال يصير ذلك تناقضاً صريحاً بين ما يقيسه العمود وما يفتحه.
+  static ({String label, List<Project> list}) _peekFor(DashboardMetric metric, List<Project> scope) {
+    switch (metric) {
+      case DashboardMetric.delayedRate:
+        return (
+          label: 'المتأخرة',
+          list: scope.where((p) => p.effectiveStatus == ProjectStatus.delayed).toList()
+        );
+      case DashboardMetric.completedRate:
+        return (
+          label: 'المكتملة',
+          list: scope.where((p) => p.effectiveStatus == ProjectStatus.completed).toList()
+        );
+      case DashboardMetric.avgProgress:
+      case DashboardMetric.projectCount:
+        return (label: '', list: scope);
+    }
   }
 
   Widget _buildWidget(
@@ -247,29 +287,107 @@ class _DashboardScreenState extends State<DashboardScreen> {
     DashboardWidgetConfig config,
     AppStore store,
     bool scoped,
-    List<MapEntry<Department, double>> ranking,
+    List<Project> rankingProjects,
     Map<String, int> statusCounts,
     Map<String, Color> statusColors,
     List<Project> filteredProjects,
   ) {
+    final metric = config.metric;
     switch (config.type) {
+      case DashboardWidgetType.kpiAvgProgress:
+        return KpiCard(
+          title: 'نسبة الإنجاز العام',
+          value: Formatters.percent(AppStore.metricValue(DashboardMetric.avgProgress, filteredProjects)),
+          icon: Icons.trending_up_rounded,
+          color: AppColors.success,
+        );
+      case DashboardWidgetType.kpiAvgDelay:
+        final avgDelay = filteredProjects.isEmpty
+            ? 0.0
+            : filteredProjects.map((p) => p.delayDays).reduce((a, b) => a + b) / filteredProjects.length;
+        return KpiCard(
+          title: 'متوسط التأخير عن الخطة',
+          value: '${avgDelay.toStringAsFixed(1)} يوم',
+          icon: Icons.schedule_rounded,
+          color: AppColors.warning,
+        );
+      case DashboardWidgetType.kpiProjectCount:
+        return KpiCard(
+          title: 'إجمالي عدد المشاريع',
+          value: '${filteredProjects.length}',
+          icon: Icons.folder_copy_rounded,
+          color: AppColors.primary,
+        );
+      case DashboardWidgetType.kpiHighPriority:
+        final high = filteredProjects
+            .where((p) => p.priority == PriorityLevel.high || p.priority == PriorityLevel.critical)
+            .length;
+        return KpiCard(
+          title: 'المشاريع عالية الأولوية',
+          value: '$high',
+          icon: Icons.priority_high_rounded,
+          color: AppColors.priorityColor('high'),
+        );
+      case DashboardWidgetType.kpiOpenRisks:
+        final ids = filteredProjects.map((p) => p.id).toSet();
+        return KpiCard(
+          title: 'المخاطر القائمة',
+          value: '${store.risks.where((r) => ids.contains(r.projectId) && r.status == ItemStatus.open).length}',
+          icon: Icons.warning_amber_rounded,
+          color: AppColors.danger,
+        );
+      case DashboardWidgetType.kpiOpenBlockers:
+        final ids = filteredProjects.map((p) => p.id).toSet();
+        return KpiCard(
+          title: 'العوائق النشطة',
+          value: '${store.blockers.where((b) => ids.contains(b.projectId) && b.status == ItemStatus.open).length}',
+          icon: Icons.block_rounded,
+          color: const Color(0xFFE0692B),
+        );
+      case DashboardWidgetType.kpiPendingApprovals:
+        return KpiCard(
+          title: 'طلبات بانتظار القيادة',
+          value: '${store.pendingApprovalsCount}',
+          icon: Icons.gavel_rounded,
+          color: AppColors.info,
+        );
       case DashboardWidgetType.deptBarChart:
+        final ranking = _departmentRanking(store, rankingProjects, metric);
         return _ChartCard(
-          title: scoped ? 'أداء إدارتي' : 'ترتيب الإدارات حسب الأداء',
-          subtitle: 'اضغط على أي إدارة لعرض مشاريعها المتأخرة',
+          title: '${scoped ? 'أداء إدارتي' : 'ترتيب الإدارات'} حسب: ${metric.label}',
+          subtitle: metric.hint,
           height: 300,
           child: ranking.isEmpty
               ? const Center(child: Text('لا توجد بيانات', style: TextStyle(color: AppColors.textSecondary)))
               : DepartmentBarChart(
                   ranking: ranking,
-                  onDepartmentTap: (dept) => _showProjectsPeek(
-                    context,
-                    title: 'مشاريع "${dept.name}" المتأخرة',
-                    projects: store.visibleProjects
-                        .where((p) => p.departmentId == dept.id && p.effectiveStatus == ProjectStatus.delayed)
-                        .toList(),
-                  ),
+                  unit: metric.unit,
+                  onDepartmentTap: (dept) {
+                    final peek = _peekFor(
+                      metric,
+                      store.visibleProjects.where((p) => p.departmentId == dept.id).toList(),
+                    );
+                    _showProjectsPeek(
+                      context,
+                      title: 'مشاريع "${dept.name}"${peek.label.isEmpty ? '' : ' ${peek.label}'}',
+                      projects: peek.list,
+                    );
+                  },
                 ),
+        );
+      case DashboardWidgetType.topUsersChart:
+        return _TopUsersCard(
+          store: store,
+          metric: metric,
+          scope: rankingProjects,
+          onPersonTap: (user, projects) {
+            final peek = _peekFor(metric, projects);
+            _showProjectsPeek(
+              context,
+              title: 'مشاريع ${user.name}${peek.label.isEmpty ? '' : ' ${peek.label}'}',
+              projects: peek.list,
+            );
+          },
         );
       case DashboardWidgetType.statusPieChart:
         return _ChartCard(
@@ -292,7 +410,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case DashboardWidgetType.pendingApprovalsList:
         return _PendingDecisionsCard(store: store);
       case DashboardWidgetType.departmentRankingList:
-        return _DepartmentRankingList(store: store, ranking: ranking);
+        return _DepartmentRankingList(
+          store: store,
+          ranking: _departmentRanking(store, rankingProjects, metric),
+          metric: metric,
+        );
       case DashboardWidgetType.recentUpdatesList:
         return _RecentUpdatesCard(store: store);
       case DashboardWidgetType.topProjectsList:
@@ -393,76 +515,73 @@ void _showProjectsPeek(BuildContext context, {required String title, required Li
   );
 }
 
-class _KpiGrid extends StatelessWidget {
+/// «الأشخاص حسب المشاريع»: من عليه أكثر المشاريع، بأي مقياس اخترته.
+///
+/// المصدر [AppStore.trackablePeople] وهو **مقيَّد بالصلاحية أصلاً**: كل
+/// المعتمَدين لمن يرى كل الإدارات، وموظفو إداراته لمدير الإدارة، وفارغٌ لمن
+/// دون ذلك. فالبطاقة تقول ذلك صراحةً بدل أن تظهر رسماً خالياً يُقرأ عطلاً.
+class _TopUsersCard extends StatelessWidget {
   final AppStore store;
-  final List<Project> projects;
-  const _KpiGrid({required this.store, required this.projects});
+  final DashboardMetric metric;
+
+  /// نطاق المشاريع بعد فلتر الحالة — يُقاطَع بمشاريع الشخص، فيتبع الرسمُ
+  /// شريطَ الفلاتر كبقية اللوحة.
+  final List<Project> scope;
+  final void Function(AppUser user, List<Project> projects) onPersonTap;
+
+  const _TopUsersCard({
+    required this.store,
+    required this.metric,
+    required this.scope,
+    required this.onPersonTap,
+  });
+
+  /// أكثر ثمانية أشخاص — لا كل الموظفين: بطاقةٌ بمائتي عمود لا تُقرأ.
+  static const int _limit = 8;
 
   @override
   Widget build(BuildContext context) {
-    final ids = projects.map((p) => p.id).toSet();
-    final avgProgress = projects.isEmpty ? 0.0 : projects.map((p) => p.progressPercent).reduce((a, b) => a + b) / projects.length;
-    final avgDelay = projects.isEmpty ? 0.0 : projects.map((p) => p.delayDays).reduce((a, b) => a + b) / projects.length;
-    final risksCount = store.risks.where((r) => ids.contains(r.projectId) && r.status == ItemStatus.open).length;
-    final blockersCount = store.blockers.where((b) => ids.contains(b.projectId) && b.status == ItemStatus.open).length;
+    final people = store.trackablePeople;
+    final ids = scope.map((p) => p.id).toSet();
+    final rows = <({AppUser user, List<Project> projects, double value})>[];
+    for (final user in people) {
+      final mine = store.projectsOf(user).where((p) => ids.contains(p.id)).toList();
+      if (mine.isEmpty) continue; // من لا مشروع له لا يُزاحم الأسماء في الرسم
+      rows.add((user: user, projects: mine, value: AppStore.metricValue(metric, mine)));
+    }
+    rows.sort((a, b) => b.value.compareTo(a.value));
+    final top = rows.take(_limit).toList();
 
-    return LayoutBuilder(builder: (context, constraints) {
-      final cols = constraints.maxWidth > 1150
-          ? 5
-          : constraints.maxWidth > 820
-              ? 3
-              : constraints.maxWidth > 520
-                  ? 2
-                  : 1;
-      final items = [
-        KpiCard(
-          title: 'نسبة الإنجاز العام',
-          value: Formatters.percent(avgProgress),
-          icon: Icons.trending_up_rounded,
-          color: AppColors.success,
-        ),
-        KpiCard(
-          title: 'متوسط التأخير عن الخطة',
-          value: '${avgDelay.toStringAsFixed(1)} يوم',
-          icon: Icons.schedule_rounded,
-          color: AppColors.warning,
-        ),
-        KpiCard(
-          title: 'المخاطر القائمة',
-          value: '$risksCount',
-          icon: Icons.warning_amber_rounded,
-          color: AppColors.danger,
-        ),
-        KpiCard(
-          title: 'العوائق النشطة',
-          value: '$blockersCount',
-          icon: Icons.block_rounded,
-          color: const Color(0xFFE0692B),
-        ),
-        KpiCard(
-          title: 'طلبات بانتظار القيادة',
-          value: '${store.pendingApprovalsCount}',
-          icon: Icons.gavel_rounded,
-          color: AppColors.info,
-        ),
-      ];
-      // ارتفاع البطاقة يُثبَّت بقيمة تكفي محتواها بالضبط، وتُشتق منه النسبة
-      // حسب العرض الفعلي. النسبة الثابتة السابقة (1.55) كانت تعني على عمود
-      // واحد (الهاتف) بطاقة بارتفاع ~٢٢٠ بكسل لمحتوى يحتاج ٩٠ — خمس بطاقات
-      // بفراغ داخلي هائل تُقرأ كصفحة بيضاء عند التمرير.
-      const spacing = 14.0;
-      const itemHeight = 92.0;
-      final itemWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
-      return GridView.count(
-        crossAxisCount: cols,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        crossAxisSpacing: spacing,
-        mainAxisSpacing: spacing,
-        childAspectRatio: itemWidth / itemHeight,
-        children: items,
-      );
-    });
+    return _ChartCard(
+      title: 'الأشخاص حسب: ${metric.label}',
+      subtitle: metric.hint,
+      height: 300,
+      child: people.isEmpty
+          ? const Center(
+              child: Text(
+                'لا تملك صلاحية متابعة أشخاص',
+                style: TextStyle(color: AppColors.textSecondary),
+                textAlign: TextAlign.center,
+              ),
+            )
+          : top.isEmpty
+              ? const Center(
+                  child: Text('لا يوجد أشخاص مسجَّلون على مشاريع',
+                      style: TextStyle(color: AppColors.textSecondary), textAlign: TextAlign.center),
+                )
+              : RankedBarChart(
+                  bars: [
+                    for (var i = 0; i < top.length; i++)
+                      (
+                        label: top[i].user.name,
+                        color: AppColors.chartPalette[i % AppColors.chartPalette.length],
+                        value: top[i].value,
+                      ),
+                  ],
+                  unit: metric.unit,
+                  onTap: (i) => onPersonTap(top[i].user, top[i].projects),
+                ),
+    );
   }
 }
 
@@ -879,17 +998,28 @@ class _PendingDecisionsCard extends StatelessWidget {
 class _DepartmentRankingList extends StatelessWidget {
   final AppStore store;
   final List ranking;
-  const _DepartmentRankingList({required this.store, required this.ranking});
+  final DashboardMetric metric;
+  const _DepartmentRankingList({required this.store, required this.ranking, required this.metric});
+
+  /// سقف شريط التقدّم: النسبة تُقاس على ١٠٠، والعدد على أكبر قيمة في القائمة
+  /// — وإلا ظهرت إدارةٌ بثلاثة مشاريع بشريط شبه فارغ بلا معنى.
+  double get _ceiling {
+    if (metric.unit == DashboardMetricUnit.percent) return 100;
+    final maxValue = ranking.fold<double>(0, (a, e) => (e.value as double) > a ? e.value as double : a);
+    return maxValue <= 0 ? 1 : maxValue;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final ceiling = _ceiling;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('تفاصيل ترتيب الإدارات', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+            Text('ترتيب الإدارات حسب: ${metric.label}',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
             const Divider(height: 20),
             ...List.generate(ranking.length, (i) {
               final entry = ranking[i];
@@ -928,7 +1058,7 @@ class _DepartmentRankingList extends StatelessWidget {
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(20),
                             child: LinearProgressIndicator(
-                              value: value / 100,
+                              value: (value / ceiling).clamp(0.0, 1.0),
                               minHeight: 7,
                               backgroundColor: AppColors.border,
                               valueColor: AlwaysStoppedAnimation(dept.color),
@@ -938,7 +1068,10 @@ class _DepartmentRankingList extends StatelessWidget {
                       ),
                       SizedBox(
                         width: 46,
-                        child: Text(Formatters.percent(value),
+                        child: Text(
+                            metric.unit == DashboardMetricUnit.percent
+                                ? Formatters.percent(value)
+                                : value.toStringAsFixed(0),
                             textAlign: TextAlign.end,
                             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
                       ),
@@ -1060,8 +1193,15 @@ class _LastUpdatedBarState extends State<_LastUpdatedBar> {
       children: [
         const Icon(Icons.sync_rounded, size: 13, color: AppColors.textSecondary),
         const SizedBox(width: 6),
-        Text('آخر تحديث: ${_label()}', style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
-        const Spacer(),
+        // `Expanded` بدل `Text` حرّ ثم `Spacer`: التاريخ والوقت بالعربية أطول
+        // من عرض الهاتف، فكان السطر يتجاوز الشاشة بمائة بكسل تقريباً — وهو
+        // عطلٌ قائم لم يظهر لأن اللوحة لم تُصيَّر قط بمقاس هاتف في الاختبارات.
+        Expanded(
+          child: Text('آخر تحديث: ${_label()}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+        ),
         InkWell(
           borderRadius: BorderRadius.circular(20),
           onTap: () {
@@ -1299,6 +1439,7 @@ class DashboardWidgetBoardPreview extends StatelessWidget {
         arranging: arranging,
         onReorder: (_, _) {},
         onWidth: (_, _) {},
+        onMetric: (_, _) {},
         onRemove: (_) {},
         builder: builder,
       );
@@ -1313,6 +1454,7 @@ class _WidgetBoard extends StatelessWidget {
   final bool arranging;
   final void Function(int from, int to) onReorder;
   final void Function(String id, DashboardWidgetWidth width) onWidth;
+  final void Function(String id, DashboardMetric metric) onMetric;
   final void Function(String id) onRemove;
   final Widget Function(DashboardWidgetConfig) builder;
 
@@ -1321,6 +1463,7 @@ class _WidgetBoard extends StatelessWidget {
     required this.arranging,
     required this.onReorder,
     required this.onWidth,
+    required this.onMetric,
     required this.onRemove,
     required this.builder,
   });
@@ -1356,6 +1499,7 @@ class _WidgetBoard extends StatelessWidget {
                       config: widgets[i],
                       onReorder: onReorder,
                       onWidth: onWidth,
+                      onMetric: onMetric,
                       onRemove: onRemove,
                       child: builder(widgets[i]),
                     )
@@ -1373,6 +1517,7 @@ class _ArrangeableCard extends StatelessWidget {
   final DashboardWidgetConfig config;
   final void Function(int from, int to) onReorder;
   final void Function(String id, DashboardWidgetWidth width) onWidth;
+  final void Function(String id, DashboardMetric metric) onMetric;
   final void Function(String id) onRemove;
   final Widget child;
 
@@ -1381,6 +1526,7 @@ class _ArrangeableCard extends StatelessWidget {
     required this.config,
     required this.onReorder,
     required this.onWidth,
+    required this.onMetric,
     required this.onRemove,
     required this.child,
   });
@@ -1438,6 +1584,33 @@ class _ArrangeableCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                   ),
+                  // المقياس أولاً: هو ما يقرّر **معنى** البطاقة، والعرضُ شكلها.
+                  if (config.type.hasMetric)
+                    PopupMenuButton<DashboardMetric>(
+                      tooltip: 'مقياس البطاقة',
+                      initialValue: config.metric,
+                      onSelected: (m) => onMetric(config.id, m),
+                      itemBuilder: (_) => [
+                        for (final m in DashboardMetric.values)
+                          PopupMenuItem(value: m, child: Text(m.label)),
+                      ],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.straighten_rounded, size: 16, color: AppColors.textSecondary),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(config.metric.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   PopupMenuButton<DashboardWidgetWidth>(
                     tooltip: 'عرض البطاقة',
                     initialValue: config.width,
@@ -1492,8 +1665,14 @@ class _SectionTitle extends StatelessWidget {
       children: [
         Container(width: 3, height: 16, color: AppColors.accent),
         const SizedBox(width: 8),
-        Text(text,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+        // `Flexible` لا نصٌّ حرّ: `Row` يعطي ابنه عرضاً غير محدود، فعنوانٌ
+        // أطول قليلاً يتجاوز حدّ الشاشة على الجوال ويظهر شريط التجاوز.
+        Flexible(
+          child: Text(text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+        ),
         const SizedBox(width: 12),
         const Expanded(child: Divider(height: 1, color: AppColors.border)),
       ],

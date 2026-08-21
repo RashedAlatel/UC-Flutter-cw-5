@@ -225,7 +225,19 @@ enum ApprovalType {
 
 /// أنواع الودجات القابلة للإضافة إلى لوحة القيادة الرئيسية
 enum DashboardWidgetType {
+  // بطاقات المؤشرات — كانت مثبَّتة في شيفرة الصفحة خارج اللوحة، فلا تُسحب
+  // ولا تُحذف ولا يُختار أيّها يظهر. صارت ودجات كبقيتها، فنالت السحب والعرض
+  // والحذف بلا شيفرة جديدة.
+  kpiAvgProgress,
+  kpiAvgDelay,
+  kpiProjectCount,
+  kpiHighPriority,
+  kpiOpenRisks,
+  kpiOpenBlockers,
+  kpiPendingApprovals,
+  // الرسوم والقوائم
   deptBarChart,
+  topUsersChart,
   statusPieChart,
   pendingApprovalsList,
   departmentRankingList,
@@ -236,8 +248,24 @@ enum DashboardWidgetType {
 
   String get label {
     switch (this) {
+      case DashboardWidgetType.kpiAvgProgress:
+        return 'مؤشر: نسبة الإنجاز العام';
+      case DashboardWidgetType.kpiAvgDelay:
+        return 'مؤشر: متوسط التأخير عن الخطة';
+      case DashboardWidgetType.kpiProjectCount:
+        return 'مؤشر: إجمالي عدد المشاريع';
+      case DashboardWidgetType.kpiHighPriority:
+        return 'مؤشر: المشاريع عالية الأولوية';
+      case DashboardWidgetType.kpiOpenRisks:
+        return 'مؤشر: المخاطر القائمة';
+      case DashboardWidgetType.kpiOpenBlockers:
+        return 'مؤشر: العوائق النشطة';
+      case DashboardWidgetType.kpiPendingApprovals:
+        return 'مؤشر: طلبات بانتظار القيادة';
       case DashboardWidgetType.deptBarChart:
         return 'رسم بياني: ترتيب الإدارات (أعمدة)';
+      case DashboardWidgetType.topUsersChart:
+        return 'رسم بياني: الأشخاص حسب المشاريع';
       case DashboardWidgetType.statusPieChart:
         return 'رسم بياني: توزيع حالة المشاريع (دائري)';
       case DashboardWidgetType.pendingApprovalsList:
@@ -257,8 +285,24 @@ enum DashboardWidgetType {
 
   IconData get icon {
     switch (this) {
+      case DashboardWidgetType.kpiAvgProgress:
+        return Icons.trending_up_rounded;
+      case DashboardWidgetType.kpiAvgDelay:
+        return Icons.schedule_rounded;
+      case DashboardWidgetType.kpiProjectCount:
+        return Icons.folder_copy_rounded;
+      case DashboardWidgetType.kpiHighPriority:
+        return Icons.priority_high_rounded;
+      case DashboardWidgetType.kpiOpenRisks:
+        return Icons.warning_amber_rounded;
+      case DashboardWidgetType.kpiOpenBlockers:
+        return Icons.block_rounded;
+      case DashboardWidgetType.kpiPendingApprovals:
+        return Icons.gavel_rounded;
       case DashboardWidgetType.deptBarChart:
         return Icons.bar_chart_rounded;
+      case DashboardWidgetType.topUsersChart:
+        return Icons.groups_rounded;
       case DashboardWidgetType.statusPieChart:
         return Icons.pie_chart_rounded;
       case DashboardWidgetType.pendingApprovalsList:
@@ -275,6 +319,19 @@ enum DashboardWidgetType {
         return Icons.auto_awesome_mosaic_rounded;
     }
   }
+
+  /// هل يحمل هذا النوع مقياساً يختاره المستخدم (`DashboardMetric`)؟
+  ///
+  /// الأنواع الحاملة للمقياس هي وحدها التي يُسمح بتكرارها على اللوحة —
+  /// نسخةٌ لكل مقياس — وتظهر لها قائمة «المقياس» في وضع الترتيب وفي نافذة
+  /// التخصيص.
+  bool get hasMetric =>
+      this == DashboardWidgetType.deptBarChart ||
+      this == DashboardWidgetType.departmentRankingList ||
+      this == DashboardWidgetType.topUsersChart;
+
+  /// بطاقات المؤشرات: رقم واحد في بطاقة صغيرة، تُصيَّر بـ`KpiCard`.
+  bool get isKpi => name.startsWith('kpi');
 
   static DashboardWidgetType fromName(String name) => DashboardWidgetType.values
       .firstWhere((e) => e.name == name, orElse: () => DashboardWidgetType.deptBarChart);

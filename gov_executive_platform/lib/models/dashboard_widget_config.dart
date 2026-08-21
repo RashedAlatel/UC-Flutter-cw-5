@@ -1,4 +1,5 @@
 import 'custom_widget_spec.dart';
+import 'dashboard_metric.dart';
 import 'enums.dart';
 
 /// عرض الودجت على اللوحة.
@@ -38,24 +39,36 @@ class DashboardWidgetConfig {
   /// المبدئية، فلا تنكسر لوحة ضبطها أحد قبل اليوم.
   final DashboardWidgetWidth width;
 
+  /// المقياس الذي يُرتَّب به هذا الودجت — للأنواع الحاملة للمقياس وحدها
+  /// ([DashboardWidgetType.hasMetric]).
+  ///
+  /// والافتراض [DashboardMetric.avgProgress] عمداً: هو ما كانت اللوحة تعرضه
+  /// قبل وجود هذا الحقل، فكل لوحة محفوظة اليوم تُقرأ بعد النشر كما كانت
+  /// حرفياً.
+  final DashboardMetric metric;
+
   const DashboardWidgetConfig({
     required this.id,
     required this.type,
     this.custom,
     this.width = DashboardWidgetWidth.half,
+    this.metric = DashboardMetric.avgProgress,
   });
 
-  DashboardWidgetConfig copyWith({DashboardWidgetWidth? width}) => DashboardWidgetConfig(
+  DashboardWidgetConfig copyWith({DashboardWidgetWidth? width, DashboardMetric? metric}) =>
+      DashboardWidgetConfig(
         id: id,
         type: type,
         custom: custom,
         width: width ?? this.width,
+        metric: metric ?? this.metric,
       );
 
   Map<String, dynamic> toMap() => {
         'id': id,
         'type': type.name,
         'width': width.name,
+        if (type.hasMetric) 'metric': metric.name,
         if (custom != null) 'custom': custom!.toMap(),
       };
 
@@ -69,6 +82,7 @@ class DashboardWidgetConfig {
           ? CustomWidgetSpec.fromMap(Map<String, dynamic>.from(customMap))
           : null,
       width: DashboardWidgetWidth.fromName(map['width'] as String?),
+      metric: DashboardMetric.fromName(map['metric'] as String?),
     );
   }
 
@@ -76,27 +90,72 @@ class DashboardWidgetConfig {
   /// مطابق لتقسيمات التصميم المرجعي المعتمد (دائري + أعلى المشاريع + جدول
   /// + أعمدة الإدارات). القوائم الأخرى (القرارات المعلّقة، آخر التحديثات)
   /// تبقى متاحة للإضافة يدوياً عبر "تخصيص اللوحة".
-  static List<DashboardWidgetConfig> defaults() => const [
-        DashboardWidgetConfig(id: 'default_1', type: DashboardWidgetType.topProjectsList),
-        DashboardWidgetConfig(id: 'default_2', type: DashboardWidgetType.statusPieChart),
+  static List<DashboardWidgetConfig> defaults() => [
+        ...kpiDefaults(),
+        const DashboardWidgetConfig(id: 'default_1', type: DashboardWidgetType.topProjectsList),
+        const DashboardWidgetConfig(id: 'default_2', type: DashboardWidgetType.statusPieChart),
         // الجدول يحتاج السطر كاملاً: أعمدته لا تُقرأ في نصف عرض الشاشة.
-        DashboardWidgetConfig(
+        const DashboardWidgetConfig(
             id: 'default_3', type: DashboardWidgetType.projectsTable, width: DashboardWidgetWidth.full),
-        DashboardWidgetConfig(id: 'default_4', type: DashboardWidgetType.deptBarChart),
+        const DashboardWidgetConfig(id: 'default_4', type: DashboardWidgetType.deptBarChart),
+        // «من عليه أكثر المشاريع» سؤالٌ تُسأله القيادة أولاً، فيظهر جوابه بلا
+        // أن يضيفه أحد. ومقياسه الافتراضي العدد لا النسبة: هذا هو السؤال نفسه.
+        const DashboardWidgetConfig(
+            id: 'default_5',
+            type: DashboardWidgetType.topUsersChart,
+            metric: DashboardMetric.projectCount),
       ];
 
-  /// يُبقي أول ظهور فقط لكل نوع جاهز (غير مخصص) ويحذف أي تكرار، مع إبقاء
-  /// كل الودجات المخصصة كما هي (يمكن تكرارها بمواصفات مختلفة). يُطبَّق عند
-  /// كل قراءة وحفظ لتنظيف أي تكرار تراكم من نسخ سابقة كانت تسمح بإضافة نفس
-  /// النوع الجاهز أكثر من مرة — تراكم عشرات الودجات كان يجعل الصفحة طويلة
-  /// جداً بشكل غير طبيعي عند التمرير للأسفل.
+  /// صفّ المؤشرات الافتراضي — الخمسة التي كانت مثبَّتة في الصفحة، ومعها
+  /// «إجمالي عدد المشاريع» و«المشاريع عالية الأولوية» ولم يكن لهما مؤشر.
+  static List<DashboardWidgetConfig> kpiDefaults() => const [
+        DashboardWidgetConfig(id: 'kpi_progress', type: DashboardWidgetType.kpiAvgProgress, width: DashboardWidgetWidth.third),
+        DashboardWidgetConfig(id: 'kpi_count', type: DashboardWidgetType.kpiProjectCount, width: DashboardWidgetWidth.third),
+        DashboardWidgetConfig(id: 'kpi_priority', type: DashboardWidgetType.kpiHighPriority, width: DashboardWidgetWidth.third),
+        DashboardWidgetConfig(id: 'kpi_delay', type: DashboardWidgetType.kpiAvgDelay, width: DashboardWidgetWidth.third),
+        DashboardWidgetConfig(id: 'kpi_risks', type: DashboardWidgetType.kpiOpenRisks, width: DashboardWidgetWidth.third),
+        DashboardWidgetConfig(id: 'kpi_blockers', type: DashboardWidgetType.kpiOpenBlockers, width: DashboardWidgetWidth.third),
+        DashboardWidgetConfig(id: 'kpi_approvals', type: DashboardWidgetType.kpiPendingApprovals, width: DashboardWidgetWidth.third),
+      ];
+
+  /// مفتاح يُكتب على مستند اللوحة عند أول حفظ من الواجهة الجديدة.
+  static const String kpiMigrationKey = 'kpiMigrated';
+
+  /// يُضيف صفّ المؤشرات إلى تخطيطٍ **حُفظ قبل** أن تصير المؤشرات ودجات.
+  ///
+  /// بغير هذا يفقد كلُّ من خصّص لوحته سابقاً الصفَّ العلوي كاملاً بعد النشر،
+  /// ويقرأها عطلاً لا ميزة. والعلامة على المستند لا على قائمة الودجات: من
+  /// حَذَف المؤشرات عمداً وحَفِظ، تُكتب العلامة فيبقى حذفه — ولا تعود
+  /// البطاقات في كل تحميل تُصارعه.
+  ///
+  /// والقائمة الفارغة تُعاد كما هي: الفراغ يعني «هذه الطبقة لم تُضبط» فتتخطاها
+  /// [resolveLayers]، وحشوُها بالمؤشرات يجعل طبقةً غير مضبوطة تبدو مضبوطة.
+  static List<DashboardWidgetConfig> withKpiRow(
+    List<DashboardWidgetConfig> stored, {
+    required bool migrated,
+  }) {
+    if (migrated || stored.isEmpty) return stored;
+    if (stored.any((w) => w.type.isKpi)) return stored;
+    return [...kpiDefaults(), ...stored];
+  }
+
+  /// يُبقي أول ظهور فقط لكل نوع جاهز ويحذف أي تكرار، مع إبقاء كل الودجات
+  /// المخصصة كما هي (يمكن تكرارها بمواصفات مختلفة). يُطبَّق عند كل قراءة
+  /// وحفظ لتنظيف أي تكرار تراكم من نسخ سابقة كانت تسمح بإضافة نفس النوع
+  /// أكثر من مرة — تراكم عشرات الودجات كان يجعل الصفحة طويلة جداً بشكل غير
+  /// طبيعي عند التمرير للأسفل.
+  ///
+  /// **والنوع الحامل لمقياس يُميَّز بنوعه ومقياسه معاً**: «ترتيب الإدارات حسب
+  /// الإنجاز» و«ترتيب الإدارات حسب التأخير» رقمان مختلفان يُقارَنان جنباً إلى
+  /// جنب، فلا يجوز أن يبتلع أحدهما الآخر لمجرّد اشتراكهما في النوع. أما
+  /// نسختان بالمقياس نفسه فهما تكرارٌ حقيقي وتُطويان.
   static List<DashboardWidgetConfig> dedupe(List<DashboardWidgetConfig> list) {
-    final seenTypes = <DashboardWidgetType>{};
+    final seen = <String>{};
     final result = <DashboardWidgetConfig>[];
     for (final w in list) {
       if (w.type == DashboardWidgetType.custom) {
         result.add(w);
-      } else if (seenTypes.add(w.type)) {
+      } else if (seen.add(w.type.hasMetric ? '${w.type.name}/${w.metric.name}' : w.type.name)) {
         result.add(w);
       }
     }

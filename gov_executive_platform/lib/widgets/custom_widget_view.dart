@@ -85,6 +85,30 @@ class CustomWidgetEngine {
     return '';
   }
 
+  /// تسميات التجميع لعنصر واحد — **قائمة** لا تسمية واحدة.
+  ///
+  /// أكثر الحقول تعطي تسميةً واحدة، أما المنفّذون فعدّة أشخاص في مشروع واحد،
+  /// ويجب أن يُحسب المشروع على **كلٍّ منهم**. وكان الحقل يجمّع حسب
+  /// `executorLabel` — أي النص المدموج كاملاً — فمشروعٌ لثلاثة يصنع خانةً
+  /// واحدة اسمها «أحمد، هاجر، طارق»، وخانةً أخرى لكل تركيبة مختلفة. فتعذّر
+  /// أن يُعرف من أي طريق «من عليه أكثر المشاريع»، وهو أول ما تُسأل عنه اللوحة.
+  static List<String> groupLabels(AppStore store, CustomWidgetSource source, dynamic item, String field) {
+    if (source == CustomWidgetSource.projects && field == 'executor') {
+      final p = item as Project;
+      // الحسابات المسجَّلة والأسماء النصية المستوردة معاً: الأولى لها حسابات
+      // في المنصة، والثانية وردت في ملفات الوزارة بلا حساب. وإسقاط أيّهما
+      // يُنقص أرقاماً صحيحة. والمجموعة تمنع عدّ الشخص مرتين لو ورد بالوجهين.
+      final names = <String>{
+        for (final uid in p.executorUids)
+          if (store.users.where((u) => u.id == uid).firstOrNull?.name.trim() case final n? when n.isNotEmpty) n,
+        for (final n in p.executorNames)
+          if (n.trim().isNotEmpty) n.trim(),
+      };
+      return names.isEmpty ? const ['غير محدد'] : names.toList();
+    }
+    return [groupLabel(store, source, item, field)];
+  }
+
   /// التسمية المعروضة (عربية) لحقل معيّن من عنصر بيانات — تُستخدم كمفتاح
   /// تجميع في الرسوم/الجداول.
   static String groupLabel(AppStore store, CustomWidgetSource source, dynamic item, String field) {
@@ -153,21 +177,18 @@ class CustomWidgetEngine {
     if (spec.groupBy == null) return {'الإجمالي': base.length};
     final counts = <String, int>{};
     for (final item in base) {
-      final label = groupLabel(store, spec.source, item, spec.groupBy!);
-      counts[label] = (counts[label] ?? 0) + 1;
+      // العنصر قد يساهم في أكثر من خانة (مشروعٌ لعدّة منفّذين)، فمجموع الخانات
+      // قد يتجاوز عدد العناصر — وهو الصحيح هنا: السؤال «كم مشروعاً على كل
+      // شخص»، لا «كيف تُقسَّم المشاريع».
+      for (final label in groupLabels(store, spec.source, item, spec.groupBy!)) {
+        counts[label] = (counts[label] ?? 0) + 1;
+      }
     }
     return counts;
   }
 }
 
-List<Color> get _palette => [
-      AppColors.primary,
-      AppColors.accent,
-      AppColors.info,
-      AppColors.success,
-      AppColors.warning,
-      AppColors.danger,
-    ];
+List<Color> get _palette => AppColors.chartPalette;
 
 /// عرض الودجت المخصص بحسب نوع العرض المُختار عند إنشائه.
 class CustomWidgetCard extends StatelessWidget {

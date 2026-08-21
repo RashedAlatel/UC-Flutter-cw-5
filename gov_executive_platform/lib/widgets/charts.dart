@@ -2,34 +2,64 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../models/dashboard_metric.dart';
 import '../models/department.dart';
 import '../theme/app_theme.dart';
 
-/// قائمة أعمدة أفقية مسطّحة (بلا ظل، بطراز أدوات BI) لترتيب الإدارات حسب
-/// الأداء. كل صف قابل للضغط لعرض مشاريع تلك الإدارة المتأخرة.
-class DepartmentBarChart extends StatelessWidget {
-  final List<MapEntry<Department, double>> ranking;
-  final ValueChanged<Department>? onDepartmentTap;
-  const DepartmentBarChart({super.key, required this.ranking, this.onDepartmentTap});
+/// صفٌّ واحد في [RankedBarChart].
+typedef RankedBar = ({String label, Color color, double value});
+
+/// قائمة أعمدة أفقية مسطّحة (بلا ظل، بطراز أدوات BI) لترتيب أي شيء حسب أي
+/// مقياس — إدارات أو أشخاص.
+///
+/// وهي تفهم **وحدة** المقياس، ولا تفترض أنه نسبة:
+///
+/// - `percent`: السقف ١٠٠ دائماً، فالعمود يُقرأ مستقلاً وتُطبع `٪`.
+/// - `count`: لا سقف للعدد، فيُقاس كل عمود على **أكبر قيمة في الرسم نفسه**،
+///   وتُطبع القيمة بلا وحدة. ولولا ذلك لظهرت إدارةٌ لها ١٢ مشروعاً بعمود
+///   ممتلئ مكتوب عليه «١٢٪» — رقمٌ لا معنى له.
+class RankedBarChart extends StatelessWidget {
+  final List<RankedBar> bars;
+  final DashboardMetricUnit unit;
+  final ValueChanged<int>? onTap;
+
+  const RankedBarChart({
+    super.key,
+    required this.bars,
+    required this.unit,
+    this.onTap,
+  });
+
+  /// السقف الذي تُقاس عليه الأعمدة. صفرٌ مستحيل هنا: القسمة عليه تعطي NaN
+  /// فيرمي `FractionallySizedBox` استثناءً، ورسمٌ كله أصفار يجب أن يظهر
+  /// بأعمدة فارغة لا أن ينهار.
+  double get _ceiling {
+    if (unit == DashboardMetricUnit.percent) return 100;
+    final maxValue = bars.fold<double>(0, (a, b) => b.value > a ? b.value : a);
+    return maxValue <= 0 ? 1 : maxValue;
+  }
+
+  String _format(double value) =>
+      unit == DashboardMetricUnit.percent ? '${value.toStringAsFixed(0)}٪' : value.toStringAsFixed(0);
 
   @override
   Widget build(BuildContext context) {
+    final ceiling = _ceiling;
     return ListView.separated(
-      itemCount: ranking.length,
+      itemCount: bars.length,
       separatorBuilder: (context, i) => const SizedBox(height: 14),
       itemBuilder: (context, i) {
-        final entry = ranking[i];
-        final dept = entry.key;
-        final value = entry.value.clamp(0, 100);
+        final bar = bars[i];
+        final value = bar.value < 0 ? 0.0 : bar.value;
         return InkWell(
           borderRadius: BorderRadius.circular(6),
-          onTap: onDepartmentTap == null ? null : () => onDepartmentTap!(dept),
+          onTap: onTap == null ? null : () => onTap!(i),
           child: Row(
             children: [
               SizedBox(
                 width: 100,
                 child: Text(
-                  dept.name,
+                  bar.label,
                   style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -43,21 +73,46 @@ class DepartmentBarChart extends StatelessWidget {
                   children: [
                     Container(height: 18, decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(4))),
                     FractionallySizedBox(
-                      widthFactor: value / 100,
-                      child: Container(height: 18, decoration: BoxDecoration(color: dept.color, borderRadius: BorderRadius.circular(4))),
+                      widthFactor: (value / ceiling).clamp(0.0, 1.0),
+                      child: Container(height: 18, decoration: BoxDecoration(color: bar.color, borderRadius: BorderRadius.circular(4))),
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 8),
               SizedBox(
-                width: 36,
-                child: Text('${value.toStringAsFixed(0)}٪', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                width: 40,
+                child: Text(_format(value), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
               ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+/// ترتيب الإدارات — غلافٌ رفيع فوق [RankedBarChart] يعطي كل صف لون إدارته.
+class DepartmentBarChart extends StatelessWidget {
+  final List<MapEntry<Department, double>> ranking;
+  final DashboardMetricUnit unit;
+  final ValueChanged<Department>? onDepartmentTap;
+
+  const DepartmentBarChart({
+    super.key,
+    required this.ranking,
+    this.unit = DashboardMetricUnit.percent,
+    this.onDepartmentTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RankedBarChart(
+      bars: [
+        for (final e in ranking) (label: e.key.name, color: e.key.color, value: e.value),
+      ],
+      unit: unit,
+      onTap: onDepartmentTap == null ? null : (i) => onDepartmentTap!(ranking[i].key),
     );
   }
 }

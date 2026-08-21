@@ -42,6 +42,12 @@ class AppColors {
         colors: [primary, primaryDark],
       );
 
+  /// ألوان أعمدة الرسوم البيانية بالترتيب — مصدر واحد بدل نسخة في كل رسم.
+  ///
+  /// ليست `const` عمداً: [primary] و[accent] لونا هوية تُضبطان من إعدادات
+  /// المظهر، فالقائمة تُبنى عند الطلب لتتبعهما.
+  static List<Color> get chartPalette => [primary, accent, info, success, warning, danger];
+
   static Color statusColor(String status) {
     switch (status) {
       case 'onTrack':

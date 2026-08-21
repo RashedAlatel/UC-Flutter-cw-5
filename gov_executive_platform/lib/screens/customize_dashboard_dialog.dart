@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../data/app_store.dart';
 import '../models/custom_widget_spec.dart';
+import '../models/dashboard_metric.dart';
 import '../models/dashboard_widget_config.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
@@ -118,8 +119,46 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
     }
   }
 
-  void _addWidget(DashboardWidgetType type, {CustomWidgetSpec? custom}) {
-    setState(() => _widgets.add(DashboardWidgetConfig(id: const Uuid().v4(), type: type, custom: custom)));
+  void _addWidget(DashboardWidgetType type, {CustomWidgetSpec? custom, DashboardMetric? metric}) {
+    setState(() => _widgets.add(DashboardWidgetConfig(
+          id: const Uuid().v4(),
+          type: type,
+          custom: custom,
+          metric: metric ?? DashboardMetric.avgProgress,
+        )));
+  }
+
+  /// اختيار المقياس عند الإضافة مباشرةً.
+  ///
+  /// وضعُه هنا لا بعد الإضافة: النسخة الثانية من الرسم نفسه لا معنى لها إلا
+  /// بمقياس مختلف، فلو أُضيفت بالمقياس الافتراضي لطواها [DashboardWidgetConfig.dedupe]
+  /// بوصفها تكراراً، فيبدو للمستخدم أن «الإضافة لا تعمل».
+  Future<void> _pickMetricThenAdd(DashboardWidgetType type) async {
+    final metric = await showModalBottomSheet<DashboardMetric>(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('على أي مقياس تُرتَّب البطاقة؟',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+            ),
+            ...DashboardMetric.values.map((m) => ListTile(
+                  leading: Icon(Icons.straighten_rounded, color: AppColors.primary),
+                  title: Text(m.label, style: const TextStyle(fontSize: 13)),
+                  subtitle: Text(m.hint,
+                      style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                  onTap: () => Navigator.of(ctx).pop(m),
+                )),
+          ],
+        ),
+      ),
+    );
+    if (metric == null || !mounted) return;
+    _addWidget(type, metric: metric);
   }
 
   Future<void> _openCustomBuilder({DashboardWidgetConfig? editing}) async {
@@ -180,9 +219,13 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
   void _showAddWidgetSheet() {
     // نستبعد الأنواع المضافة أصلاً حتى لا يظن المستخدم أنه أضاف عنصراً
     // جديداً بينما هو في الواقع نسخة مطابقة لعنصر موجود مسبقاً بنفس الاسم
-    // والمحتوى — وهو ما كان يبدو وكأن "الحفظ لا يعمل". الودجت المخصص مستثنى
-    // من هذا الاستبعاد لأنه يمكن إضافة أكثر من ودجت مخصص بمواصفات مختلفة.
-    final addedTypes = _widgets.where((w) => w.type != DashboardWidgetType.custom).map((w) => w.type).toSet();
+    // والمحتوى — وهو ما كان يبدو وكأن "الحفظ لا يعمل". والمستثنى من الاستبعاد
+    // اثنان: الودجت المخصص (يمكن تكراره بمواصفات مختلفة)، **والأنواع الحاملة
+    // لمقياس** — فنسخةٌ لكل مقياس أمرٌ مقصود، ويُسأل عن المقياس عند الإضافة.
+    final addedTypes = _widgets
+        .where((w) => w.type != DashboardWidgetType.custom && !w.type.hasMetric)
+        .map((w) => w.type)
+        .toSet();
     final available = DashboardWidgetType.values.where((t) => !addedTypes.contains(t)).toList();
     showModalBottomSheet(
       context: context,
@@ -211,6 +254,8 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
                       Navigator.of(context).pop(); // إغلاق قائمة الاختيار
                       if (t == DashboardWidgetType.custom) {
                         _openCustomBuilder();
+                      } else if (t.hasMetric) {
+                        _pickMetricThenAdd(t);
                       } else {
                         _addWidget(t);
                       }
@@ -301,11 +346,34 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
                           child: ListTile(
                             leading: Icon(w.type.icon, color: AppColors.primary, size: 20),
                             title: Text(isCustom ? (w.custom?.title ?? w.type.label) : w.type.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                            subtitle: isCustom ? const Text('ودجت مخصص — اضغط للتعديل', style: TextStyle(fontSize: 10.5, color: AppColors.textSecondary)) : null,
+                            subtitle: isCustom
+                                ? const Text('ودجت مخصص — اضغط للتعديل',
+                                    style: TextStyle(fontSize: 10.5, color: AppColors.textSecondary))
+                                : w.type.hasMetric
+                                    ? Text('المقياس: ${w.metric.label}',
+                                        style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary))
+                                    : null,
                             onTap: isCustom ? () => _openCustomBuilder(editing: w) : null,
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                // المقياس يُضبط هنا كما يُضبط من وضع الترتيب:
+                                // من يضبط لوحة دور أو اللوحة العامة لا يراها
+                                // أمامه، فلا سبيل له إلى المقياس إلا هنا.
+                                if (w.type.hasMetric)
+                                  PopupMenuButton<DashboardMetric>(
+                                    tooltip: 'مقياس البطاقة',
+                                    initialValue: w.metric,
+                                    onSelected: (m) => setState(() => _widgets[i] = w.copyWith(metric: m)),
+                                    itemBuilder: (_) => [
+                                      for (final m in DashboardMetric.values)
+                                        PopupMenuItem(value: m, child: Text(m.label)),
+                                    ],
+                                    child: const Padding(
+                                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                                      child: Icon(Icons.straighten_rounded, size: 18, color: AppColors.textSecondary),
+                                    ),
+                                  ),
                                 // العرض يُضبط هنا كما يُضبط من وضع الترتيب على
                                 // الصفحة: من ضبط لوحة دور أو اللوحة العامة لا
                                 // يراها أمامه، فلا سبيل له إلى العرض إلا هنا.

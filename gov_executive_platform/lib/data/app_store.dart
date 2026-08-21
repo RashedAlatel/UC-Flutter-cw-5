@@ -16,6 +16,7 @@ import '../models/audit_log_entry.dart';
 import '../models/blocker.dart';
 import '../models/daily_update.dart';
 import '../models/custom_role.dart';
+import '../models/dashboard_metric.dart';
 import '../models/dashboard_widget_config.dart';
 import '../models/department.dart';
 import '../models/department_section.dart';
@@ -186,20 +187,37 @@ class AppStore extends ChangeNotifier {
   /// تخصيص لوحته الشخصية متاح للجميع ولا يمرّ من هنا.
   bool get canManageSharedDashboards => hasPermission(RolePermission.manageDashboard);
 
-  static List<DashboardWidgetConfig> _parseWidgets(Object? raw) {
+  /// [migrateKpi] لطبقات لوحة القيادة وحدها (الشخصية، والدور، والعامة) — لا
+  /// لودجات صفحة المشاريع ولا ودجات المشروع: بطاقات مؤشرات المنصة لا معنى لها
+  /// هناك.
+  static List<DashboardWidgetConfig> _parseWidgets(
+    Map<String, dynamic>? data, {
+    bool migrateKpi = false,
+  }) {
+    final raw = data?['widgets'];
     if (raw is! List || raw.isEmpty) return const [];
-    return DashboardWidgetConfig.dedupe(
+    final list = DashboardWidgetConfig.dedupe(
       raw.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList(),
     );
+    if (!migrateKpi) return list;
+    return DashboardWidgetConfig.withKpiRow(
+      list,
+      migrated: data?[DashboardWidgetConfig.kpiMigrationKey] == true,
+    );
   }
+
+  /// خريطة الحفظ لأي طبقة من طبقات لوحة القيادة — ومعها علامة الترحيل، حتى
+  /// لا يعود صفّ المؤشرات لمن حذفه عمداً.
+  static Map<String, dynamic> _dashboardDoc(List<DashboardWidgetConfig> widgets) => {
+        'widgets': DashboardWidgetConfig.dedupe(widgets).map((w) => w.toMap()).toList(),
+        DashboardWidgetConfig.kpiMigrationKey: true,
+      };
 
   /// حفظ لوحة المستخدم الحالي وحده. متاح لكل مستخدم معتمَد على مستنده هو.
   Future<void> saveMyDashboardWidgets(List<DashboardWidgetConfig> widgets) async {
     final uid = currentUser?.id;
     if (uid == null) return;
-    await _db.collection('userDashboards').doc(uid).set({
-      'widgets': DashboardWidgetConfig.dedupe(widgets).map((w) => w.toMap()).toList(),
-    });
+    await _db.collection('userDashboards').doc(uid).set(_dashboardDoc(widgets));
   }
 
   /// إلغاء تخصيص المستخدم الحالي فيعود لرؤية لوحة دوره أو اللوحة العامة.
@@ -211,9 +229,7 @@ class AppStore extends ChangeNotifier {
 
   /// حفظ لوحة دور كامل (مسؤول النظام أو من يملك صلاحية التحكم باللوحة).
   Future<void> saveRoleDashboardWidgets(String roleKey, List<DashboardWidgetConfig> widgets) async {
-    await _db.collection('dashboardConfig').doc('role_$roleKey').set({
-      'widgets': DashboardWidgetConfig.dedupe(widgets).map((w) => w.toMap()).toList(),
-    });
+    await _db.collection('dashboardConfig').doc('role_$roleKey').set(_dashboardDoc(widgets));
     await _log('تخصيص لوحة القيادة', 'قام ${currentUser?.name} بتحديث تخطيط لوحة القيادة لدور $roleKey');
   }
 
@@ -522,12 +538,30 @@ class AppStore extends ChangeNotifier {
   /// أعمال الشخص (المُسنَدة إليه بمعرّفه).
   List<WorkItem> worksOf(AppUser user) => works.where((w) => w.assigneeUid == user.id).toList();
 
-  /// مشاريع الشخص: ما يديره (managerUid) وما هو منفّذ فيه (مطابقة بالاسم،
-  /// لأن المشروع يخزّن أسماء المنفذين لا معرّفاتهم).
+  /// مشاريع الشخص: **كل مشروع هو مديرٌ فيه أو منفّذ**.
+  ///
+  /// كان الشرط `p.managerUid == user.id`، و`managerUid` هو **أول** مديري
+  /// المشروع فقط ([Project.managerUid]) — فالمدير الثاني لم يكن يُحسب. وكان
+  /// المنفّذون يُطابَقون بالاسم النصي وحده، فالمنفّذ المسجَّل بحسابه
+  /// (`executorUids`) لم يكن يُحسب إطلاقاً. ومع ذلك كانت هذه الدالة تغذّي
+  /// صفحة «متابعة الأشخاص»، فتعرض أرقاماً ناقصة بثقة.
+  ///
+  /// و[Project.hasMember] هو المحكّ الصحيح للعضوية، وهو نفسه المستعمل في
+  /// [myProjects] وفي قاعدة القراءة على الخادم.
+  ///
+  /// ومطابقة الاسم **تبقى** إلى جانبه: مشاريع الوزارة المستوردة تحمل أسماء
+  /// منفّذين لا تقابلها حسابات، وإسقاطها يُنقص أرقاماً صحيحة.
+  ///
+  /// والنطاق [projects] لا [visibleProjects] عن قصد: هذه الدالة تصف **الشخص
+  /// المسؤول عنه**، فلا يجوز أن يتغيّر جوابها بتغيّر القارئ. و[projects] مقيَّد
+  /// أصلاً على الخادم بما يحقّ للقارئ قراءته، فتقييده ثانيةً هنا لا يضيف شيئاً
+  /// ويجعل الدالة تعتمد على حالة القارئ من حيث لا يظهر ذلك في اسمها. ومن أراد
+  /// تضييق النطاق ضيّقه عند موضع العرض — كما تفعل بطاقة «الأشخاص حسب المشاريع».
   List<Project> projectsOf(AppUser user) {
     final name = user.name.trim();
     return projects
-        .where((p) => p.managerUid == user.id || p.executorNames.any((e) => e.trim() == name))
+        .where((p) =>
+            p.hasMember(user.id) || (name.isNotEmpty && p.executorNames.any((e) => e.trim() == name)))
         .toList();
   }
 
@@ -1076,7 +1110,8 @@ class AppStore extends ChangeNotifier {
       var projectsPage = const <DashboardWidgetConfig>[];
       _roleDashboards.clear();
       for (final doc in snap.docs) {
-        final widgets = _parseWidgets(doc.data()['widgets']);
+        // صفحة المشاريع لا تُرحَّل: بطاقات مؤشرات المنصة ليست من ودجاتها.
+        final widgets = _parseWidgets(doc.data(), migrateKpi: doc.id != 'projectsPage');
         if (doc.id == 'main') {
           global = widgets;
         } else if (doc.id == 'projectsPage') {
@@ -1170,7 +1205,7 @@ class AppStore extends ChangeNotifier {
         notifyListeners();
       });
       _listen('userDashboards', _db.collection('userDashboards').doc(myUid).snapshots(), (doc) {
-        final widgets = _parseWidgets(doc.data()?['widgets']);
+        final widgets = _parseWidgets(doc.data(), migrateKpi: true);
         _myDashboard = widgets.isEmpty ? null : widgets;
         notifyListeners();
       });
@@ -1923,6 +1958,30 @@ class AppStore extends ChangeNotifier {
 
   List<DailyUpdate> updatesForProject(String projectId) =>
       dailyUpdates.where((u) => u.projectId == projectId).toList()..sort((a, b) => b.date.compareTo(a.date));
+
+  /// قيمة مقياس واحد على قائمة مشاريع — **التعريف الوحيد** لكل رقم يظهر في
+  /// أعمدة اللوحة.
+  ///
+  /// الإدارة والشخص يمرّان من هنا كلاهما، فـ«نسبة التأخير» تعني الشيء نفسه
+  /// في الرسمين ولا تفترق بينهما لاحقاً — وهو ما حدث فعلاً حين انفصل
+  /// [departmentRanking] في المخزن عن حسابٍ مكرّرٍ داخل شاشة اللوحة.
+  ///
+  /// ويُقرأ [Project.effectiveStatus] لا الحقل المخزَّن: المخزَّن تقديرٌ بشري
+  /// جامد لا يعرف مرور الزمن، والتاريخ هو الفيصل (راجع تعليق `effectiveStatus`).
+  static double metricValue(DashboardMetric metric, List<Project> list) {
+    if (metric == DashboardMetric.projectCount) return list.length.toDouble();
+    if (list.isEmpty) return 0;
+    switch (metric) {
+      case DashboardMetric.avgProgress:
+        return list.map((p) => p.progressPercent).reduce((a, b) => a + b) / list.length;
+      case DashboardMetric.delayedRate:
+        return list.where((p) => p.effectiveStatus == ProjectStatus.delayed).length / list.length * 100;
+      case DashboardMetric.completedRate:
+        return list.where((p) => p.effectiveStatus == ProjectStatus.completed).length / list.length * 100;
+      case DashboardMetric.projectCount:
+        return list.length.toDouble(); // مُعالَج أعلاه؛ مذكور ليكتمل التفريع.
+    }
+  }
 
   double departmentProgress(String departmentId) {
     final list = projectsForDepartment(departmentId);
@@ -2774,9 +2833,7 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> saveDashboardWidgets(List<DashboardWidgetConfig> widgets) async {
-    await _db.collection('dashboardConfig').doc('main').set({
-      'widgets': DashboardWidgetConfig.dedupe(widgets).map((w) => w.toMap()).toList(),
-    });
+    await _db.collection('dashboardConfig').doc('main').set(_dashboardDoc(widgets));
     await _log('تخصيص لوحة القيادة', 'قام ${currentUser?.name} بتحديث تخطيط لوحة القيادة الرئيسية');
   }
 

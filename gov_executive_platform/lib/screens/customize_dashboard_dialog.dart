@@ -377,6 +377,11 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
                                 // العرض يُضبط هنا كما يُضبط من وضع الترتيب على
                                 // الصفحة: من ضبط لوحة دور أو اللوحة العامة لا
                                 // يراها أمامه، فلا سبيل له إلى العرض إلا هنا.
+                                //
+                                // ويُخفى عن المؤشرات: هي تُعرض في الشريط
+                                // القيادي الذي يوزّع أعمدته بنفسه، فـ«ثلث/نصف/
+                                // كامل» خيارٌ بلا أثر — وعرضُه يَعِد بما لا يقع.
+                                if (!w.type.isKpi)
                                 PopupMenuButton<DashboardWidgetWidth>(
                                   tooltip: 'عرض البطاقة',
                                   initialValue: w.width,

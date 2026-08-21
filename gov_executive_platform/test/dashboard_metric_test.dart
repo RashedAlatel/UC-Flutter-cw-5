@@ -238,7 +238,9 @@ void main() {
 
     testWidgets('العدد يُطبع بلا ٪ ويُقاس على أكبر قيمة', (tester) async {
       await pump(tester, DashboardMetricUnit.count, [12, 6]);
-      expect(find.text('12'), findsOneWidget);
+      // «١٢» يظهر مرتين عن قصد: قيمةً للعمود، وآخرَ علامة على المحور. وكلاهما
+      // صحيح — فالسقف هو أكبر قيمة في الرسم.
+      expect(find.text('12'), findsNWidgets(2));
       expect(find.text('12٪'), findsNothing);
 
       final bars = tester.widgetList<FractionallySizedBox>(find.byType(FractionallySizedBox)).toList();
@@ -248,9 +250,17 @@ void main() {
 
     testWidgets('النسبة تُطبع بـ٪ وتُقاس على مائة', (tester) async {
       await pump(tester, DashboardMetricUnit.percent, [50]);
-      expect(find.text('50٪'), findsOneWidget);
+      // «٥٠٪» مرتان كذلك: قيمةً وعلامةَ منتصفِ محورٍ سقفُه مائة.
+      expect(find.text('50٪'), findsNWidgets(2));
       final bar = tester.widget<FractionallySizedBox>(find.byType(FractionallySizedBox).first);
       expect(bar.widthFactor, closeTo(0.5, 0.001));
+    });
+
+    testWidgets('المحور يحمل خمس علامات من الصفر إلى السقف', (tester) async {
+      await pump(tester, DashboardMetricUnit.percent, [50]);
+      for (final tick in ['0٪', '25٪', '50٪', '75٪', '100٪']) {
+        expect(find.text(tick), findsWidgets, reason: 'علامة $tick مفقودة');
+      }
     });
 
     testWidgets('رسمٌ كله أصفار لا ينهار بقسمة على صفر', (tester) async {

@@ -98,6 +98,23 @@ Future<void> _loadFont(String family, List<String> assets) async {
   await loader.load();
 }
 
+/// استقرارٌ **محدود بمهلة** بدل `pumpAndSettle`.
+///
+/// `pumpAndSettle` لا يعود أبداً ما دام في الشجرة شيءٌ يتحرّك، فيبتلع الأداة
+/// كلها ولا تُنتج صورة واحدة — وهذا ما كان يقع فعلاً: تُكتب أول لقطة ثم تتعلّق
+/// عند أول قفزة تمرير حتى تنتهي مهلة الاختبار بعد عشر دقائق.
+///
+/// وأداة `render_board_preview.dart` الشقيقة اتخذت هذا القرار نفسه من قبل
+/// وشرحته في ترويستها. وهذه الأداة بقيت على `pumpAndSettle` فوقعت فيما حذّرت
+/// منه تلك.
+///
+/// والمعاينة لا تحتاج استقراراً تامّاً أصلاً: تحتاج إطاراً مرسوماً بالكامل.
+Future<void> _settle(WidgetTester tester) async {
+  for (var i = 0; i < 8; i++) {
+    await tester.pump(const Duration(milliseconds: 120));
+  }
+}
+
 Future<void> _shoot(WidgetTester tester, Size size, String name) async {
   tester.view.devicePixelRatio = 1.0;
   await tester.binding.setSurfaceSize(size);
@@ -124,7 +141,7 @@ Future<void> _shoot(WidgetTester tester, Size size, String name) async {
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  await _settle(tester);
 
   // نقيس الارتفاع الكلي للمحتوى القابل للتمرير — هو الرقم الذي يكشف "الجدار".
   final scrollable = find.byType(Scrollable).first;
@@ -137,10 +154,14 @@ Future<void> _shoot(WidgetTester tester, Size size, String name) async {
 
   // نصوّر عدة مواضع أثناء النزول، لا أعلى الصفحة فقط — العيب الذي يشتكي منه
   // المستخدم يظهر في منتصف الصفحة وآخرها لا في أولها.
-  final stops = <double>[0, position.maxScrollExtent * 0.35, position.maxScrollExtent * 0.7, position.maxScrollExtent];
+  // موضعان لا أربعة: كل قفزة تُعيد تخطيط جدول الخمسة والستين مشروعاً ثم
+  // تُصوّر حدوداً بارتفاع الصفحة كاملة، وأربعُ قفزات كانت تتجاوز مهلة
+  // الاختبار قبل أن تُكتب صورة واحدة بعد الأولى. والأعلى والأسفل يكشفان
+  // الجدار كما تكشفه الأربع.
+  final stops = <double>[0, position.maxScrollExtent];
   for (var i = 0; i < stops.length; i++) {
     position.jumpTo(stops[i]);
-    await tester.pumpAndSettle();
+    await _settle(tester);
     final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(_shotKey));
     final image = await boundary.toImage(pixelRatio: 1.0);
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);

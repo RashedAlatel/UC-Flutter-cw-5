@@ -108,6 +108,70 @@ class AppColors {
   }
 
   static void resetBrand() => applyBrand(primary: defaultPrimary, accent: defaultAccent);
+
+  /// لون النص فوق خلفية من ألوان الهوية — يُشتقّ من إضاءتها الفعلية.
+  ///
+  /// ليس تزيّداً: كل الألوان الجاهزة في «إعدادات المظهر» داكنة، **لكن الشاشة
+  /// تقبل إدخالاً حرّاً بالـhex**. فلو أدخل مسؤول النظام لوناً فاتحاً وبقي
+  /// النص أبيض ثابتاً لصار الشريط القيادي غير مقروء إطلاقاً — وهو أول ما
+  /// يُرى في المنصة.
+  static Color onBrand(Color background) =>
+      background.computeLuminance() > 0.42 ? textPrimary : Colors.white;
+
+  /// نفس لون المعنى، مرفوع الإضاءة ليُقرأ على خلفية داكنة.
+  ///
+  /// ألوان المعنى (نجاح/تحذير/خطر/معلومة) ثابتة عمداً لأنها تحمل دلالة لا
+  /// ذوقاً، فلا يجوز استبدالها بغيرها على الشريط. والحل رفع الإضاءة مع حفظ
+  /// درجة اللون وتشبّعه: يبقى الأحمر أحمر، ويصير مقروءاً على الأخضر العميق
+  /// بدل أن يذوب فيه.
+  static Color liftForDark(Color semantic) {
+    final hsl = HSLColor.fromColor(semantic);
+    return hsl.withLightness((hsl.lightness + 0.30).clamp(0.0, 1.0)).toColor();
+  }
+}
+
+/// إيقاع المسافات — مضاعفات أربعة.
+///
+/// اللوحة اليوم بلا إيقاع: مسافات مكتوبة يدوياً بقيم متفرقة، فلا تجد العين
+/// ترتيباً. هذه القيم تُطبَّق على لوحة القيادة في هذه الجولة، وتنتشر لاحقاً.
+abstract final class AppSpace {
+  static const double xs = 8;
+  static const double sm = 12;
+  static const double md = 16;
+  static const double lg = 24;
+  static const double xl = 32;
+}
+
+/// سلّم الاستدارة — ثلاث قيم بدل إحدى عشرة متفرقة.
+abstract final class AppRadius {
+  /// أعمدة الرسوم والعناصر الصغيرة.
+  static const double sm = 4;
+
+  /// البطاقات والحقول والأزرار.
+  static const double md = 10;
+
+  /// الشارات والكبسولات.
+  static const double pill = 999;
+}
+
+/// سلّم الخط — ست درجات.
+///
+/// **بالأوزان الموجودة فعلاً لا غير**: ملفات Tajawal المضمَّنة أربعة
+/// (٤٠٠ و٥٠٠ و٧٠٠ و٨٠٠). والوزن ٦٠٠ المستعمل في بقية المنصة **لا ملف له**،
+/// فيصطنعه المحرّك اصطناعاً — وهو أحد أسباب إحساس «الخط غير محكم».
+abstract final class AppText {
+  static const TextStyle pageTitle =
+      TextStyle(fontFamily: AppTheme.fontFamily, fontSize: 26, fontWeight: FontWeight.w800, height: 1.25);
+  static const TextStyle metric =
+      TextStyle(fontFamily: AppTheme.fontFamily, fontSize: 22, fontWeight: FontWeight.w800, height: 1.1);
+  static const TextStyle cardTitle =
+      TextStyle(fontFamily: AppTheme.fontFamily, fontSize: 14, fontWeight: FontWeight.w800);
+  static const TextStyle body =
+      TextStyle(fontFamily: AppTheme.fontFamily, fontSize: 12.5, fontWeight: FontWeight.w400);
+  static const TextStyle label =
+      TextStyle(fontFamily: AppTheme.fontFamily, fontSize: 11.5, fontWeight: FontWeight.w700);
+  static const TextStyle micro =
+      TextStyle(fontFamily: AppTheme.fontFamily, fontSize: 10, fontWeight: FontWeight.w400);
 }
 
 class AppTheme {

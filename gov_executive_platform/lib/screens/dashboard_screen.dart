@@ -9,8 +9,10 @@ import '../models/department.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
+import '../theme/brand.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
+import '../widgets/command_band.dart';
 import '../widgets/custom_widget_view.dart';
 import '../widgets/focused_project_card.dart';
 import '../widgets/pinned_work_card.dart';
@@ -46,12 +48,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await store.saveMyDashboardWidgets(next);
   }
 
-  static List<DashboardWidgetConfig> _moved(List<DashboardWidgetConfig> list, int from, int to) {
-    final next = List<DashboardWidgetConfig>.from(list);
-    if (from < 0 || from >= next.length) return next;
-    final item = next.removeAt(from);
-    next.insert(to.clamp(0, next.length), item);
-    return next;
+  /// إعادة ترتيب **داخل مجموعة جزئية** مع حفظ مواضع الباقين.
+  ///
+  /// صارت اللوحة مجموعتين تُرتَّبان مستقلتين: مؤشرات في الشريط، وبطاقات
+  /// أسفله. وكلتاهما تُحفظ في قائمة واحدة. فلو أُعيد الترتيب بالمواضع الخام
+  /// لأفسد سحبُ بطاقةٍ ترتيبَ المؤشرات — لأن موضع «الثانية في اللوحة» ليس
+  /// الموضع الثاني في القائمة الكاملة.
+  ///
+  /// فالمواضع التي تشغلها المجموعة تبقى لها، ويوضع فيها ترتيبها الجديد.
+  static List<DashboardWidgetConfig> _movedWithin(
+    List<DashboardWidgetConfig> all,
+    List<DashboardWidgetConfig> subset,
+    int from,
+    int to,
+  ) {
+    if (from < 0 || from >= subset.length) return all;
+    final reordered = List<DashboardWidgetConfig>.from(subset);
+    final item = reordered.removeAt(from);
+    reordered.insert(to.clamp(0, reordered.length), item);
+
+    final ids = subset.map((w) => w.id).toSet();
+    final out = List<DashboardWidgetConfig>.from(all);
+    var next = 0;
+    for (var i = 0; i < out.length; i++) {
+      if (ids.contains(out[i].id)) out[i] = reordered[next++];
+    }
+    return out;
   }
 
   @override
@@ -81,64 +103,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
     };
     final filterDepartments = store.visibleDepartments;
 
+    final kpiWidgets = store.dashboardWidgets.where((w) => w.type.isKpi).toList();
+    final boardWidgets = store.dashboardWidgets.where((w) => !w.type.isKpi).toList();
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // الترويسة تنكسر على الجوال بدل أن تتزاحم.
-          //
-          // الأزرار بجانب العنوان تترك له على شاشة الهاتف عرضاً لا يتّسع
-          // لكلمة، فيُقطَّع «لوحة القيادة المركزية» كلمةً في كل سطر — وهذا ما
-          // كشفته معاينة التصيير، ولا يظهر بقراءة الشيفرة.
-          _ResponsiveHeader(
-            title: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      scoped ? 'لوحة قيادة إدارتي' : 'لوحة القيادة المركزية',
-                      style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
-                    ),
-                    const SizedBox(height: 7),
-                    // خيط ذهبي رفيع تحت العنوان، كما في شاشة الدخول: يربط
-                    // الشاشات بهوية واحدة بدل عناوين عائمة في كل صفحة.
-                    Container(height: 2, width: 46, color: AppColors.accent),
-                    const SizedBox(height: 9),
-                    Text(
-                      scoped
-                          ? 'مؤشرات فورية على أداء مشاريع إدارتك'
-                          : 'مؤشرات فورية على أداء الخطة الاستراتيجية ومشاريع الوزارة',
-                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
-                    ),
-                  ],
-                ),
+          // الشريط القيادي بعرض الصفحة كاملاً — ولذلك زال الحشو الخارجي عن
+          // العمود وانتقل إلى ما تحته: شريطٌ بهوامش بيضاء على جانبيه يبدو
+          // بطاقةً لا ترويسة.
+          CommandBand(
+            eyebrow: '${Brand.state} — ${Brand.ministry}',
+            title: scoped ? 'لوحة قيادة إدارتي' : 'لوحة القيادة المركزية',
+            subtitle: scoped
+                ? 'مؤشرات فورية على أداء مشاريع إدارتك'
+                : 'مؤشرات فورية على أداء الخطة الاستراتيجية ومشاريع الوزارة',
             actions: [
               // التخصيص متاح لكل مستخدم معتمَد: كلٌّ يعدّل لوحته هو. أما لوحات
               // الأدوار واللوحة العامة فلا تظهر في النافذة إلا لمن يملك
               // صلاحية "التحكم بلوحة القيادة".
               // وضع الترتيب: السحب على الصفحة نفسها بدل قائمة في نافذة.
               // ترتيب اللوحة قرارٌ بصري، ولا يُتّخذ إلا أمام ما يُرى.
-              OutlinedButton.icon(
+              BandButton(
+                label: _arranging ? 'إنهاء الترتيب' : 'ترتيب اللوحة',
+                icon: _arranging ? Icons.check_rounded : Icons.dashboard_customize_outlined,
+                active: _arranging,
                 onPressed: () => setState(() => _arranging = !_arranging),
-                icon: Icon(_arranging ? Icons.check_rounded : Icons.dashboard_customize_outlined, size: 17),
-                label: Text(_arranging ? 'إنهاء الترتيب' : 'ترتيب اللوحة'),
-                style: _arranging
-                    ? OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primaryDark,
-                        backgroundColor: AppColors.accent.withValues(alpha: 0.22),
-                        side: BorderSide(color: AppColors.accent),
-                      )
-                    : null,
               ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
+              BandButton(
+                label: 'تخصيص اللوحة',
+                icon: Icons.tune_rounded,
+                filled: true,
                 onPressed: () => showDialog(context: context, builder: (_) => const CustomizeDashboardDialog()),
-                icon: const Icon(Icons.tune_rounded, size: 17),
-                label: const Text('تخصيص اللوحة'),
               ),
             ],
+            metrics: [
+              for (var i = 0; i < kpiWidgets.length; i++)
+                _bandMetric(store, kpiWidgets, i, filteredProjects),
+            ],
           ),
-          const SizedBox(height: 14),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           const _LastUpdatedBar(),
           if (!store.isAdmin) ...[
             const SizedBox(height: 16),
@@ -206,18 +215,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
             onDeptChanged: (d) => setState(() => _deptFilter = d),
           ),
           const SizedBox(height: 26),
-          // العنوان يشمل المؤشرات أيضاً منذ صارت بطاقاتها ودجات على اللوحة
-          // نفسها، تُسحب وتُحذف كبقيتها بدل صفٍّ مثبَّت في الشيفرة.
-          const _SectionTitle('المؤشرات ولوحات التحليل'),
+          // المؤشرات لم تعد أسفل هذا العنوان — انتقلت إلى الشريط القيادي.
+          // وباختصاره زال كذلك اقتطاعه على الهاتف إلى «المؤشرات ولوحات الت…».
+          const _SectionTitle('لوحات التحليل'),
           const SizedBox(height: 14),
           if (_arranging) ...[
             const _ArrangeHint(),
             const SizedBox(height: 12),
           ],
           _WidgetBoard(
-            widgets: store.dashboardWidgets,
+            widgets: boardWidgets,
             arranging: _arranging,
-            onReorder: (from, to) => _persist(store, _moved(store.dashboardWidgets, from, to)),
+            onReorder: (from, to) =>
+                _persist(store, _movedWithin(store.dashboardWidgets, boardWidgets, from, to)),
             onWidth: (id, width) => _persist(
               store,
               [
@@ -234,8 +244,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
             builder: (w) => _buildWidget(
                 context, w, store, scoped, rankingProjects, statusCounts, statusColors, filteredProjects),
           ),
+              ],
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  /// مؤشر واحد داخل الشريط، مع لباس وضع الترتيب حين يكون مُفعَّلاً.
+  Widget _bandMetric(
+    AppStore store,
+    List<DashboardWidgetConfig> kpis,
+    int index,
+    List<Project> filteredProjects,
+  ) {
+    final config = kpis[index];
+    final kpi = _kpiData(config.type, store, filteredProjects);
+    final metric = KpiMetric(
+      title: kpi.title,
+      value: kpi.value,
+      color: kpi.color,
+      emphasize: kpi.emphasize,
+    );
+    if (!_arranging) return metric;
+    return _ArrangeableCard(
+      index: index,
+      config: config,
+      compact: true,
+      onReorder: (from, to) => _persist(store, _movedWithin(store.dashboardWidgets, kpis, from, to)),
+      onWidth: (_, _) {},
+      onMetric: (_, _) {},
+      onRemove: (id) => _persist(store, store.dashboardWidgets.where((w) => w.id != id).toList()),
+      child: metric,
     );
   }
 
@@ -282,6 +323,93 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  /// حساب مؤشر واحد — **المصدر الوحيد** لعنوانه ورقمه ولونه.
+  ///
+  /// يقرأ منه موضعان: بطاقة `KpiCard` على اللوحة، و`KpiMetric` داخل الشريط
+  /// القيادي. ولولا توحيدهما لانفصل الرقمان بأول تعديل على أحدهما — وهو ما
+  /// حدث فعلاً بين `departmentRanking` في المخزن ونسخته داخل هذه الشاشة.
+  ///
+  /// و[emphasize] تقول: هل يُلوَّن الرقم بلون المعنى في الشريط؟ الأرقام
+  /// المحايدة (الإجمالي، الأولوية) تبقى بلون النص، فلا يصير الشريط قوس قزح
+  /// ويفقد اللونُ دلالته.
+  static ({String title, String value, IconData icon, Color color, bool emphasize}) _kpiData(
+    DashboardWidgetType type,
+    AppStore store,
+    List<Project> projects,
+  ) {
+    switch (type) {
+      case DashboardWidgetType.kpiAvgProgress:
+        return (
+          title: 'نسبة الإنجاز العام',
+          value: Formatters.percent(AppStore.metricValue(DashboardMetric.avgProgress, projects)),
+          icon: Icons.trending_up_rounded,
+          color: AppColors.success,
+          emphasize: false,
+        );
+      case DashboardWidgetType.kpiAvgDelay:
+        final avgDelay = projects.isEmpty
+            ? 0.0
+            : projects.map((p) => p.delayDays).reduce((a, b) => a + b) / projects.length;
+        return (
+          title: 'متوسط التأخير عن الخطة',
+          value: '${avgDelay.toStringAsFixed(1)} يوم',
+          icon: Icons.schedule_rounded,
+          color: AppColors.warning,
+          emphasize: avgDelay > 0,
+        );
+      case DashboardWidgetType.kpiProjectCount:
+        return (
+          title: 'إجمالي عدد المشاريع',
+          value: '${projects.length}',
+          icon: Icons.folder_copy_rounded,
+          color: AppColors.primary,
+          emphasize: false,
+        );
+      case DashboardWidgetType.kpiHighPriority:
+        final high = projects
+            .where((p) => p.priority == PriorityLevel.high || p.priority == PriorityLevel.critical)
+            .length;
+        return (
+          title: 'المشاريع عالية الأولوية',
+          value: '$high',
+          icon: Icons.priority_high_rounded,
+          color: AppColors.priorityColor('high'),
+          emphasize: false,
+        );
+      case DashboardWidgetType.kpiOpenRisks:
+        final ids = projects.map((p) => p.id).toSet();
+        final count = store.risks.where((r) => ids.contains(r.projectId) && r.status == ItemStatus.open).length;
+        return (
+          title: 'المخاطر القائمة',
+          value: '$count',
+          icon: Icons.warning_amber_rounded,
+          color: AppColors.danger,
+          emphasize: count > 0,
+        );
+      case DashboardWidgetType.kpiOpenBlockers:
+        final ids = projects.map((p) => p.id).toSet();
+        final count = store.blockers.where((b) => ids.contains(b.projectId) && b.status == ItemStatus.open).length;
+        return (
+          title: 'العوائق النشطة',
+          value: '$count',
+          icon: Icons.block_rounded,
+          color: const Color(0xFFE0692B),
+          emphasize: count > 0,
+        );
+      case DashboardWidgetType.kpiPendingApprovals:
+        return (
+          title: 'طلبات بانتظار القيادة',
+          value: '${store.pendingApprovalsCount}',
+          icon: Icons.gavel_rounded,
+          color: AppColors.info,
+          emphasize: store.pendingApprovalsCount > 0,
+        );
+      default:
+        // لا يُستدعى إلا لأنواع المؤشرات؛ مذكور ليكتمل التفريع.
+        return (title: '', value: '', icon: Icons.help_outline, color: AppColors.textSecondary, emphasize: false);
+    }
+  }
+
   Widget _buildWidget(
     BuildContext context,
     DashboardWidgetConfig config,
@@ -294,63 +422,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   ) {
     final metric = config.metric;
     switch (config.type) {
+      // كل بطاقات المؤشرات تمرّ من مصدر حساب واحد ([_kpiData])، فلا يفترق
+      // الرقم بين البطاقة على اللوحة والمؤشر في الشريط القيادي.
       case DashboardWidgetType.kpiAvgProgress:
-        return KpiCard(
-          title: 'نسبة الإنجاز العام',
-          value: Formatters.percent(AppStore.metricValue(DashboardMetric.avgProgress, filteredProjects)),
-          icon: Icons.trending_up_rounded,
-          color: AppColors.success,
-        );
       case DashboardWidgetType.kpiAvgDelay:
-        final avgDelay = filteredProjects.isEmpty
-            ? 0.0
-            : filteredProjects.map((p) => p.delayDays).reduce((a, b) => a + b) / filteredProjects.length;
-        return KpiCard(
-          title: 'متوسط التأخير عن الخطة',
-          value: '${avgDelay.toStringAsFixed(1)} يوم',
-          icon: Icons.schedule_rounded,
-          color: AppColors.warning,
-        );
       case DashboardWidgetType.kpiProjectCount:
-        return KpiCard(
-          title: 'إجمالي عدد المشاريع',
-          value: '${filteredProjects.length}',
-          icon: Icons.folder_copy_rounded,
-          color: AppColors.primary,
-        );
       case DashboardWidgetType.kpiHighPriority:
-        final high = filteredProjects
-            .where((p) => p.priority == PriorityLevel.high || p.priority == PriorityLevel.critical)
-            .length;
-        return KpiCard(
-          title: 'المشاريع عالية الأولوية',
-          value: '$high',
-          icon: Icons.priority_high_rounded,
-          color: AppColors.priorityColor('high'),
-        );
       case DashboardWidgetType.kpiOpenRisks:
-        final ids = filteredProjects.map((p) => p.id).toSet();
-        return KpiCard(
-          title: 'المخاطر القائمة',
-          value: '${store.risks.where((r) => ids.contains(r.projectId) && r.status == ItemStatus.open).length}',
-          icon: Icons.warning_amber_rounded,
-          color: AppColors.danger,
-        );
       case DashboardWidgetType.kpiOpenBlockers:
-        final ids = filteredProjects.map((p) => p.id).toSet();
-        return KpiCard(
-          title: 'العوائق النشطة',
-          value: '${store.blockers.where((b) => ids.contains(b.projectId) && b.status == ItemStatus.open).length}',
-          icon: Icons.block_rounded,
-          color: const Color(0xFFE0692B),
-        );
       case DashboardWidgetType.kpiPendingApprovals:
-        return KpiCard(
-          title: 'طلبات بانتظار القيادة',
-          value: '${store.pendingApprovalsCount}',
-          icon: Icons.gavel_rounded,
-          color: AppColors.info,
-        );
+        final kpi = _kpiData(config.type, store, filteredProjects);
+        return KpiCard(title: kpi.title, value: kpi.value, icon: kpi.icon, color: kpi.color);
       case DashboardWidgetType.deptBarChart:
         final ranking = _departmentRanking(store, rankingProjects, metric);
         return _ChartCard(
@@ -1521,6 +1603,11 @@ class _ArrangeableCard extends StatelessWidget {
   final void Function(String id) onRemove;
   final Widget child;
 
+  /// لباسٌ مصغَّر للمؤشرات داخل الشريط القيادي: مقبض وحذف فقط، بألوان تُقرأ
+  /// على خلفية الهوية الداكنة. ولا قائمة عرض فيه — «ثلث/نصف/كامل» بلا معنى
+  /// داخل شريطٍ يوزّع أعمدته بنفسه.
+  final bool compact;
+
   const _ArrangeableCard({
     required this.index,
     required this.config,
@@ -1529,10 +1616,12 @@ class _ArrangeableCard extends StatelessWidget {
     required this.onMetric,
     required this.onRemove,
     required this.child,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (compact) return _buildCompact(context);
     return DragTarget<int>(
       onWillAcceptWithDetails: (d) => d.data != index,
       onAcceptWithDetails: (d) => onReorder(d.data, index),
@@ -1648,6 +1737,66 @@ class _ArrangeableCard extends StatelessWidget {
       },
     );
   }
+
+  Widget _buildCompact(BuildContext context) {
+    final fg = AppColors.onBrand(AppColors.primary);
+    return DragTarget<int>(
+      onWillAcceptWithDetails: (d) => d.data != index,
+      onAcceptWithDetails: (d) => onReorder(d.data, index),
+      builder: (context, candidate, _) {
+        final hovering = candidate.isNotEmpty;
+        return Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(
+              color: hovering ? AppColors.accent : fg.withValues(alpha: 0.22),
+              width: hovering ? 1.6 : 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Draggable<int>(
+                    data: index,
+                    feedback: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                        ),
+                        child: Text(config.type.label,
+                            style: AppText.label.copyWith(color: AppColors.onBrand(AppColors.accent))),
+                      ),
+                    ),
+                    childWhenDragging: Icon(Icons.drag_indicator_rounded, size: 17, color: fg.withValues(alpha: 0.3)),
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.grab,
+                      child: Icon(Icons.drag_indicator_rounded, size: 17, color: fg.withValues(alpha: 0.66)),
+                    ),
+                  ),
+                  const Spacer(),
+                  InkWell(
+                    onTap: () => onRemove(config.id),
+                    child: Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: Icon(Icons.close_rounded, size: 15, color: fg.withValues(alpha: 0.66)),
+                    ),
+                  ),
+                ],
+              ),
+              IgnorePointer(child: child),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 /// عنوان قسم داخل اللوحة: نص بوزن واحد يسبقه خيط ذهبي.
@@ -1680,37 +1829,3 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-/// ترويسة صفحة تنكسر بدل أن تتزاحم.
-///
-/// الأزرار بجانب العنوان على الشاشة العريضة، وتحته على الجوال. ولولا ذلك
-/// لبقي للعنوان عرضٌ لا يتّسع لكلمة فيُقطَّع كلمةً في كل سطر — وهو ما ظهر
-/// في معاينة التصيير بمقاس الهاتف، ولا تكشفه قراءة الشيفرة.
-class _ResponsiveHeader extends StatelessWidget {
-  final Widget title;
-  final List<Widget> actions;
-
-  const _ResponsiveHeader({required this.title, required this.actions});
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      if (constraints.maxWidth < 620) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            title,
-            const SizedBox(height: 14),
-            Wrap(spacing: 8, runSpacing: 8, children: actions),
-          ],
-        );
-      }
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: title),
-          ...actions,
-        ],
-      );
-    });
-  }
-}

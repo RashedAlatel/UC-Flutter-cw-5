@@ -180,6 +180,16 @@ class AppStore extends ChangeNotifier {
   /// هل خصّص المستخدم الحالي لوحته الخاصة؟ (لإظهار زر "العودة للوحة الافتراضية")
   bool get hasPersonalDashboard => (_myDashboard ?? const []).isNotEmpty;
 
+  /// ضبط تخطيط اللوحة مباشرةً — للاختبارات وحدها.
+  ///
+  /// الطريق الحقيقي هو [saveMyDashboardWidgets]، وهو يكتب في Firestore ولا
+  /// يعمل في اختبار. وهذا المدخل يضع الطبقة الشخصية كما لو حُمِّلت من الخادم.
+  @visibleForTesting
+  void setDashboardWidgetsForTest(List<DashboardWidgetConfig> widgets) {
+    _myDashboard = widgets.isEmpty ? null : DashboardWidgetConfig.dedupe(widgets);
+    notifyListeners();
+  }
+
   /// تخطيط دور معيّن كما هو مخزَّن (فارغ إن لم يُضبط بعد) — لشاشة التخصيص.
   List<DashboardWidgetConfig> roleDashboardWidgets(String roleKey) => _roleDashboards[roleKey] ?? const [];
 

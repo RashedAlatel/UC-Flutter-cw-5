@@ -32,6 +32,33 @@ want() {
   fi
 }
 
+# نظيرُها لملفٍ آخر: الإجراء الجماعي في العميل، وهو الطرف الذي قد يلتفّ على
+# البوابة لو نادى دالّة الإرسال مباشرةً بدل `sendOrRequestNotification`.
+want_in() {
+  local file="$1" name="$2" pattern="$3"
+  if grep -q "$pattern" "$file"; then
+    echo "  ✔ $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ $name"
+    echo "      لم يُعثر في $file على: $pattern"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# ونقيضُها: نمطٌ يجب ألّا يوجد.
+reject_in() {
+  local file="$1" name="$2" pattern="$3"
+  if grep -q "$pattern" "$file"; then
+    echo "  ✗ $name"
+    echo "      وُجد في $file ما يجب ألّا يوجد: $pattern"
+    FAIL=$((FAIL + 1))
+  else
+    echo "  ✔ $name"
+    PASS=$((PASS + 1))
+  fi
+}
+
 echo "▶ حارس بوابات الاعتماد على الخادم"
 echo ""
 
@@ -56,6 +83,24 @@ echo ""
 echo "المفتاح المجهول في مستند الأدوار يُقرأ من المبدئي لا منعاً:"
 want "قراءة _knownKeys" 'data._knownKeys'
 want "ودمج المبدئي لما لم يُعرف" 'unknownDefaults'
+echo ""
+
+REVIEW="lib/screens/late_alert_review_dialog.dart"
+STORE="lib/data/app_store.dart"
+
+echo "تنبيه التأخير الجماعي لا يلتفّ على بوابة البريد:"
+want_in "$REVIEW" "يمرّ بـsendOrRequestNotification" 'store.sendOrRequestNotification('
+reject_in "$REVIEW" "ولا ينادي دالّة الإرسال مباشرةً" "httpsCallable"
+echo ""
+
+echo "والعملية تُكتب في سجل التدقيق — من ومتى ولأي مشاريع ولأي مستلمين:"
+want_in "$REVIEW" "اسم الإجراء يُمرَّر" 'auditAction:'
+want_in "$REVIEW" "وتفصيله كذلك" 'auditDetails:'
+want_in "$REVIEW" "وفيه أسماء المشاريع" 'projects.map((p) => p.name)'
+want_in "$REVIEW" "وأسماء المستلمين" 'messages.map((m) => m.user.name)'
+# ولولا هذا السطر لبقي مسار مسؤول النظام (الإرسال المباشر) بلا أثرٍ في السجل
+# من العميل إطلاقاً — وهو أكثر المسارات استعمالاً.
+want_in "$STORE" "والمسار المباشر يكتب في السجل أيضاً" 'await _log(auditAction ?? .إرسال إشعار., auditDetails);'
 echo ""
 
 echo "══════════════════════════════"

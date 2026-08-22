@@ -11,6 +11,7 @@ import '../screens/department_detail_screen.dart';
 import '../screens/departments_list_screen.dart';
 import '../screens/people_tracking_screen.dart';
 import '../screens/my_assignments_screen.dart';
+import '../screens/project_detail_screen.dart';
 import '../screens/projects_list_screen.dart';
 import '../screens/registration_settings_screen.dart';
 import '../screens/reports_screen.dart';
@@ -69,6 +70,51 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _selected = 0;
 
+  /// هل عولج رابط `?project=` الوارد من بريد التنبيه؟
+  ///
+  /// ــــ لماذا علَمٌ ومحاولةٌ واحدة؟ ــــ
+  ///
+  /// لأن `build` يُنادى مع كل تحديث من Firestore. وبلا علَم يُعاد فتح صفحة
+  /// المشروع فوق نفسها عشرات المرات، فيجد المستخدم كومةً من الشاشات لا يخرج
+  /// منها بزرّ الرجوع.
+  ///
+  /// وتُؤجَّل المحاولة حتى تصل المشاريع: الرابط يُفتح والتطبيق لم يُحمّل
+  /// شيئاً بعد، فلو حُكم عليه لحظتها لقيل «المشروع غير موجود» وهو موجود.
+  bool _deepLinkDone = false;
+
+  /// يفتح المشروع الوارد في عنوان الصفحة — رابط بريد التنبيه.
+  void _openDeepLinkedProject(AppStore store) {
+    if (_deepLinkDone) return;
+    final id = Uri.base.queryParameters['project'];
+    if (id == null || id.isEmpty) {
+      _deepLinkDone = true;
+      return;
+    }
+    if (store.projects.isEmpty) return; // لم تصل البيانات بعد — تُعاد المحاولة.
+    _deepLinkDone = true;
+    final project = store.projects.where((p) => p.id == id).firstOrNull;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (project == null) {
+        // لا صمت: من فتح رابطاً من بريدٍ رسمي ولم يقع شيء يظنّ المنصة معطّلة.
+        // والسبب الغالب أن المشروع خارج نطاقه لا أنه محذوف — فيُقال الاثنان.
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+            'المشروع الذي يشير إليه الرابط غير متاح لك — قد يكون خارج نطاق '
+            'إدارتك أو حُذف.',
+          ),
+        ));
+        return;
+      }
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: Text(project.name)),
+          body: ProjectDetailScreen(projectId: project.id),
+        ),
+      ));
+    });
+  }
+
   /// يترجم مفاتيح القائمة إلى صفحاتها.
   ///
   /// والقرار — من يرى ماذا — في `nav_entries.dart` لا هنا: هذا الملف يستورد
@@ -126,6 +172,7 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
+    _openDeepLinkedProject(store);
     final entries = _buildEntries(store);
     final selected = _selected.clamp(0, entries.length - 1);
     final wide = MediaQuery.of(context).size.width >= 980;

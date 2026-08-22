@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/enums.dart';
-import '../models/late_alert.dart';
 import '../models/project.dart';
 import '../models/project_category.dart';
 import '../models/project_sort.dart';
@@ -12,10 +11,12 @@ import '../widgets/command_band.dart';
 import '../widgets/filter_bar.dart';
 import '../widgets/meta_row.dart';
 import '../utils/formatters.dart';
+import '../utils/platform_url.dart';
 import '../widgets/custom_widgets_section.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/project_actions.dart';
 import '../widgets/status_chip.dart';
+import 'late_alert_review_dialog.dart';
 import 'project_detail_screen.dart';
 import 'request_project_dialog.dart';
 
@@ -43,6 +44,13 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
   // الآن؟»، والترتيب الأبجدي لا يجيب عنه.
   ProjectSort _sort = ProjectSort.smart;
 
+  /// المشاريع المحدَّدة للإجراء الجماعي — معرّفات لا كائنات.
+  ///
+  /// والمعرّف لا الكائن لأن قائمة المشاريع تُعاد بناؤها مع كل تحديث من
+  /// Firestore: كائنٌ محفوظ يصير نسخةً قديمة بلا أن يظهر ذلك، فيُرسَل تنبيهٌ
+  /// بنسبة إنجاز لم تعد صحيحة.
+  final Set<String> _selected = {};
+
   bool get _hasFilters =>
       _departmentFilter != null ||
       _userFilter != null ||
@@ -54,6 +62,7 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
         _departmentFilter = null;
         _userFilter = null;
         _statusFilter = null;
+        _selected.clear();
         _categoryFilter = null;
         _searchCtrl.clear();
         _query = '';
@@ -118,93 +127,26 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
     messenger.showSnackBar(SnackBar(content: Text('طوبقت حالة $count مشروعاً.')));
   }
 
-  /// ينبّه المسؤولين عن المشاريع المتأخرة المعروضة الآن.
+  /// يفتح نافذة مراجعة تنبيه التأخير على المشاريع المُعطاة.
   ///
-  /// يعمل على **المُصفّى لا الكل** عن قصد: المستخدم يصفّي بالإدارة أو التصنيف
-  /// ثم ينبّه، وزرٌّ يتجاهل تصفيته يُرسل بريداً لم يُقصد. ولذلك يحمل الزرّ
-  /// عددَ ما سيمسّه في عنوانه، ويعرض الحوار المستلمين قبل الإرسال.
-  Future<void> _alertLateProjects(
-    BuildContext context,
-    AppStore store,
-    List<Project> lateProjects,
-  ) async {
-    final messages = buildLateAlerts(lateProjects: lateProjects, users: store.users);
-    if (messages.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-          'لا يوجد مستلمون: المشاريع المتأخرة ليس عليها أعضاء بحسابات وبريد مسجَّل. '
-          'الأسماء النصية المستوردة من ملفات الوزارة لا تُراسَل.',
-        ),
-      ));
-      return;
-    }
-
-    final names = messages.take(8).map((m) => m.user.name).toList();
-    final rest = messages.length - names.length;
-    final confirmed = await showDialog<bool>(
+  /// ــــ لماذا لا يُرسل من هنا مباشرةً؟ ــــ
+  ///
+  /// كان الزرّ يعرض سؤالاً فيه عددان وثمانية أسماء ثم يُرسل. وهو لا يكفي
+  /// لإجراءٍ جماعي: من ضغط «تنبيه ٤٧ مشروعاً» لا يستطيع أن يستثني مشروعاً
+  /// سُلِّم أمس، ولا شخصاً في إجازة. فصار القرار في نافذة مراجعة تُري كل
+  /// شيء وتسمح باستبعاد أيٍّ منه — راجع `LateAlertReviewDialog`.
+  void _reviewLateAlert(BuildContext context, List<Project> projects) {
+    if (projects.isEmpty) return;
+    showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('تنبيه المشاريع المتأخرة'),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 460),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${lateProjects.length} مشروعاً متأخراً ضمن ما تعرضه الآن، '
-                  'والمسؤولون عنها ${messages.length} شخصاً.',
-                  style: const TextStyle(fontSize: 13, height: 1.9),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'يصل كل شخص بريد واحد يسرد مشاريعه المتأخرة كلها — لا بريد لكل مشروع.',
-                  style: TextStyle(fontSize: 12.5, height: 1.8, color: AppColors.textSecondary),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  rest > 0 ? '${names.join('، ')} و$rest غيرهم' : names.join('، '),
-                  style: const TextStyle(fontSize: 12, height: 1.8, fontWeight: FontWeight.w700),
-                ),
-                if (!store.isAdmin) ...[
-                  const SizedBox(height: 12),
-                  const Text(
-                    'لن يُرسل شيء قبل اعتماد مسؤول النظام.',
-                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: AppColors.warning),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(store.isAdmin ? 'أرسل' : 'أرسل للاعتماد'),
-          ),
-        ],
+      builder: (_) => LateAlertReviewDialog(
+        projects: projects,
+        // العنوان يُقرأ **هنا** لا في بناء الرسالة: هذا موضعٌ يعمل في
+        // المتصفح، وبناء الرسالة يعمل في الاختبارات كذلك حيث `Uri.base`
+        // مجلّد عمل لا عنوان منصة.
+        baseUrl: platformBaseUrl(),
       ),
     );
-    if (confirmed != true || !context.mounted) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-    final result = await store.sendOrRequestNotification(
-      messages: messages,
-      channel: NotifyChannel.email,
-      requestTitle: 'تنبيه ${lateProjects.length} مشروعاً متأخراً',
-      requestDescription: 'تنبيه المسؤولين عن المشاريع المتأخرة (${messages.length} مستلم)',
-    );
-    if (!context.mounted) return;
-    messenger.showSnackBar(SnackBar(
-      content: Text(
-        result.error ??
-            (result.queued
-                ? 'أُرسل الطلب إلى مسؤول النظام. لن يصل البريد قبل اعتماده.'
-                : 'أُرسل التنبيه إلى ${messages.length} مستلم(ين).'),
-      ),
-    ));
   }
 
   /// عنوان الفراغ — **يسمّي النطاق** بدل عبارة عامة.
@@ -266,6 +208,12 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
     );
     final lateProjects =
         projects.where((p) => p.effectiveStatus == ProjectStatus.delayed).toList();
+    // ــ متى تظهر مربّعات التحديد؟ ــ
+    //
+    // مع فلتر «متأخر» وحده. وليس تضييقاً بلا سبب: الإجراء الجماعي الوحيد
+    // اليوم تنبيهُ تأخير، ومربّع تحديدٍ على مشروعٍ ليس متأخراً يَعِد بإجراء
+    // لا وجود له. ومتى وُجد إجراء آخر وُسِّع الشرط عندها.
+    final selectionMode = store.canBulkDelayAlert && _statusFilter == ProjectStatus.delayed;
 
     final departmentOptions = store.visibleDepartments.where((d) => store.projectsForDepartment(d.id).isNotEmpty).toList();
     final userOptions = store.users.where((u) => u.status == UserStatus.approved).toList()
@@ -281,11 +229,15 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
             actions: [
               // تنبيه المتأخرات: يحمل عدد ما سيمسّه، ولا يظهر إن لم يوجد
               // متأخر ضمن المعروض — زرٌّ لا يفعل شيئاً يُضلّل.
-              if (store.canSendNotifications && lateProjects.isNotEmpty)
+              //
+              // والصلاحية `bla` لا `ntf`: الأولى تنبيهُ متأخرين بنصٍّ تبنيه
+              // المنصة، والثانية رسالةٌ حرّة إلى أي مستخدم في الوزارة. ودمجُ
+              // البابين كان يعني منح الثاني لمن أردنا له الأول.
+              if (store.canBulkDelayAlert && lateProjects.isNotEmpty)
                 BandButton(
                   label: 'تنبيه ${lateProjects.length} مشروعاً متأخراً',
                   icon: Icons.mark_email_unread_outlined,
-                  onPressed: () => _alertLateProjects(context, store, lateProjects),
+                  onPressed: () => _reviewLateAlert(context, lateProjects),
                 ),
               if (store.isAdmin)
                 BandButton(
@@ -387,7 +339,13 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                     const DropdownMenuItem(value: null, child: Text('كل الحالات')),
                     ...ProjectStatus.values.map((s) => DropdownMenuItem(value: s, child: Text(s.label))),
                   ],
-                  onChanged: (v) => setState(() => _statusFilter = v),
+                  onChanged: (v) => setState(() {
+                    _statusFilter = v;
+                    // تبدُّل الفلتر يُسقط التحديد: مشروعٌ حُدِّد ثم خرج من
+                    // المعروض يبقى في المجموعة صامتاً، فيُرسَل تنبيهه مع
+                    // دفعةٍ أخرى ولا يرى المُرسِل اسمه على الشاشة.
+                    _selected.clear();
+                  }),
                 ),
               ),
               // حقل التصنيف لا يظهر قبل تعريف تصنيف واحد على الأقل: قائمةٌ
@@ -435,6 +393,23 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
             ],
           ),
           const SizedBox(height: 20),
+          if (selectionMode) ...[
+            _SelectionBar(
+              matching: lateProjects,
+              selected: _selected,
+              onSelectAll: () => setState(() {
+                _selected
+                  ..clear()
+                  ..addAll(lateProjects.map((p) => p.id));
+              }),
+              onClear: () => setState(_selected.clear),
+              onSend: () => _reviewLateAlert(
+                context,
+                lateProjects.where((p) => _selected.contains(p.id)).toList(),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           Text('${projects.length} مشروع', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w700)),
           // مشاريع الوزارة المستوردة لا تحمل تاريخ إضافة، فتُرتَّب بتاريخ
           // بدئها. ويُقال ذلك بدل إيهام دقّةٍ لا وجود لها — من يرتّب
@@ -477,7 +452,14 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
               ),
             )
           else
-            ...sortedProjects.map((p) => _ProjectRow(project: p)),
+            ...sortedProjects.map((p) => _ProjectRow(
+                  project: p,
+                  selectable: selectionMode,
+                  selected: _selected.contains(p.id),
+                  onSelected: () => setState(() {
+                    if (!_selected.remove(p.id)) _selected.add(p.id);
+                  }),
+                )),
           const SizedBox(height: 28),
           CustomWidgetsSection(
             store: store,
@@ -519,9 +501,98 @@ Color _dueColor(Project project) {
   return project.remainingDays <= 7 ? AppColors.warning : AppColors.success;
 }
 
+/// شريط الإجراء الجماعي — يظهر مع فلتر «متأخر».
+///
+/// ــــ لماذا يقول «كل المتأخرة المطابقة» صراحةً؟ ــــ
+///
+/// لأن «تحديد الكل» في أكثر المنصات يعني **ما ظهر على الشاشة** لا ما طابق
+/// الفلتر، فيظنّ المستخدم أنه نبّه سبعةً وأربعين وقد نبّه عشرة. والصفحة هنا
+/// تعرض كل المطابق بلا تقسيم صفحات، فالتحديد يشمله كلّه — ويُقال ذلك بالعدد
+/// لا بالضمني، فلا يبقى للظنّ موضع.
+class _SelectionBar extends StatelessWidget {
+  final List<Project> matching;
+  final Set<String> selected;
+  final VoidCallback onSelectAll;
+  final VoidCallback onClear;
+  final VoidCallback onSend;
+
+  const _SelectionBar({
+    required this.matching,
+    required this.selected,
+    required this.onSelectAll,
+    required this.onClear,
+    required this.onSend,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final count = matching.where((p) => selected.contains(p.id)).length;
+    final all = count == matching.length && matching.isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                count == 0 ? 'لم يُحدَّد شيء' : 'حُدِّد $count من ${matching.length}',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+              ),
+              if (!all)
+                OutlinedButton.icon(
+                  onPressed: onSelectAll,
+                  icon: const Icon(Icons.select_all_rounded, size: 16),
+                  label: Text('تحديد جميع المشاريع المتأخرة الـ${matching.length}'),
+                ),
+              if (count > 0)
+                TextButton.icon(
+                  onPressed: onClear,
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  label: const Text('إلغاء التحديد'),
+                ),
+              if (count > 0)
+                FilledButton.icon(
+                  onPressed: onSend,
+                  icon: const Icon(Icons.mark_email_unread_outlined, size: 16),
+                  label: Text('إرسال تنبيه التأخير ($count)'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'التحديد يشمل كل المشاريع المتأخرة المطابقة للفلتر الحالي (${matching.length})، '
+            'لا ما يظهر أمامك على الشاشة فقط.',
+            style: const TextStyle(fontSize: 11, height: 1.7, color: AppColors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ProjectRow extends StatelessWidget {
   final Project project;
-  const _ProjectRow({required this.project});
+  final bool selectable;
+  final bool selected;
+  final VoidCallback? onSelected;
+
+  const _ProjectRow({
+    required this.project,
+    this.selectable = false,
+    this.selected = false,
+    this.onSelected,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -530,8 +601,19 @@ class _ProjectRow extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      // الحدّ الملوّن على المحدَّد: من يمرّر أربعين بطاقة يحتاج أن يرى ما
+      // اختاره بنظرة، لا أن يقرأ مربّعاً صغيراً في طرف كل بطاقة.
+      shape: selected
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: AppColors.primary, width: 1.6),
+            )
+          : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
+        // في وضع التحديد تفتح النقرةُ المشروعَ كما كانت — والتحديد بمربّعه
+        // وحده. وجعلُ النقرة تُحدِّد يمنع الدخول إلى المشروع للتحقّق منه قبل
+        // تنبيه مسؤوليه، وهو أوّل ما يفعله من يراجع.
         onTap: () => Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => Scaffold(
             appBar: AppBar(title: Text(project.name)),
@@ -546,6 +628,16 @@ class _ProjectRow extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (selectable)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Checkbox(
+                        value: selected,
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onChanged: (_) => onSelected?.call(),
+                      ),
+                    ),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

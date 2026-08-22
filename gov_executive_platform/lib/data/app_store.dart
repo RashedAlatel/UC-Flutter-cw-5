@@ -1583,6 +1583,9 @@ class AppStore extends ChangeNotifier {
         case RolePermission.submitFeedback:
           return true;
         case RolePermission.sendNotifications:
+        // وتنبيه المتأخرات جماعياً كذلك: الدور المخصص يُصنع لحالةٍ بعينها،
+        // وفتحُ بابٍ يُخرج بريداً باسم المنصة لا يُورَّث ضمناً.
+        case RolePermission.bulkDelayAlerts:
         case RolePermission.manageFeedback:
         // والمقيَّدتان بنطاق لا تُمنحان لدور إطلاقاً — لا أساسي ولا مخصص.
         case RolePermission.manageProjects:
@@ -1773,6 +1776,12 @@ class AppStore extends ChangeNotifier {
   bool get canManageDashboard => hasPermission(RolePermission.manageDashboard);
   bool get canManageWorks => hasPermission(RolePermission.manageWorks);
   bool get canSendNotifications => hasPermission(RolePermission.sendNotifications);
+
+  /// هل يستطيع تحديد عدة مشاريع متأخرة وتنبيه مسؤوليها دفعةً واحدة؟
+  ///
+  /// وهي **ليست إذناً بإخراج بريد**: من ليس مسؤول نظام يبقى ما يضغطه طلباً
+  /// يعتمده مسؤول النظام من مركز القرارات. راجع `sendOrRequestNotification`.
+  bool get canBulkDelayAlert => hasPermission(RolePermission.bulkDelayAlerts);
 
   /// حسابات المستخدمين المرتبطة بمشروع: مديره المُسنَد إليه، إضافة إلى
   /// المنفذين المطابَقين بالاسم. المشروع يخزّن أسماء المنفذين لا معرّفاتهم،
@@ -2992,6 +3001,12 @@ class AppStore extends ChangeNotifier {
     required NotifyChannel channel,
     required String requestTitle,
     required String requestDescription,
+    /// ما يُكتب في سجل التدقيق. وبدونه كان المسار المباشر (مسؤول النظام)
+    /// **لا يكتب شيئاً في السجل من العميل** إطلاقاً، والخادم يكتب سطراً
+    /// عاماً «أُرسل إشعار إلى ن مستخدم» — بلا ذكرِ ما أُرسل ولا عمَّ.
+    /// فمن يراجع السجل بعد شهر لا يعرف أي مشاريع نُبّه عليها ولا لمن.
+    String? auditAction,
+    String? auditDetails,
   }) async {
     if (messages.isEmpty) {
       return (error: 'لا يوجد مستلمون', queued: false);
@@ -3006,6 +3021,9 @@ class AppStore extends ChangeNotifier {
           'channel': channel.name,
           'messages': payloadMessages,
         });
+        if (auditDetails != null) {
+          await _log(auditAction ?? 'إرسال إشعار', auditDetails);
+        }
         return (error: null, queued: false);
       } on FirebaseFunctionsException catch (e) {
         return (error: e.message ?? 'تعذر إرسال الإشعار', queued: false);
@@ -3030,7 +3048,11 @@ class AppStore extends ChangeNotifier {
             // النظام في بطاقة الطلب — فلا يعتمد نصّاً لم يقرأه.
             payload: {'channel': channel.name, 'messages': payloadMessages},
           ).toMap());
-      await _log('إرسال إشعار', 'طلب ${currentUser?.name ?? ''} إرسال بريد إلى ${messages.length} مستخدم(ين)');
+      await _log(
+        auditAction ?? 'إرسال إشعار',
+        auditDetails ??
+            'طلب ${currentUser?.name ?? ''} إرسال بريد إلى ${messages.length} مستخدم(ين)',
+      );
       return (error: null, queued: true);
     } catch (e) {
       return (error: 'تعذر رفع طلب الإرسال: $e', queued: false);

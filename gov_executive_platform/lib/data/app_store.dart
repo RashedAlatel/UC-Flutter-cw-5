@@ -2178,8 +2178,18 @@ class AppStore extends ChangeNotifier {
     required double progressPercent,
     String notes = '',
     List<Attachment> attachments = const [],
+    /// اليوم الذي يُسجَّل تحته التحديث — اليومُ الحالي إن لم يُحدَّد.
+    ///
+    /// كان التاريخ لحظةَ الحفظ دائماً، فمن نسي تحديث أمس لا سبيل له إلى
+    /// وضعه في موضعه، ويبقى أمسُ فارغاً في السجل إلى الأبد.
+    DateTime? forDay,
   }) async {
     final now = DateTime.now();
+    // يومٌ ماضٍ يُختم بمنتصف نهاره لا بالساعة الحالية: ختمُه بـ«الآن» يجعل
+    // ترتيب التحديثات داخل اليوم الواحد يعتمد على ساعة الكتابة لا على اليوم.
+    final stamp = forDay == null || _isSameDay(forDay, now)
+        ? now
+        : DateTime(forDay.year, forDay.month, forDay.day, 12);
     final batch = _db.batch();
 
     final updateRef = _db.collection('dailyUpdates').doc();
@@ -2192,7 +2202,7 @@ class AppStore extends ChangeNotifier {
           departmentId: project.departmentId,
           authorUid: currentUser?.id ?? '',
           authorName: currentUser?.name ?? 'غير معروف',
-          date: now,
+          date: stamp,
           achievements: achievements,
           completedTasks: completedTasks,
           newRisks: newRisks,
@@ -2972,6 +2982,32 @@ class AppStore extends ChangeNotifier {
   }
 
   // ------------------------- تخصيص لوحة القيادة -------------------------
+
+  static bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  /// تاريخ آخر تحديث يومي لكل مشروع — لترتيب صفحة المشاريع بـ«آخر تحديث».
+  ///
+  /// يُشتقّ من التحديثات نفسها ولا يُخزَّن على المشروع: حقلٌ مخزَّن يحتاج
+  /// تحديثاً عند كل كتابة، وأول كتابةٍ تنساه تجعل المشروع يبدو مهملاً وهو
+  /// ليس كذلك — وهو صنف الخطأ الذي عولج في «مصدر الحقيقة الوحيد» للحالة.
+  Map<String, DateTime> get lastUpdateByProject {
+    final map = <String, DateTime>{};
+    for (final u in dailyUpdates) {
+      final current = map[u.projectId];
+      if (current == null || u.date.isAfter(current)) map[u.projectId] = u.date;
+    }
+    return map;
+  }
+
+  /// تحديثات مشروع في يومٍ بعينه — لتقويم صفحة التحديث اليومي.
+  List<DailyUpdate> updatesOnDay(String projectId, DateTime day) => dailyUpdates
+      .where((u) =>
+          u.projectId == projectId &&
+          u.date.year == day.year &&
+          u.date.month == day.month &&
+          u.date.day == day.day)
+      .toList();
 
   /// أحدث التحديثات اليومية لبطاقة اللوحة.
   ///

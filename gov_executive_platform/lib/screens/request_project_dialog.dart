@@ -6,6 +6,7 @@ import '../models/app_user.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
 import '../widgets/executors_field.dart';
+import '../widgets/person_picker.dart';
 import '../widgets/section_picker.dart';
 
 /// نموذج إضافة مشروع: لمسؤول النظام يُنشئ المشروع مباشرة (موافقته الذاتية
@@ -13,6 +14,14 @@ import '../widgets/section_picker.dart';
 /// من مركز القرارات التنفيذية. إن لم تُحدَّد [departmentId] (الاستدعاء من
 /// شاشة "المشاريع" الموحّدة بدل شاشة إدارة بعينها) يظهر حقل اختيار إدارة
 /// اختياري يشمل خيار "بدون إدارة" — لا يتوفر هذا المسار إلا لمسؤول النظام.
+/// اسم إدارة المستخدم كما يُعرض ويُبحث به — و«بلا إدارة» ليست فراغاً: من لم
+/// يُربط بإدارة بعد يجب أن يظهر في البحث لا أن يختفي منه.
+String _departmentNameOf(AppStore store, AppUser user) {
+  final id = user.departmentId;
+  if (id == null || id.isEmpty) return 'بلا إدارة';
+  return store.departmentById(id)?.name ?? 'بلا إدارة';
+}
+
 class RequestProjectDialog extends StatefulWidget {
   final String? departmentId;
   const RequestProjectDialog({super.key, this.departmentId});
@@ -199,20 +208,22 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
                 const SizedBox(height: 10),
               ],
               if (candidates.isNotEmpty) ...[
-                _MemberPicker(
+                PersonPicker(
                   label: 'مديرو المشروع',
                   hint: 'من يقود المشروع ويكتب تحديثاته اليومية',
                   candidates: candidates,
+                  departmentNameOf: (u) => _departmentNameOf(store, u),
                   selected: _managerUids,
-                  onChanged: (v) => setState(() {}),
+                  onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 10),
-                _MemberPicker(
+                PersonPicker(
                   label: 'المنفّذون (حسابات)',
                   hint: 'أعضاء المنصة المسجَّلون على المشروع — غير الأسماء المكتوبة أعلاه',
                   candidates: candidates,
+                  departmentNameOf: (u) => _departmentNameOf(store, u),
                   selected: _executorUids,
-                  onChanged: (v) => setState(() {}),
+                  onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 12),
               ],
@@ -269,62 +280,3 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
 /// قائمة مربّعات لا قائمة منسدلة: العضوية متعددة، والمنسدلة تعطي واحداً.
 /// وهي محدودة الارتفاع وتُمرَّر داخلها — إدارة فيها ثلاثون موظفاً تجعل
 /// الحوار أطول من الشاشة وتُخفي زرّ الحفظ.
-class _MemberPicker extends StatelessWidget {
-  final String label;
-  final String hint;
-  final List<AppUser> candidates;
-  final Set<String> selected;
-  final ValueChanged<Set<String>> onChanged;
-
-  const _MemberPicker({
-    required this.label,
-    required this.hint,
-    required this.candidates,
-    required this.selected,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
-        Text(hint, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, height: 1.6)),
-        const SizedBox(height: 6),
-        Container(
-          constraints: const BoxConstraints(maxHeight: 150),
-          decoration: BoxDecoration(
-            border: Border.all(color: AppColors.border),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                for (final u in candidates)
-                  CheckboxListTile(
-                    dense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                    visualDensity: VisualDensity.compact,
-                    value: selected.contains(u.id),
-                    title: Text(u.name,
-                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    onChanged: (v) {
-                      if (v == true) {
-                        selected.add(u.id);
-                      } else {
-                        selected.remove(u.id);
-                      }
-                      onChanged(selected);
-                    },
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}

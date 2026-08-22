@@ -107,6 +107,17 @@ class Project {
     return now.isAfter(due) ? now.difference(due).inDays : 0;
   }
 
+  /// الأيام المتبقية حتى الاستحقاق — سالبةٌ لمن تجاوز موعده.
+  ///
+  /// يُعرض بجانب كل مشروع بدل تاريخ الاستحقاق وحده: «متبقي ٣ أيام» يُقرأ
+  /// بلمحة، أما «٢٠٢٦/٠٩/٠١» فيُحوجُ القارئ إلى حساب المدة بنفسه في كل مرة.
+  int get remainingDays {
+    final due = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    final today = DateTime.now();
+    final now = DateTime(today.year, today.month, today.day);
+    return due.difference(now).inDays;
+  }
+
   /// الحالة التي تُعرض للمستخدم — **مصدر الحقيقة الوحيد**.
   ///
   /// كانت البطاقة الواحدة تعرض مصدرين متناقضين: شارة الحالة من الحقل

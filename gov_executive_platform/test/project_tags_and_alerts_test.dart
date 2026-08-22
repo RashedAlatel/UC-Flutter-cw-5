@@ -47,7 +47,10 @@ Project _project(
   List<String> managerUids = const [],
   List<String> executorUids = const [],
   DateTime? dueDate,
+  DateTime? due,
   double progress = 40,
+  PriorityLevel priority = PriorityLevel.high,
+  ProjectStatus status = ProjectStatus.onTrack,
 }) =>
     Project(
       id: id,
@@ -55,9 +58,9 @@ Project _project(
       name: 'مشروع $id',
       description: '',
       startDate: DateTime(2026, 1, 1),
-      dueDate: dueDate ?? DateTime(2099, 1, 1),
-      status: ProjectStatus.onTrack,
-      priority: PriorityLevel.high,
+      dueDate: due ?? dueDate ?? DateTime(2099, 1, 1),
+      status: status,
+      priority: priority,
       progressPercent: progress,
       managerUids: managerUids,
       executorUids: executorUids,
@@ -99,85 +102,105 @@ void main() {
     });
   });
 
-  group('التجميع حسب التصنيف', () {
-    test('مشروع بوسمين يظهر تحت العنوانين معاً', () {
-      final both = _project('p1', categoryIds: ['c1', 'c2']);
-      final groups = groupProjects(
-        projects: [both],
-        sort: ProjectSort.category,
-        categories: const [_digital, _priority],
-      );
-
-      expect(groups.map((g) => g.label), ['رقمنة', 'أولوية وزارية']);
-      for (final g in groups) {
-        expect(g.projects.single.id, 'p1', reason: 'تحت ${g.label}');
-      }
+  group('ترتيب المشاريع', () {
+    // زال «التجميع حسب التصنيف» بطلب المستخدم: الوسم صفةٌ تُصفّى بها القائمة،
+    // والترتيب طريقة عرض — وخلطُهما جعل المنتقي يَعِد بما لا يفعل. والوسوم
+    // باقية في منتقي التصفية وفي شرائح البطاقات.
+    test('المنتقي لم يعد يحمل خيار تجميعٍ بالتصنيف', () {
+      expect(ProjectSort.values.map((s) => s.name), isNot(contains('category')));
     });
 
-    test('وبترتيبٍ آخر يظهر مرةً واحدة لا مرتين', () {
-      // الازدواج مقصود في التجميع وحده. ولو تسرّب إلى القوائم المسطّحة
-      // لعُدّ المشروع مرتين في كل ما يُبنى عليها.
-      final groups = groupProjects(
-        projects: [_project('p1', categoryIds: ['c1', 'c2'])],
-        sort: ProjectSort.name,
-        categories: const [_digital, _priority],
+    test('«الأهم أولاً»: المتأخر قبل غيره، والأكثر تأخيراً أولاً', () {
+      final ordered = sortProjects(
+        projects: [
+          _project('ontrack', due: DateTime(2099, 1, 1)),
+          _project('late5', due: DateTime.now().subtract(const Duration(days: 5))),
+          _project('late30', due: DateTime.now().subtract(const Duration(days: 30))),
+        ],
+        sort: ProjectSort.smart,
       );
-      expect(groups.single.projects.length, 1);
-      expect(groups.single.label, isEmpty, reason: 'قائمة مسطّحة بلا عنوان');
+      expect(ordered.map((p) => p.id), ['late30', 'late5', 'ontrack']);
     });
 
-    test('بلا وسم يقع تحت «بلا تصنيف» في الآخر', () {
-      final groups = groupProjects(
-        projects: [_project('p1', categoryIds: ['c1']), _project('p2')],
-        sort: ProjectSort.category,
-        categories: const [_digital, _priority],
-      );
-      expect(groups.map((g) => g.label), ['رقمنة', kUncategorizedLabel]);
-      expect(groups.last.projects.single.id, 'p2');
+    test('وعند تساوي التأخير يفصل الاستحقاق ثم الأولوية', () {
+      final soonLow = _project('soon', due: DateTime(2099, 1, 1), priority: PriorityLevel.low);
+      final laterHigh = _project('later', due: DateTime(2099, 6, 1), priority: PriorityLevel.critical);
+      final ordered = sortProjects(projects: [laterHigh, soonLow], sort: ProjectSort.smart);
+      expect(ordered.map((p) => p.id), ['soon', 'later'],
+          reason: 'الاستحقاق يسبق الأولوية في طبقات الترتيب');
     });
 
-    test('ومشروعٌ وسمُه محذوف من الإعدادات يقع تحت «بلا تصنيف»', () {
-      // التصنيف يُحذف من القائمة ويبقى معرّفه مكتوباً على المشاريع. ولو
-      // عُومل كوسم صحيح لصنع مجموعةً بعنوان فارغ لا يعرف أحد ما هي.
-      final groups = groupProjects(
-        projects: [_project('p1', categoryIds: ['c-محذوف'])],
-        sort: ProjectSort.category,
-        categories: const [_digital],
-      );
-      expect(groups.single.label, kUncategorizedLabel);
+    test('والمكتمل ينزل إلى الآخر ولو كان تاريخه أقرب', () {
+      final done = _project('done', due: DateTime(2020, 1, 1), status: ProjectStatus.completed);
+      final open = _project('open', due: DateTime(2099, 1, 1));
+      final ordered = sortProjects(projects: [done, open], sort: ProjectSort.smart);
+      expect(ordered.map((p) => p.id), ['open', 'done']);
     });
 
-    test('ترتيب المجموعات ترتيبُ القائمة المعرَّفة لا ترتيب المشاريع', () {
-      // المشروع يحمل c2 قبل c1، والمجموعات تبقى بترتيب الإعدادات — وإلا
-      // تبدّل شكل الصفحة كلما عُدّل مشروع واحد.
-      final groups = groupProjects(
-        projects: [_project('p1', categoryIds: ['c2', 'c1'])],
-        sort: ProjectSort.category,
-        categories: const [_digital, _priority],
+    test('«الأولوية»: حرجة ثم عالية ثم متوسطة ثم منخفضة', () {
+      final ordered = sortProjects(
+        projects: [
+          _project('low', priority: PriorityLevel.low),
+          _project('critical', priority: PriorityLevel.critical),
+          _project('medium', priority: PriorityLevel.medium),
+          _project('high', priority: PriorityLevel.high),
+        ],
+        sort: ProjectSort.priority,
       );
-      expect(groups.map((g) => g.label), ['رقمنة', 'أولوية وزارية']);
+      expect(ordered.map((p) => p.id), ['critical', 'high', 'medium', 'low']);
     });
-  });
 
-  group('الترتيب المسطّح', () {
-    test('الأكثر تأخيراً أولاً', () {
+    test('«آخر تحديث»: من لا تحديث له يقع في الآخر لا في الصدارة', () {
+      final ordered = sortProjects(
+        projects: [_project('never'), _project('old'), _project('fresh')],
+        sort: ProjectSort.lastUpdated,
+        lastUpdateOf: {
+          'old': DateTime(2026, 1, 1),
+          'fresh': DateTime(2026, 8, 1),
+        },
+      );
+      expect(ordered.map((p) => p.id), ['fresh', 'old', 'never']);
+    });
+
+    test('الترتيب ثابت: المتساوون يُرتَّبون بالاسم لا عشوائياً', () {
+      // بغير هذا تقفز القائمة تحت يد المستخدم بين بناءٍ وآخر.
+      final ordered = sortProjects(
+        projects: [_project('ب'), _project('أ')],
+        sort: ProjectSort.progressHigh,
+      );
+      expect(ordered.map((p) => p.id), ['أ', 'ب']);
+    });
+
+    test('«الأكثر تأخيراً» يقدّم من تجاوز موعده بأكثر', () {
       final old = _project('p1', dueDate: DateTime(2020, 1, 1));
       final recent = _project('p2', dueDate: DateTime(2025, 1, 1));
-      final groups = groupProjects(
-        projects: [recent, old],
-        sort: ProjectSort.delay,
-        categories: const [],
-      );
-      expect(groups.single.projects.map((p) => p.id), ['p1', 'p2']);
+      final ordered = sortProjects(projects: [recent, old], sort: ProjectSort.mostDelayed);
+      expect(ordered.map((p) => p.id), ['p1', 'p2']);
     });
 
-    test('والأقل إنجازاً أولاً', () {
-      final groups = groupProjects(
+    test('و«نسبة الإنجاز: الأقل أولاً» تقدّم الأقل', () {
+      final ordered = sortProjects(
         projects: [_project('p1', progress: 80), _project('p2', progress: 10)],
-        sort: ProjectSort.progress,
-        categories: const [],
+        sort: ProjectSort.progressLow,
       );
-      expect(groups.single.projects.map((p) => p.id), ['p2', 'p1']);
+      expect(ordered.map((p) => p.id), ['p2', 'p1']);
+    });
+
+    test('والاتجاه المعاكس يقدّم الأعلى', () {
+      final ordered = sortProjects(
+        projects: [_project('p1', progress: 10), _project('p2', progress: 80)],
+        sort: ProjectSort.progressHigh,
+      );
+      expect(ordered.map((p) => p.id), ['p2', 'p1']);
+    });
+
+    test('و«الأقرب للاستحقاق» و«الأبعد» متعاكسان', () {
+      final soon = _project('soon', dueDate: DateTime(2026, 1, 1));
+      final later = _project('later', dueDate: DateTime(2099, 1, 1));
+      expect(sortProjects(projects: [later, soon], sort: ProjectSort.dueSoon).map((p) => p.id),
+          ['soon', 'later']);
+      expect(sortProjects(projects: [soon, later], sort: ProjectSort.dueLate).map((p) => p.id),
+          ['later', 'soon']);
     });
   });
 

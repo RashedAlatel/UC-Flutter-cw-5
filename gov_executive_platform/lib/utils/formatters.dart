@@ -7,6 +7,9 @@ class Formatters {
 
   static String date(DateTime d) => '${d.day} ${_months[d.month - 1]} ${d.year}';
 
+  /// اسم الشهر بالعربية — للتقويم الشهري ولترويسات التقارير.
+  static String monthName(int month) => _months[(month - 1) % 12];
+
   static String shortDate(DateTime d) =>
       '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
 

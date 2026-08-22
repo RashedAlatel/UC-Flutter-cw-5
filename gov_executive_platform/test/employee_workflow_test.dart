@@ -94,23 +94,21 @@ void main() {
     test('الأحدث إضافةً يقدّم المُضاف حديثاً لا المبتدئ حديثاً', () {
       final oldStartNewAdd = _project('p1', start: DateTime(2020, 1, 1), createdAt: DateTime(2026, 8, 1));
       final newStartOldAdd = _project('p2', start: DateTime(2026, 7, 1), createdAt: DateTime(2026, 2, 1));
-      final groups = groupProjects(
+      final ordered = sortProjects(
         projects: [newStartOldAdd, oldStartNewAdd],
         sort: ProjectSort.newest,
-        categories: const [],
       );
-      expect(groups.single.projects.map((p) => p.id), ['p1', 'p2']);
+      expect(ordered.map((p) => p.id), ['p1', 'p2']);
     });
 
     test('والمستورد بلا تاريخ إضافة يُرتَّب ببدئه ولا يُسقط الترتيب', () {
       final imported = _project('old', start: DateTime(2019, 1, 1));
       final recent = _project('new', createdAt: DateTime(2026, 8, 1));
-      final groups = groupProjects(
+      final ordered = sortProjects(
         projects: [imported, recent],
         sort: ProjectSort.newest,
-        categories: const [],
       );
-      expect(groups.single.projects.map((p) => p.id), ['new', 'old']);
+      expect(ordered.map((p) => p.id), ['new', 'old']);
     });
   });
 
@@ -348,37 +346,34 @@ void _newestSortGuards() {
 
     test('المُضاف اليوم يسبق المستورد الذي يبدأ في المستقبل', () {
       final fresh = _project('new', createdAt: DateTime(2026, 8, 22));
-      final groups = groupProjects(
+      final ordered = sortProjects(
         projects: [imported('old'), fresh],
         sort: ProjectSort.newest,
-        categories: const [],
       );
-      expect(groups.single.projects.first.id, 'new',
+      expect(ordered.first.id, 'new',
           reason: 'تاريخ بدءٍ في المستقبل لا يجعل المشروع أحدثَ إضافةً');
     });
 
     test('وبين المعروفة يقدَّم الأحدث', () {
-      final groups = groupProjects(
+      final ordered = sortProjects(
         projects: [
           _project('a', createdAt: DateTime(2026, 3, 1)),
           _project('b', createdAt: DateTime(2026, 8, 1)),
         ],
         sort: ProjectSort.newest,
-        categories: const [],
       );
-      expect(groups.single.projects.map((p) => p.id), ['b', 'a']);
+      expect(ordered.map((p) => p.id), ['b', 'a']);
     });
 
     test('وبين المجهولة يبقى تاريخ البدء فيصلاً', () {
-      final groups = groupProjects(
+      final ordered = sortProjects(
         projects: [
           _project('early', start: DateTime(2025, 1, 1)),
           _project('late', start: DateTime(2026, 12, 1)),
         ],
         sort: ProjectSort.newest,
-        categories: const [],
       );
-      expect(groups.single.projects.map((p) => p.id), ['late', 'early']);
+      expect(ordered.map((p) => p.id), ['late', 'early']);
     });
   });
 }

@@ -39,7 +39,9 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
   String? _userFilter;
   ProjectStatus? _statusFilter;
   String? _categoryFilter;
-  ProjectSort _sort = ProjectSort.name;
+  // المبدئي «الأهم أولاً» لا «الاسم»: الصفحة تُفتح للسؤال «ما الذي يحتاجني
+  // الآن؟»، والترتيب الأبجدي لا يجيب عنه.
+  ProjectSort _sort = ProjectSort.smart;
 
   bool get _hasFilters =>
       _departmentFilter != null ||
@@ -257,7 +259,11 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
       projects = projects.where((p) => p.categoryIds.contains(_categoryFilter)).toList();
     }
 
-    final groups = groupProjects(projects: projects, sort: _sort, categories: store.categories);
+    final sortedProjects = sortProjects(
+      projects: projects,
+      sort: _sort,
+      lastUpdateOf: store.lastUpdateByProject,
+    );
     final lateProjects =
         projects.where((p) => p.effectiveStatus == ProjectStatus.delayed).toList();
 
@@ -408,7 +414,9 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                 child: DropdownButtonFormField<ProjectSort>(
                   initialValue: _sort,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'الترتيب', isDense: true),
+                  // «ترتيب حسب» لا «التصنيف»: المستخدم هنا لا يغيّر فئة
+                  // المشروع، بل يقرّر ما الذي يظهر أولاً.
+                  decoration: const InputDecoration(labelText: 'ترتيب حسب', isDense: true),
                   items: ProjectSort.values
                       .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
                       .toList(),
@@ -431,11 +439,11 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
           // مشاريع الوزارة المستوردة لا تحمل تاريخ إضافة، فتُرتَّب بتاريخ
           // بدئها. ويُقال ذلك بدل إيهام دقّةٍ لا وجود لها — من يرتّب
           // بالأحدث يحقّ له أن يعرف أن بعض الصف مرتَّب بمقياس آخر.
-          if (_sort == ProjectSort.newest && projects.any((p) => p.createdAt == null)) ...[
+          if (_sort.usesCreatedAt && projects.any((p) => p.createdAt == null)) ...[
             const SizedBox(height: 6),
             Text(
               '${projects.where((p) => p.createdAt == null).length} مشروعاً لا يحمل تاريخ إضافة '
-              '(مستورد من ملفات الوزارة) — يقع بعد المشاريع المعروف تاريخ إضافتها.',
+              '(مستورد من ملفات الوزارة) — يقع في آخر القائمة في هذا الترتيب.',
               style: AppText.micro.copyWith(color: AppColors.textSecondary, height: 1.7),
             ),
           ],
@@ -469,13 +477,7 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
               ),
             )
           else
-            // مجموعة بلا عنوان تُرسم كقائمة مسطّحة، وبعنوان تُرسم تحته.
-            // والمشروع متعدد الوسوم يظهر تحت كل وسم يحمله — راجع
-            // `groupProjects` في models/project_sort.dart.
-            ...groups.expand((g) => [
-                  if (g.label.isNotEmpty) _GroupHeading(label: g.label, count: g.projects.length),
-                  ...g.projects.map((p) => _ProjectRow(project: p)),
-                ]),
+            ...sortedProjects.map((p) => _ProjectRow(project: p)),
           const SizedBox(height: 28),
           CustomWidgetsSection(
             store: store,
@@ -490,6 +492,31 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
       ),
     );
   }
+}
+
+/// «متأخر ٧ أيام» أو «متبقي ٣ أيام» — بصيغة العربية لا بصيغة واحدة جامدة.
+String _dueLabel(Project project) {
+  if (project.effectiveStatus == ProjectStatus.completed) return 'مكتمل';
+  final late = project.delayDays;
+  if (late > 0) return 'متأخر ${_days(late)}';
+  final left = project.remainingDays;
+  if (left == 0) return 'يستحق اليوم';
+  return 'متبقي ${_days(left)}';
+}
+
+/// تمييز العدد في العربية: يومٌ، ويومان، وثلاثةُ أيام… وما جاوز العشرة يوماً.
+String _days(int n) {
+  if (n == 1) return 'يوم واحد';
+  if (n == 2) return 'يومان';
+  if (n <= 10) return '$n أيام';
+  return '$n يوماً';
+}
+
+Color _dueColor(Project project) {
+  if (project.effectiveStatus == ProjectStatus.completed) return AppColors.success;
+  if (project.delayDays > 0) return AppColors.danger;
+  // أسبوعٌ أو أقل تحذير لا اطمئنان: هو آخر ما يمكن التصرّف فيه.
+  return project.remainingDays <= 7 ? AppColors.warning : AppColors.success;
 }
 
 class _ProjectRow extends StatelessWidget {
@@ -610,10 +637,16 @@ class _ProjectRow extends StatelessWidget {
                 runSpacing: 6,
                 children: [
                   MetaChip(icon: Icons.event_outlined, text: 'الاستحقاق: ${Formatters.shortDate(project.dueDate)}'),
+                  // ــ المدة لا التاريخ ــ
+                  //
+                  // كان يُكتب «ضمن الجدول الزمني» لكل من لم يتأخر — وهي عبارة
+                  // لا تفرّق بين مشروعٍ بقي له ثلاثة أيام وآخر بقي له سنة.
+                  // فمن أراد أن يعرف كم بقي كان يقرأ تاريخ الاستحقاق ويحسب
+                  // المدة بنفسه في كل مرة.
                   MetaChip(
                     icon: Icons.schedule_rounded,
-                    text: project.delayDays > 0 ? 'متأخر ${project.delayDays} يوم' : 'ضمن الجدول الزمني',
-                    color: project.delayDays > 0 ? AppColors.danger : AppColors.success,
+                    text: _dueLabel(project),
+                    color: _dueColor(project),
                   ),
                 ],
               ),
@@ -653,31 +686,6 @@ class _ProjectRow extends StatelessWidget {
   }
 }
 
-
-/// عنوان مجموعة عند الترتيب حسب التصنيف.
-class _GroupHeading extends StatelessWidget {
-  final String label;
-  final int count;
-  const _GroupHeading({required this.label, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 10),
-      child: Row(
-        children: [
-          Container(width: 3, height: 16, color: AppColors.accent),
-          const SizedBox(width: 8),
-          Text(label, style: AppText.cardTitle.copyWith(fontSize: 14)),
-          const SizedBox(width: 8),
-          Text('($count)', style: AppText.label.copyWith(color: AppColors.textSecondary)),
-          const SizedBox(width: 10),
-          const Expanded(child: Divider(height: 1)),
-        ],
-      ),
-    );
-  }
-}
 
 /// إدارة قائمة التصنيفات — لمسؤول النظام وحده.
 ///

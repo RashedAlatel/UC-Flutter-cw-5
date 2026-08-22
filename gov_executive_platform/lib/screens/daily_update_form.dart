@@ -4,7 +4,10 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/attachment.dart';
 import '../models/project.dart';
+import '../models/daily_update.dart';
 import '../theme/app_theme.dart';
+import '../utils/formatters.dart';
+import '../widgets/month_calendar.dart';
 import '../utils/file_picker.dart';
 
 class DailyUpdateForm extends StatefulWidget {
@@ -24,6 +27,9 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
   final _notesCtrl = TextEditingController();
   final List<Attachment> _attachments = [];
   late double _progress;
+
+  /// اليوم الذي يُسجَّل تحته التحديث — اليومُ الحالي عند الفتح.
+  late DateTime _day;
   bool _busy = false;
   bool _uploading = false;
   String? _attachError;
@@ -32,6 +38,38 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
   void initState() {
     super.initState();
     _progress = widget.project.progressPercent;
+    _day = dayOnly(DateTime.now());
+  }
+
+  /// ينقل الاختيار إلى يومٍ آخر، ويملأ الحقول بتحديث ذلك اليوم إن وُجد.
+  ///
+  /// ــ ولماذا يُملأ ولا يُقفل؟ ــ
+  ///
+  /// المتجر **يُضيف** تحديثاً ولا يستبدله، فالتعديل على مستندٍ محفوظ يحتاج
+  /// مساراً آخر وقواعد أخرى على الخادم. والملء يُري المستخدم ما كُتب في ذلك
+  /// اليوم — وهو ما طُلب — بلا ادّعاء تعديلٍ لا يقع. ويُقال ذلك صراحةً في
+  /// اللافتة أعلى النموذج.
+  void _selectDay(DateTime day, List<DailyUpdate> existing) {
+    setState(() {
+      _day = day;
+      final latest = existing.isEmpty ? null : existing.last;
+      _achievementsCtrl.text = latest?.achievements ?? '';
+      _notesCtrl.text = latest?.notes ?? '';
+      _completedTasks
+        ..clear()
+        ..addAll(latest?.completedTasks ?? const []);
+      _newRisks
+        ..clear()
+        ..addAll(latest?.newRisks ?? const []);
+      _blockers
+        ..clear()
+        ..addAll(latest?.blockers ?? const []);
+      _decisions
+        ..clear()
+        ..addAll(latest?.decisionsRequired ?? const []);
+      _attachments.clear();
+      _progress = latest?.progressPercent ?? widget.project.progressPercent;
+    });
   }
 
   @override
@@ -75,6 +113,7 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
             progressPercent: _progress,
             notes: _notesCtrl.text.trim(),
             attachments: _attachments,
+            forDay: _day,
           );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -123,6 +162,8 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
 
   @override
   Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final dayUpdates = store.updatesOnDay(widget.project.id, _day);
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
@@ -159,6 +200,66 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // ــ التقويم أول النموذج لا آخره ــ
+                    //
+                    // «لأي يومٍ أكتب؟» سؤالٌ يسبق «ماذا أكتب؟». ووضعُه في
+                    // الآخر يجعل المستخدم يكتب ثم يكتشف أنه كتب لليوم الخطأ.
+                    Text('يوم التحديث', style: AppText.label),
+                    const SizedBox(height: 6),
+                    MonthCalendar(
+                      selected: _day,
+                      onSelected: (d) => _selectDay(d, store.updatesOnDay(widget.project.id, d)),
+                      daysWithUpdates: {
+                        for (final u in store.dailyUpdates)
+                          if (u.projectId == widget.project.id) dayOnly(u.date),
+                      },
+                      // لا يُسجَّل تحديثٌ قبل بدء المشروع ولا ليومٍ لم يأتِ.
+                      firstDay: widget.project.startDate,
+                      lastDay: DateTime.now(),
+                    ),
+                    const SizedBox(height: 10),
+                    if (dayUpdates.isNotEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.info.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.info.withValues(alpha: 0.35)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${Formatters.date(_day)} — فيه ${dayUpdates.length} تحديث مسجَّل'
+                              '${dayUpdates.length > 1 ? 'ات' : ''}',
+                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5),
+                            ),
+                            const SizedBox(height: 4),
+                            for (final u in dayUpdates)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  '• ${u.authorName}: '
+                                  '${u.achievements.trim().isEmpty ? 'بلا ملخّص إنجازات' : u.achievements.trim()}',
+                                  style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.6),
+                                ),
+                              ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'الحقول أدناه مملوءة بآخر تحديث لهذا اليوم. والحفظ يضيف تحديثاً '
+                              'جديداً لليوم نفسه ولا يستبدل ما سبق.',
+                              style: TextStyle(fontSize: 11, color: AppColors.textSecondary, height: 1.6),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Text(
+                        '${Formatters.date(_day)} — لا يوجد تحديث مسجَّل لهذا اليوم.',
+                        style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                      ),
+                    const SizedBox(height: 18),
                     const Text('الإنجازات (اختياري)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                     const SizedBox(height: 8),
                     TextField(

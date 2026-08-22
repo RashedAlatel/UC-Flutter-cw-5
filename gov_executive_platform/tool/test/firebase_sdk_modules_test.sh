@@ -24,6 +24,18 @@ SCRIPT="tool/fetch_firebase_sdk.sh"
 PASS=0
 FAIL=0
 
+# هل تحتوي القائمة (المفصولة بمسافات) هذه الكلمة؟ يطبع yes أو no.
+#
+# دالةٌ لا `case` مكتوبة داخل `$( )` مباشرةً: bash 3.2 — وهو **المُرفَق مع
+# macOS إلى اليوم** — لا يستطيع تحليل `case` داخل استبدال أمر، فيسقط الملف
+# كله بخطأ نحوي. واستدعاء دالة داخل `$( )` سليمٌ فيه.
+contains_word() {
+  case " $1 " in
+    *" $2 "*) echo yes ;;
+    *)        echo no ;;
+  esac
+}
+
 check() {
   local name="$1" expected="$2" actual="$3"
   if [[ "$actual" == "$expected" ]]; then
@@ -70,8 +82,7 @@ echo ""
 # ــــ ١) الحالة الحقيقية: pubspec المشروع كما هو ــــ
 echo "قائمة اليوم مشتقّة من pubspec.yaml:"
 ACTUAL="$(services_for_pubspec pubspec.yaml)"
-check "التخزين مذكور — وهو الحزمة التي سقطت" \
-  "yes" "$(case " $ACTUAL " in *" storage "*) echo yes ;; *) echo no ;; esac)"
+check "التخزين مذكور — وهو الحزمة التي سقطت" "yes" "$(contains_word "$ACTUAL" storage)"
 check "القائمة كاملة ومرتّبة كما يتوقّعها المُحمِّل" \
   "core auth firestore functions storage" "$ACTUAL"
 echo ""
@@ -93,7 +104,15 @@ echo ""
 # البناء وتطلب سطراً في الخريطة، بدل أن تُتجاهَل فتفشل ميزتها عند المستخدم.
 echo "حزمة غير معروفة توقف البناء بدل أن تُتجاهَل:"
 TMP="$(mktemp)"
-sed 's/^  firebase_storage:.*/  firebase_messaging: ^15.0.0\n  firebase_zzz_unknown: ^1.0.0/' pubspec.yaml > "$TMP"
+# awk لا sed: صيغة `\n` في استبدال sed من إضافات GNU، وBSD sed المرفق مع
+# macOS يكتبها حرف n فيبقى السطران سطراً واحداً — فلا تُحقَن حزمةٌ مجهولة
+# أصلاً، ويمرّ الفحص كاذباً.
+awk '/^  firebase_storage:/ {
+       print "  firebase_messaging: ^15.0.0"
+       print "  firebase_zzz_unknown: ^1.0.0"
+       next
+     }
+     { print }' pubspec.yaml > "$TMP"
 if OUT="$(services_for_pubspec "$TMP")"; then
   echo "  ✗ الاشتقاق نجح رغم حزمة مجهولة، والناتج: $OUT"
   FAIL=$((FAIL + 1))

@@ -69,13 +69,21 @@ class DepartmentDetailScreen extends StatelessWidget {
           const SizedBox(height: 20),
           LayoutBuilder(builder: (context, constraints) {
             final cols = constraints.maxWidth > 900 ? 4 : (constraints.maxWidth > 520 ? 2 : 1);
+            const spacing = 14.0;
+            const itemHeight = KpiCard.tileHeight;
+            final itemWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
             return GridView.count(
               crossAxisCount: cols,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 14,
-              mainAxisSpacing: 14,
-              childAspectRatio: 1.6,
+              crossAxisSpacing: spacing,
+              mainAxisSpacing: spacing,
+            // الارتفاع بالبكسل لا بنسبةٍ من العرض: النسبة تجعل ارتفاع
+            // البطاقة تابعاً لعرض الشاشة، فيتضخّم الفراغ داخلها كلما
+            // اتّسعت. و٩٢ هو ارتفاع محتوى `KpiCard` كما في
+            // `works_list_screen.dart`، فالبطاقة نفسها بالارتفاع نفسه
+            // في كل شاشة تظهر فيها.
+              childAspectRatio: itemWidth / itemHeight,
               children: [
                 KpiCard(title: 'نسبة الإنجاز', value: Formatters.percent(progress), icon: Icons.trending_up_rounded, color: AppColors.success),
                 KpiCard(title: 'متوسط التأخير', value: '${delay.toStringAsFixed(1)} يوم', icon: Icons.schedule_rounded, color: AppColors.warning),

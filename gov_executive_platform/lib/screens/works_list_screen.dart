@@ -90,7 +90,7 @@ class _WorksListScreenState extends State<WorksListScreen> {
           LayoutBuilder(builder: (context, c) {
             final cols = c.maxWidth > 820 ? 4 : (c.maxWidth > 520 ? 2 : 1);
             const spacing = 14.0;
-            const itemHeight = 92.0;
+            const itemHeight = KpiCard.tileHeight;
             final itemWidth = (c.maxWidth - spacing * (cols - 1)) / cols;
             return GridView.count(
               crossAxisCount: cols,

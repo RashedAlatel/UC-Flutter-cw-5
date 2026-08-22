@@ -143,16 +143,29 @@ class _DepartmentsListScreenState extends State<DepartmentsListScreen> {
               padding: EdgeInsets.symmetric(vertical: 30),
               child: Center(child: Text('لا توجد إدارات مطابقة للبحث', style: TextStyle(color: AppColors.textSecondary))),
             ),
+          // ــ لماذا `Wrap` لا `GridView.count`؟ ــ
+          //
+          // كان هنا `childAspectRatio: 1.35`، أي أن ارتفاع البطاقة = عرضها
+          // ÷ ١٫٣٥. والعرض يتبدّل بعرض الشاشة، فالارتفاع يتبدّل معه **بلا أي
+          // علاقة بما في البطاقة**: على المكتب صار الفراغ المفروض ١٣٤ بكسل،
+          // وعلى الجوال — حيث عمود واحد بعرض الشاشة كلها — ٥١ بكسل تحت كل
+          // بطاقة. وهو الفراغ المشتكى منه.
+          //
+          // و`Wrap` يعطي كل بطاقة **ارتفاعها هي**: لا فراغ مفروض، ولا خطر
+          // انسكاب المحتوى لو طال الاسم سطراً ثالثاً — وهو ما يقع لو ثُبِّت
+          // ارتفاعٌ مخمَّن بدل النسبة.
+          //
+          // وهذا النمط قائم في المنصة لا مخترع هنا: لوح ودجات لوحة القيادة
+          // (`_WidgetBoard` في `dashboard_screen.dart`) تركه لهذا السبب نفسه.
           LayoutBuilder(builder: (context, constraints) {
             final cols = constraints.maxWidth > 1150 ? 3 : (constraints.maxWidth > 720 ? 2 : 1);
-            return GridView.count(
-              crossAxisCount: cols,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 1.35,
+            const spacing = 16.0;
+            final itemWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
+            return Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
               children: [
+                for (final card in <Widget>[
                 // المشاريع الموضوعة تحت التركيز تظهر كبطاقات مستقلة بجانب
                 // بطاقات الإدارات، لا داخل إدارتها — وهو الغرض من تمييزها.
                 ...store.focusedProjects.map((p) => FocusedProjectCard(project: p, compact: true)),
@@ -238,6 +251,8 @@ class _DepartmentsListScreenState extends State<DepartmentsListScreen> {
                   ),
                 );
                 }),
+                ])
+                  SizedBox(width: itemWidth, child: card),
               ],
             );
           }),

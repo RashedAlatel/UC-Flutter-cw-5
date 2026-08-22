@@ -18,6 +18,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# shellcheck source=tool/worktree.sh
+. ./tool/worktree.sh
+
 # ــــ حرّاس السكربتات ــــ
 #
 # هذه فحوص نصّية لا يقرؤها `flutter test` ولا `flutter analyze`، وموضعها هنا
@@ -48,6 +51,7 @@ else
   guard ./tool/test/firebase_sdk_modules_test.sh
   guard ./tool/test/storage_message_test.sh
   guard ./tool/test/approval_gates_test.sh
+  guard ./tool/test/worktree_state_test.sh
 fi
 
 # استضافة حزم Firebase محلياً حتى لا تُجلب من www.gstatic.com عند كل فتح.
@@ -64,8 +68,9 @@ fi
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo '?')"
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
 
+DIRTY_FILES="$(worktree_dirty_files)"
 DIRTY=""
-if [ -n "$(git status --porcelain -- . ':(exclude)build' 2>/dev/null)" ]; then
+if [ -n "$DIRTY_FILES" ] && [ "$(worktree_dirt_is_generated "$DIRTY_FILES")" = "no" ]; then
   DIRTY="yes"
 fi
 
@@ -90,7 +95,9 @@ if [ -n "$BEHIND" ]; then
 fi
 
 if [ -n "$DIRTY" ]; then
-  echo "⚠ لديك تعديلات محلية غير محفوظة — وهي ما يمنع «git pull» من الدمج."
+  echo "⚠ لديك تعديلات محلية غير محفوظة — وهي ما يمنع «git pull» من الدمج:"
+  echo "$DIRTY_FILES" | sed 's/^/     • /'
+  echo "   لرؤيتها:  git diff"
   echo "   للتخلّص منها:  git reset --hard origin/$BRANCH"
 fi
 

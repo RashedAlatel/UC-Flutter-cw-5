@@ -27,6 +27,9 @@ cd "$(dirname "$0")/.."
 FORCE=""
 [ "${1:-}" = "--force" ] && FORCE="yes"
 
+# shellcheck source=tool/worktree.sh
+. ./tool/worktree.sh
+
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
 
 # ــــ معرّف المشروع يُقرأ من الملف ويُمرَّر صراحةً في كل أمر ــــ
@@ -76,13 +79,33 @@ else
   fi
 fi
 
-if [ -n "$(git status --porcelain -- . ':(exclude)build' 2>/dev/null)" ]; then
-  [ -z "$FORCE" ] && die "لديك تعديلات محلية غير محفوظة." \
-      "وهي ما يمنع «git pull» من الدمج، فتبقى شيفرتك قديمة دون أن تدري." \
-      "" \
-      "للتخلّص منها والعودة إلى نسخة الخادم:" \
-      "  git reset --hard origin/$BRANCH"
-  BYPASSED="${BYPASSED:+$BYPASSED، و}تعديلات محلية غير محفوظة"
+DIRTY_FILES="$(worktree_dirty_files)"
+if [ -n "$DIRTY_FILES" ]; then
+  if [ "$(worktree_dirt_is_generated "$DIRTY_FILES")" = "yes" ]; then
+    # ملفّا القفل وحدهما: أدواتنا كتبتهما لا أنت، فلا يُوقَف النشر عليهما.
+    echo "ℹ ملفّا القفل معدَّلان — أدوات البناء تُعيد كتابتهما، ولا يمنع ذلك النشر:"
+    echo "$DIRTY_FILES" | sed 's/^/    • /'
+  else
+    if [ -z "$FORCE" ]; then
+      DIRTY_LINES=()
+      while IFS= read -r _f; do
+        [ -n "$_f" ] && DIRTY_LINES+=("  • $_f")
+      done <<EOF
+$DIRTY_FILES
+EOF
+      die "لديك تعديلات محلية غير محفوظة في:" \
+          "${DIRTY_LINES[@]}" \
+          "" \
+          "وهي ما يمنع «git pull» من الدمج، فتبقى شيفرتك قديمة دون أن تدري." \
+          "" \
+          "لرؤية ما تغيّر فيها قبل أي شيء:" \
+          "  git diff" \
+          "" \
+          "وللتخلّص منها والعودة إلى نسخة الخادم:" \
+          "  git reset --hard origin/$BRANCH"
+    fi
+    BYPASSED="${BYPASSED:+$BYPASSED، و}تعديلات محلية غير محفوظة"
+  fi
 fi
 
 COMMIT="$(git rev-parse --short HEAD)"

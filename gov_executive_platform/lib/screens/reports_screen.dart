@@ -257,13 +257,21 @@ class _ReportCardState extends State<_ReportCard> {
             const SizedBox(height: 16),
             LayoutBuilder(builder: (context, constraints) {
               final cols = constraints.maxWidth > 700 ? 5 : (constraints.maxWidth > 420 ? 3 : 2);
+              const spacing = 10.0;
+              const itemHeight = KpiCard.tileHeight;
+              final itemWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
               return GridView.count(
                 crossAxisCount: cols,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 1.5,
+                crossAxisSpacing: spacing,
+                mainAxisSpacing: spacing,
+              // الارتفاع بالبكسل لا بنسبةٍ من العرض: النسبة تجعل ارتفاع
+              // البطاقة تابعاً لعرض الشاشة، فيتضخّم الفراغ داخلها كلما
+              // اتّسعت. و٩٢ هو ارتفاع محتوى `KpiCard` كما في
+              // `works_list_screen.dart`، فالبطاقة نفسها بالارتفاع نفسه
+              // في كل شاشة تظهر فيها.
+                childAspectRatio: itemWidth / itemHeight,
                 children: [
                   KpiCard(title: 'متوسط الإنجاز', value: Formatters.percent(r.avgProgress), icon: Icons.trending_up_rounded, color: AppColors.success),
                   KpiCard(title: 'متوسط التأخير', value: '${r.avgDelayDays.toStringAsFixed(1)} يوم', icon: Icons.schedule_rounded, color: AppColors.warning),

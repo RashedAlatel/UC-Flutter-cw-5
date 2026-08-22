@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../theme/brand.dart';
 import '../widgets/ministry_logo.dart';
 import '../widgets/ornament_border.dart';
+import 'password_reset_dialog.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -38,6 +39,18 @@ class _LoginScreenState extends State<LoginScreen> {
       _busy = false;
       _error = error;
     });
+  }
+
+  /// يفتح نافذة إعادة التعيين — **نافذةً لا شاشة**.
+  ///
+  /// فمن ضغط الرابط قد يكون كتب بريده أصلاً، والانتقال إلى شاشةٍ يمحو ما
+  /// كتبه ويُلزمه بكتابته مرّتين. والنافذة تُملأ بما كتبه ثم تُغلق فيبقى
+  /// كلُّ شيء مكانه.
+  void _openReset() {
+    showDialog(
+      context: context,
+      builder: (_) => PasswordResetDialog(initialEmail: _emailCtrl.text.trim()),
+    );
   }
 
   @override
@@ -215,7 +228,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   : const Text('دخول', style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
+          // «نسيت كلمة المرور؟» فوق «إنشاء حساب»: من يقف على هذه الشاشة عاجزاً
+          // عن الدخول أكثرُه صاحبُ حسابٍ نسي كلمته، لا زائرٌ بلا حساب.
+          Center(
+            child: TextButton(
+              onPressed: _busy ? null : _openReset,
+              child: const Text('نسيت كلمة المرور؟'),
+            ),
+          ),
           Center(
             child: TextButton(
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SignupScreen())),

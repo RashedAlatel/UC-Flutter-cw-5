@@ -257,6 +257,36 @@ want "والجلسات القائمة تُبطَل" 'await admin.auth().revokeRe
 want "والبطاقة تُعاد بلا اعتماد" 'approved,'
 echo ""
 
+# ــــ التسجيل الذاتي يمرّ بالسجل المشترك ــــ
+#
+# عطلٌ وقع فعلاً: صارت قاعدة إنشاء `/users` تشترط دور «موظف»، وبقيت `signUp`
+# تكتب `projectOfficer` — فكل تسجيلٍ جديد يُرفض، ويخرج صاحبه بحساب دخولٍ حيّ
+# بلا سجل. ولم يصح شيء لأن **ما تكتبه `signUp` كان خارج مدى كل اختبار**:
+# هي تنادي Firebase Auth وFirestore فلا تُستدعى في اختبار وحدة.
+#
+# فصار البناء في `signupUserRecord` وحدها، ويفحصها
+# `test/signup_role_test.dart` مقابل ملف القواعد نفسه. وهذا الفحص يمنع أن
+# يعود أحدٌ فيبني `AppUser` داخل `signUp` مباشرةً — فتخرج من مدى الاختبار
+# من جديد بلا أن يصيح شيء.
+echo "التسجيل الذاتي يمرّ بالسجل المشترك:"
+want_in "$STORE" "الدالّة المشتركة موجودة" "static AppUser signupUserRecord"
+want_in "$STORE" "و signUp تناديها لا تبني بنفسها" "final user = signupUserRecord("
+want_in "$STORE" "وتكتب أدنى الأدوار" "role: UserRole.employee,"
+echo ""
+
+# ــــ استعادة كلمة المرور لا تفتح بوابة البريد ــــ
+#
+# الرسالة يولّدها Firebase ويرسلها بنفسه، ولا تمرّ بأي مُرسِلٍ في `functions/`.
+# ولو بُنيت دالّةً خلفية لَصار في المنصة **مُرسِلُ بريدٍ ثانٍ يقبل عنواناً من
+# الطلب** — وهو بالضبط اتّساع البوابة الذي حُرس في جولة التقرير اليومي.
+echo "استعادة كلمة المرور تخرج من Firebase مباشرةً:"
+want_in "$STORE" "الدالّة تنادي Firebase" "await _auth.sendPasswordResetEmail("
+want_in "$STORE" "والبريد المجهول يُقرأ نجاحاً فلا تُكشف قائمة المسجَّلين" \
+  "if (e.code == 'user-not-found' || e.code == 'invalid-email') return null;"
+reject_in "$SRC" "ولا أثر لها في الدوال الخلفية" "PasswordReset"
+want_in "$STORE" "والحساب الموقوف يُقال له إنه موقوف" "case 'user-disabled':"
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

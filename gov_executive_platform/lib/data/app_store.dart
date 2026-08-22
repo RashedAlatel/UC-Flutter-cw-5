@@ -1568,6 +1568,43 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  /// السجل الذي يُكتب في `/users/{uid}` لحظة التسجيل الذاتي.
+  ///
+  /// ــــ لماذا دالّةٌ مفصولة عن [signUp]؟ ــــ
+  ///
+  /// لأن [signUp] تنادي Firebase Auth وFirestore، فلا تُستدعى في اختبار
+  /// وحدة إطلاقاً — أي أن **شكل المستند المكتوب كان خارج مدى كل اختبار**.
+  /// وقد كلّف ذلك عطلاً: صارت قاعدة إنشاء `/users` تشترط دور «موظف» في
+  /// جولة فصل الدور عن قيادة المشروع، وبقي هذا السطر يكتب `projectOfficer`،
+  /// فكان كل تسجيلٍ جديد يُرفض. ولم يصح شيء: اختبار القواعد يفحص القاعدة
+  /// بدورٍ مكتوبٍ يدوياً، واختبار الأدوار يفحص التعداد، ولا واحد منهما يمرّ
+  /// على ما يُكتب هنا.
+  ///
+  /// والدور المكتوب **حاجزٌ لا منحة**: الحساب `pending` فلا يملك شيئاً،
+  /// والدورُ المطلوب يمرّ في `payload` طلب الاعتماد ويُختم بقرار مسؤول
+  /// النظام. راجع `test/signup_role_test.dart`.
+  @visibleForTesting
+  static AppUser signupUserRecord({
+    required String uid,
+    required String name,
+    required String email,
+    required String phone,
+    required DateTime createdAt,
+    String? departmentId,
+    String? sectionId,
+  }) =>
+      AppUser(
+        id: uid,
+        name: name,
+        email: email,
+        phone: phone,
+        role: UserRole.employee,
+        departmentId: departmentId,
+        sectionId: sectionId,
+        status: UserStatus.pending,
+        createdAt: createdAt,
+      );
+
   Future<String?> signUp({
     required String name,
     required String email,
@@ -1581,15 +1618,13 @@ class AppStore extends ChangeNotifier {
       final cred = await _auth.createUserWithEmailAndPassword(email: email.trim(), password: password);
       final uid = cred.user!.uid;
       final now = DateTime.now();
-      final user = AppUser(
-        id: uid,
+      final user = signupUserRecord(
+        uid: uid,
         name: name,
         email: email.trim(),
         phone: phone,
-        role: UserRole.projectOfficer,
         departmentId: requestedDepartmentId,
         sectionId: requestedSectionId,
-        status: UserStatus.pending,
         createdAt: now,
       );
       await _db.collection('users').doc(uid).set(user.toMap());
@@ -1632,10 +1667,96 @@ class AppStore extends ChangeNotifier {
     await _auth.signOut();
   }
 
+  /// نصٌّ واحد يُقال سواءٌ وُجد الحساب أو لم يوجد.
+  ///
+  /// وهو ليس تجميلاً: شاشةُ الدخول مفتوحة لمن لا حساب له، فلو قالت «هذا
+  /// البريد غير مسجَّل» لَصارت أداةً يعرف بها أيُّ أحد أيَّ البُرد الوزارية
+  /// مسجَّلٌ في المنصة وأيُّها لا — بلا حساب ولا دخول.
+  ///
+  /// وثمنُه أن من أخطأ في كتابة بريده ينتظر رسالةً لن تأتي، ولهذا تُذكر
+  /// المدّة وصندوقُ البريد المهمل في النصّ نفسه.
+  static const passwordResetNotice =
+      'إن كان هذا البريد مسجَّلاً في المنصة فستصلك رسالة إعادة تعيين كلمة '
+      'المرور خلال دقائق. وتفقّد صندوق البريد المهمل (Spam) أيضاً.';
+
+  /// يرسل رابط إعادة تعيين كلمة المرور — بلا تسجيل دخول.
+  ///
+  /// ــــ ولماذا Firebase مباشرةً لا دالّةٌ خلفية؟ ــــ
+  ///
+  /// لأن هذه الرسالة من صنف `sendEmailVerification` حرفاً: يولّدها Firebase،
+  /// إلى عنوانٍ يملكه صاحبه، تحمل رابطاً لمرّة واحدة. وتلك تُنادى اليوم من
+  /// العميل مباشرةً في [signUp] وتخرج بلا اعتماد.
+  ///
+  /// ولو بُنيت دالّةً خلفية تُرسل بريداً لَصار في المنصة **مُرسِلُ بريدٍ ثانٍ
+  /// يقبل عنواناً من الطلب** — وهو بالضبط اتّساع بوابة البريد الذي حُرس في
+  /// جولة التقرير اليومي. فلا `sendUserNotification` ولا `notifySend` ولا
+  /// `sendEmail` في `functions/` تُمسّ من هنا.
+  ///
+  /// وتُرجع `null` لبريدٍ غير مسجَّل **عمداً**: الإخفاء يجب أن يكون في
+  /// الدالّة لا في نصّ الشاشة وحده، وإلا لَوعدت الشاشةُ بالإخفاء وكشفت
+  /// الدالّةُ الحقيقة برسالة خطأ.
+  Future<String?> sendPasswordReset(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email.trim());
+      return null;
+    } on fb_auth.FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found' || e.code == 'invalid-email') return null;
+      // وكثرةُ الطلب تُقال: هي فشلٌ حقيقي لا إخفاء، ومن لا يُقال له ذلك
+      // يعيد المحاولة عشر مرات ويظن المنصة معطّلة.
+      if (e.code == 'too-many-requests') {
+        return 'أُرسلت رسائل كثيرة خلال وقت قصير. انتظر دقائق ثم أعد المحاولة.';
+      }
+      return e.message ?? 'تعذّر إرسال رسالة إعادة التعيين';
+    } catch (_) {
+      return 'تعذّر إرسال رسالة إعادة التعيين، تحقّق من اتصالك بالشبكة.';
+    }
+  }
+
+  /// يرسل رابط إعادة التعيين لمستخدم بعينه — بيد مسؤول النظام.
+  ///
+  /// وهذه تحلّ الحالة التي لا تحلّها الأولى: «الرسالة لا تصلني» فيتصل الموظف
+  /// بمسؤول النظام. وهو يحلّها **بلا أن يعرف كلمة مروره ولا أن يضبطها له**.
+  ///
+  /// ولا إخفاءَ هنا: الحساب معروضٌ أمامه في القائمة، فإخفاءُ وجوده عبثٌ. وكل
+  /// إرسالٍ يُكتب في سجل التدقيق — من أرسل، ولمن، ومتى.
+  Future<String?> sendPasswordResetFor(AppUser user) async {
+    if (!isAdmin) return 'هذا الإجراء يتطلب صلاحية مسؤول النظام';
+    if (user.email.trim().isEmpty) return 'لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم';
+    try {
+      await _auth.sendPasswordResetEmail(email: user.email.trim());
+      await _log(
+        'إرسال رابط إعادة تعيين كلمة المرور',
+        'أُرسل رابط إعادة التعيين إلى «${user.name}» على ${user.email}',
+      );
+      return null;
+    } on fb_auth.FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found') {
+        // حالةٌ تستحق أن تُقال لا أن تُخفى: سجلٌّ في المنصة بلا حساب مصادقة
+        // يقابله — وهو ما يقع لو أخفقت كتابة السجل بعد إنشاء الحساب، أو
+        // حُذف الحساب من وحدة تحكّم Firebase مباشرةً.
+        return 'لا يوجد حساب دخول بهذا البريد — السجل موجود في المنصة ولا يقابله '
+            'حساب مصادقة. راجع الحساب في وحدة تحكّم Firebase.';
+      }
+      if (e.code == 'too-many-requests') {
+        return 'أُرسلت رسائل كثيرة خلال وقت قصير. انتظر دقائق ثم أعد المحاولة.';
+      }
+      return e.message ?? 'تعذّر إرسال رابط إعادة التعيين';
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
   String _mapAuthError(fb_auth.FirebaseAuthException e) {
     switch (e.code) {
+      // الحساب الموقوف صار واقعاً منذ أن صار الإيقاف يعطّل حساب المصادقة
+      // (`setUserStatus`). وبلا هذا السطر تظهر لصاحبه رسالة Firebase
+      // الإنجليزية الخام في منصةٍ عربية، فلا يعرف أن حسابه أُوقف أصلاً.
+      case 'user-disabled':
+        return 'هذا الحساب موقوف ولا يمكنه الدخول. راجع مسؤول النظام.';
       case 'invalid-credential':
       case 'wrong-password':
+      // ومجموعةٌ واحدة عمداً: لو أُفرد «لا حساب بهذا البريد» لَصارت شاشة
+      // الدخول تكشف من هو مسجَّل في المنصة لمن يجرّب البُرد.
       case 'user-not-found':
         return 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
       case 'email-already-in-use':

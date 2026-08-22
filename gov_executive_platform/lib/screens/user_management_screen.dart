@@ -224,6 +224,25 @@ class _UserRow extends StatefulWidget {
 class _UserRowState extends State<_UserRow> {
   bool _busy = false;
   bool _restamping = false;
+  bool _resetting = false;
+
+  /// يرسل للمستخدم رابط إعادة تعيين كلمة المرور على بريده المسجَّل.
+  ///
+  /// ولا إخفاءَ هنا خلافاً لشاشة الدخول: الحساب معروضٌ أمام مسؤول النظام في
+  /// القائمة، فإخفاءُ وجوده عبثٌ. ويُسمّى المستخدم صراحةً ليتأكّد أن الرابط
+  /// ذهب إلى من قصده لا إلى الصف المجاور.
+  Future<void> _sendPasswordReset() async {
+    setState(() => _resetting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final error = await context.read<AppStore>().sendPasswordResetFor(widget.user);
+    if (!mounted) return;
+    setState(() => _resetting = false);
+    messenger.showSnackBar(SnackBar(
+      content: Text(error ??
+          'أُرسل رابط إعادة تعيين كلمة المرور إلى "${widget.user.name}" '
+              'على ${widget.user.email}.'),
+    ));
+  }
 
   Future<void> _toggleExempt() async {
     setState(() => _busy = true);
@@ -342,6 +361,18 @@ class _UserRowState extends State<_UserRow> {
                 : const Icon(Icons.sync_lock_outlined, size: 19),
             tooltip: 'إعادة ختم الصلاحيات (يُصلح حساباً لا يرى بياناته)',
             onPressed: _restamping ? null : _restampClaims,
+          ),
+          // إرسال رابط إعادة تعيين كلمة المرور نيابةً عنه.
+          //
+          // يحلّ الحالة التي لا يحلّها رابط شاشة الدخول: موظفٌ يقول «الرسالة
+          // لا تصلني» فيتصل بمسؤول النظام. وهو يحلّها **بلا أن يعرف كلمة
+          // مروره ولا أن يضبطها له** — فلا تمرّ كلمة مرور أحدٍ بأحد.
+          IconButton(
+            icon: _resetting
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.password_rounded, size: 19),
+            tooltip: 'أرسل له رابط إعادة تعيين كلمة المرور',
+            onPressed: _resetting ? null : _sendPasswordReset,
           ),
           if (u.status == UserStatus.approved || u.status == UserStatus.suspended)
             IconButton(

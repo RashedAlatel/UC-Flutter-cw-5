@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/app_user.dart';
 import '../models/approval_request.dart';
+import '../models/assignment_policy.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
 import '../widgets/command_band.dart';
@@ -275,6 +276,26 @@ class _RequestCardState extends State<_RequestCard> {
                     ),
                     const SizedBox(width: 10),
                   ],
+                  // ــــ «اعتمد وكلّف»: حقلٌ واحد لمن يبتّ في طلب العمل ــــ
+                  //
+                  // الطلب يصل من إدارةٍ أخرى بلا منفّذ — وذلك مقصود: من طلبه
+                  // لا يعرف اختصاصات إدارتك. فالتكليف هنا، عند البتّ، لا في
+                  // خطوةٍ ثانية تُنسى.
+                  //
+                  // وهو **حقلٌ واحد** لا الحمولة: تعديل الموعد النهائي يبقى
+                  // لمسؤول النظام، وإلا صار بابَ التفافٍ حول بوابته. وحدُّ
+                  // ذلك على الخادم في `approval_override.ts`، وما هنا ترتيبُ
+                  // واجهة لا حراسة.
+                  if (!store.isAdmin && r.type == ApprovalType.workCreate) ...[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _busy ? null : () => _assignThenApprove(context, r),
+                        icon: const Icon(Icons.person_add_alt_1_outlined, size: 16),
+                        label: const Text('اعتمد وكلّف'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: _busy ? null : () => _resolve(context, approve: true),
@@ -294,12 +315,34 @@ class _RequestCardState extends State<_RequestCard> {
     );
   }
 
+  /// «اعتمد وكلّف» — يختار المعتمِد المنفّذ ويعتمد في خطوة.
+  ///
+  /// ويمرّ بالطريق نفسه: `payloadOverride` بمفتاحٍ واحد. فلا مسار ثانٍ
+  /// للاعتماد يفترق عن الأول بأول تعديل.
+  Future<void> _assignThenApprove(BuildContext context, ApprovalRequest r) async {
+    final uid = await showDialog<String>(
+      context: context,
+      builder: (_) => _AssignOnApproveDialog(request: r),
+    );
+    if (uid == null || !context.mounted) return;
+    await _approveWith(context, r, {'assigneeUid': uid});
+  }
+
   Future<void> _editThenApprove(BuildContext context, ApprovalRequest r) async {
     final override = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => _EditRequestDialog(request: r),
     );
     if (override == null || !context.mounted) return;
+    await _approveWith(context, r, override);
+  }
+
+  /// الاعتماد بتجاوزٍ على الحمولة — مشتركٌ بين «عدّل ثم اعتمد» و«اعتمد وكلّف».
+  Future<void> _approveWith(
+    BuildContext context,
+    ApprovalRequest r,
+    Map<String, dynamic> override,
+  ) async {
     setState(() {
       _busy = true;
       _error = null;
@@ -475,6 +518,91 @@ class _NotifyPreviewPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// «اعتمد وكلّف»: يسمّي المعتمِدُ منفّذاً ثم يعتمد — حقلٌ واحد لا حمولة.
+///
+/// وهي الخطوة التي يقوم عليها ترتيب العمل: الطلب يصل الإدارة بلا منفّذ لأن
+/// من طلبه لا يعرف اختصاصاتها، فمديرُها يكلّف من يختصّ عند البتّ. ولولا
+/// هذه لَنزل العمل «غير مُسنَد» وانتظر خطوةً ثانية تُنسى.
+class _AssignOnApproveDialog extends StatefulWidget {
+  final ApprovalRequest request;
+  const _AssignOnApproveDialog({required this.request});
+
+  @override
+  State<_AssignOnApproveDialog> createState() => _AssignOnApproveDialogState();
+}
+
+class _AssignOnApproveDialogState extends State<_AssignOnApproveDialog> {
+  late String _uid = widget.request.payload['assigneeUid']?.toString() ?? '';
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final deptId = widget.request.departmentId ?? '';
+    // المعيار الموحّد لا تصفيةٌ محلّية: من يحقّ لي إسنادُه، في هذه الإدارة.
+    final candidates = eligibleAssignees(
+      allUsers: store.users,
+      actor: store.currentUser,
+      departmentId: deptId,
+    );
+    final suggested = widget.request.payload['assigneeName']?.toString() ?? '';
+
+    return AlertDialog(
+      title: const Text('اعتمد وكلّف'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'يُعتمد الطلب ويُسنَد العمل لمن تختاره في خطوة واحدة. '
+              'وما سوى المنفّذ يُعتمد كما ورد في الطلب.',
+              style: TextStyle(fontSize: 12, height: 1.8, color: AppColors.textSecondary),
+            ),
+            // اقتراحُ الطالب يُعرض ولا يُفرض: قد يكون أصاب، وقد سمّى من لا
+            // يختصّ — والقرار لمن يعرف إدارته.
+            if (suggested.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text('اقترح مقدّم الطلب: $suggested',
+                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            ],
+            const SizedBox(height: 14),
+            DropdownButtonFormField<String>(
+              initialValue: candidates.any((u) => u.id == _uid) ? _uid : null,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'المسؤول عن التنفيذ'),
+              items: candidates
+                  .map((u) => DropdownMenuItem<String>(value: u.id, child: Text(u.name)))
+                  .toList(),
+              onChanged: (v) => setState(() => _uid = v ?? ''),
+            ),
+            if (candidates.isEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                emptyAssigneeReason(
+                  allUsers: store.users,
+                  actor: store.currentUser,
+                  departmentId: deptId,
+                ),
+                style: const TextStyle(fontSize: 12, color: AppColors.warning, height: 1.7),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+        ElevatedButton(
+          // بلا اسمٍ لا معنى للزرّ: من أراد الاعتماد بلا تكليف فـ«موافقة»
+          // إلى جانبه تفعل ذلك.
+          onPressed: _uid.isEmpty ? null : () => Navigator.pop(context, _uid),
+          child: const Text('اعتمد وكلّف'),
+        ),
+      ],
     );
   }
 }

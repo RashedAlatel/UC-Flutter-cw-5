@@ -146,8 +146,11 @@ void main() {
     // القائمة تُفتح فعلاً: `DropdownButton` لا يبني عناصره ما لم يكن له
     // قيمة مختارة أو تكن مفتوحة — فقراءتها من الشجرة المغلقة تجد لا شيء
     // دائماً، ويمرّ الاختبار على كل حال بلا أن يفحص شيئاً.
+    // `textContaining` لا `text`: العنوان يحمل «(اختياري)» منذ صار التكليف
+    // على مدير الإدارة، وقد يُصاغ غداً بغير ذلك. وما يُقصد ربطُه هو الحقل
+    // لا نصُّه حرفاً — فمطابقةٌ حرفية تجعل تحسين عبارةٍ يُسقط اختبار تصفية.
     final dropdown = find.ancestor(
-      of: find.text('المسؤول عن التنفيذ'),
+      of: find.textContaining('المسؤول عن التنفيذ'),
       matching: find.byType(DropdownButtonFormField<String>),
     );
     await tester.ensureVisible(dropdown);

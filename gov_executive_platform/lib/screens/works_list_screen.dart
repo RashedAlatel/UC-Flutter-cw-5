@@ -45,6 +45,13 @@ class WorksListScreen extends StatefulWidget {
   State<WorksListScreen> createState() => _WorksListScreenState();
 }
 
+/// قيمةُ خيار «غير مُسنَد» في مرشِّح المسؤول.
+///
+/// ولا تكون السلسلة الفارغة: `null` تعني «كل المسؤولين»، و`''` قد تُقرأ
+/// خطأً مساويةً لـ`assigneeUid` الفارغ في مقارنةٍ لاحقة — فيلتبس المرشِّح
+/// بالمرشَّح. وهذه قيمةٌ لا تصلح معرّفاً لأحد.
+const String _unassignedFilter = '__unassigned__';
+
 class _WorksListScreenState extends State<WorksListScreen> {
   final _searchCtrl = TextEditingController();
   String _query = '';
@@ -68,7 +75,11 @@ class _WorksListScreenState extends State<WorksListScreen> {
     final q = _query.trim().toLowerCase();
     var works = (_showLog ? store.completedWorks : all.where((w) => !w.isDone).toList()).where((w) {
       if (_departmentFilter != null && w.departmentId != _departmentFilter) return false;
-      if (_assigneeFilter != null && w.assigneeUid != _assigneeFilter) return false;
+      if (_assigneeFilter == _unassignedFilter) {
+        if (w.assigneeUid.isNotEmpty) return false;
+      } else if (_assigneeFilter != null && w.assigneeUid != _assigneeFilter) {
+        return false;
+      }
       if (_statusFilter != null && w.status != _statusFilter) return false;
       if (q.isEmpty) return true;
       return w.title.toLowerCase().contains(q) || w.assigneeName.toLowerCase().contains(q);
@@ -76,6 +87,9 @@ class _WorksListScreenState extends State<WorksListScreen> {
     works = sortWorks(works, _sort);
 
     final overdue = all.where((w) => w.delayDays > 0).length;
+    final canAssign = store.isAdmin || store.canManageWorks;
+    final awaitingAssignment =
+        all.where((w) => !w.isDone && w.assigneeUid.isEmpty).length;
     final assigneeOptions = <String, String>{
       for (final w in all) w.assigneeUid: w.assigneeName,
     }..removeWhere((k, v) => k.isEmpty);
@@ -127,6 +141,21 @@ class _WorksListScreenState extends State<WorksListScreen> {
                 KpiCard(title: 'بانتظار الاعتماد', value: '${all.where((w) => w.isAwaitingApproval).length}', icon: Icons.how_to_reg_outlined, color: AppColors.warning),
                 KpiCard(title: 'منجزة ومغلقة', value: '${all.where((w) => w.isDone).length}', icon: Icons.check_circle_outline_rounded, color: AppColors.success),
                 KpiCard(title: 'متأخرة عن موعدها', value: '$overdue', icon: Icons.schedule_rounded, color: AppColors.danger),
+                // ــــ ما ينتظر تكليفاً ــــ
+                //
+                // الطلب الوارد من إدارة أخرى يصل بلا منفّذ، ومن يُردّ لعدم
+                // الاختصاص يعود بلا منفّذ. وكلاهما **مرئيّ** لمدير الإدارة
+                // في القائمة، **غيرُ قابلٍ للعثور**: لا مرشِّح يجمعه ولا عدّ
+                // يذكره. فيبقى ينتظر بلا أن يعلم أحد أنه ينتظر.
+                //
+                // ولمن يملك التكليف وحده: عدٌّ لا يملك قارئه فعلَه إزعاجٌ.
+                if (canAssign)
+                  KpiCard(
+                    title: 'ينتظر التكليف',
+                    value: '$awaitingAssignment',
+                    icon: Icons.person_search_rounded,
+                    color: AppColors.warning,
+                  ),
               ],
             );
           }),
@@ -189,6 +218,13 @@ class _WorksListScreenState extends State<WorksListScreen> {
                   decoration: const InputDecoration(labelText: 'المسؤول', isDense: true),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('كل المسؤولين')),
+                    // «غير مُسنَد» أوّلَ الخيارات لا آخرها: هو ما يحتاج
+                    // فعلاً — والأسماء تُقرأ بحثاً، وهذا يُقرأ عملاً.
+                    if (awaitingAssignment > 0)
+                      DropdownMenuItem(
+                        value: _unassignedFilter,
+                        child: Text('غير مُسنَد ($awaitingAssignment)'),
+                      ),
                     ...assigneeOptions.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))),
                   ],
                   onChanged: (v) => setState(() => _assigneeFilter = v),
@@ -455,18 +491,15 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
       setState(() => _error = 'الرجاء اختيار الإدارة');
       return;
     }
-    // العمل الموجَّه لإدارةٍ أخرى يلزمه اسمُ منفّذ.
+    // ولا يُلزَم الطالب بتسمية منفّذ — ولو كانت الإدارة غير إدارته.
     //
-    // وليس تشدّداً: بلا مُسنَدٍ إليه لا يظهر العمل في «المُسنَد إليّ» لأحد،
-    // ولا يعلم أحدٌ في تلك الإدارة أنه وصلها. أما داخل إدارتك فمديرها يراه
-    // ويُسنده، فيبقى الحقل اختيارياً هناك.
-    final crossDept = _departmentId != store.currentUser?.departmentId;
-    if (crossDept && _assigneeUid.isEmpty) {
-      setState(() => _error =
-          'العمل الموجَّه لإدارة أخرى يلزمه اسم المسؤول عن التنفيذ — '
-          'وإلا لم يظهر لأحد فيها.');
-      return;
-    }
+    // كان يُلزَم، وعلّة الإلزام أن العمل بلا مُسنَدٍ إليه لا يظهر في «المُسنَد
+    // إليّ» لأحد فيقع في فراغ. والعلّة صحيحة والعلاج كان خطأً: من يطلب من
+    // إدارةٍ أخرى **لا يعرف** توزيع الاختصاصات فيها، فإلزامه تخمينٌ باسم.
+    //
+    // فالترتيب أن الطلب يُعرض على مدير الإدارة، وهو من يكلّف. وسدُّ الفراغ
+    // في مكانه لا هنا: زرّ «اعتمد وكلّف» عند الاعتماد، ومرشِّح «غير مُسنَد»
+    // وبطاقة «ينتظر التكليف» في هذه الشاشة.
     setState(() {
       _busy = true;
       _error = null;
@@ -575,12 +608,6 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
     // و«أيّ إدارةٍ أوجّه إليها طلباً؟» — وذلك لا يُقيَّد: أسماء الإدارات
     // تُقرأ علناً حتى قبل تسجيل الدخول (تُعرض في شاشة التسجيل).
     final departments = store.departments;
-    final myDept = store.currentUser?.departmentId;
-    // العمل لإدارةٍ غير إدارتي: يلزم أن أسمّي من ينفّذه.
-    //
-    // فداخل إدارتي يعرف مديرها من يُسنِده، وخارجها لا أحد يعرف أنه وصل: عملٌ
-    // بلا مُسنَدٍ إليه لا يظهر في «المُسنَد إليّ» لأحد، فيقع في فراغ.
-    final crossDepartment = _departmentId.isNotEmpty && _departmentId != myDept;
     // المسؤولون المتاحون للإسناد — بالقاعدة الموحّدة لا بشرطٍ محلي.
     //
     // كان الشرط «معتمَد + في الإدارة» وحده، فكان الموظف يفتح النموذج فيجد
@@ -653,15 +680,12 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
               DropdownButtonFormField<String>(
                 initialValue: candidates.any((u) => u.id == _assigneeUid) ? _assigneeUid : null,
                 isExpanded: true,
-                decoration: InputDecoration(
-                  // اللزوم يُقال **قبل** الضغط لا بعده: نجمةٌ ونصٌّ مساعد
-                  // أهون من رسالة خطأ تُقرأ بعد ملء النموذج كله.
-                  labelText: crossDepartment
-                      ? 'المسؤول عن التنفيذ *'
-                      : 'المسؤول عن التنفيذ',
-                  helperText: crossDepartment
-                      ? 'مطلوب — العمل لإدارة أخرى، فبلا اسمٍ لا يظهر لأحد فيها.'
-                      : null,
+                decoration: const InputDecoration(
+                  labelText: 'المسؤول عن التنفيذ (اختياري)',
+                  // الحقلُ الفارغ يُقرأ نسياناً ما لم يُقَل أنه مسارٌ مقصود.
+                  // فمن لا يعرف اختصاصات الإدارة يتركه واثقاً لا متردّداً.
+                  helperText: 'اتركه إن لم تعرف من يختصّ — يكلّف مديرُ الإدارة '
+                      'من يُنفّذ عند اعتماد الطلب.',
                   helperMaxLines: 2,
                 ),
                 items: candidates.map((u) => DropdownMenuItem<String>(value: u.id, child: Text(_userLabel(u)))).toList(),

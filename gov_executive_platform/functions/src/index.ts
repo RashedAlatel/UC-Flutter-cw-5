@@ -7,6 +7,7 @@ import * as logger from "firebase-functions/logger";
 import {notifyUser} from "./notify";
 import {notificationSecrets} from "./secrets";
 import {runDailyReport} from "./daily_report_job";
+import {judgeOverride} from "./approval_override";
 
 admin.initializeApp();
 
@@ -544,21 +545,26 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
 
   const stored = (data.payload ?? {}) as Record<string, unknown>;
 
-  // ــــ تعديل الطلب قبل اعتماده: لمسؤول النظام وحده ــــ
+  // ــــ تعديل الطلب قبل اعتماده ــــ
   //
-  // والفحص هنا لا في الواجهة. ولمَ لا يُعطى لصاحب `apr`؟ لأن تاريخ
-  // الاستحقاق من الحمولة، فتعديله من داخل الطلب يصير باباً جانبياً حول
-  // بوابة «تعديل المواعيد النهائية» المحصورة بمسؤول النظام وحده. وصاحب
-  // `apr` يعتمد الطلب كما قُدّم أو يرفضه.
-  const isAdminCaller = auth.token.role === "systemAdmin";
-  if (payloadOverride && !isAdminCaller) {
-    throw new HttpsError("permission-denied", "تعديل الطلب قبل اعتماده لمسؤول النظام وحده");
+  // والفحص هنا لا في الواجهة، وحدُّه في `approval_override.ts` — وحدةٌ
+  // نقيّة لها مجموعة اختبارات، لأن هذا الملف لا تقرؤه أي مجموعة.
+  //
+  // وخلاصته: تاريخ الاستحقاق من الحمولة، فتعديله من داخل الطلب بابٌ جانبي
+  // حول بوابة «تعديل المواعيد النهائية». فبقي التعديل الكامل لمسؤول
+  // النظام، وفُتح لمن يبتّ في طلب العمل **حقلٌ واحد**: تكليفُ منفّذ —
+  // وهو ما يحتاجه مدير الإدارة، إذ يصله الطلب ممّن لا يعرف اختصاصات
+  // إدارته.
+  const overrideKeys = payloadOverride ? Object.keys(payloadOverride) : [];
+  const verdict = payloadOverride ?
+    judgeOverride(String(data.type), auth.token.role as string | undefined, overrideKeys) :
+    null;
+  if (verdict && !verdict.allowed) {
+    throw new HttpsError("permission-denied", verdict.reason);
   }
-  // التعديل يقتصر على `projectCreate` و`workCreate`: حمولة طلب التسجيل
-  // تحمل هوية حساب، وتعديلها اعتمادٌ لشخص غير الذي طلب.
-  if (payloadOverride && data.type !== "projectCreate" && data.type !== "workCreate") {
-    throw new HttpsError("failed-precondition", "هذا النوع من الطلبات لا يُعدَّل قبل اعتماده");
-  }
+  // من اختار المُسنَد إليه: المعتمِد أم مقدّم الطلب؟ وعليها يُبنى فحص
+  // الرتبة أدناه — فتُقاس برتبة من اختار فعلاً.
+  const assigneeFromApprover = verdict?.allowed === true && overrideKeys.includes("assigneeUid");
   const payload: Record<string, unknown> = payloadOverride ? {...stored, ...payloadOverride} : stored;
 
   switch (data.type) {
@@ -711,22 +717,37 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       // والإدارة تُؤخذ من **مستند الطلب** لا من الحمولة، فهي التي فُحص عليها
       // نطاق المعتمِد قبل قليل — وإلا لأمكن أن يُفحص نطاقٌ ويُكتب غيره.
       //
-      // ورتبة الإسناد تُفحص برتبة مقدّم الطلب للسبب نفسه المشروح أعلاه.
+      // ورتبة الإسناد تُفحص **برتبة من اختار**: مقدّم الطلب إن جاء الاسم في
+      // حمولته، والمعتمِد إن كلّف هو عند الاعتماد. ولولا التفريق لَمُنع
+      // مديرُ إدارةٍ من إسناد عملٍ يحقّ له إسنادُه، لأن مقدّم الطلب موظفٌ
+      // أدنى رتبةً منه — وهو المسار الطبيعي في هذا النوع.
       const workAssignee = typeof payload.assigneeUid === "string" ? payload.assigneeUid.trim() : "";
+      let workAssigneeName = "";
       if (workAssignee) {
-        const reqSnap = await db().collection("users").doc(String(data.requestedByUid ?? "")).get();
-        await assertAssignable(
-          [workAssignee],
-          String(data.requestedByUid ?? ""),
-          reqSnap.data()?.role as string | undefined,
-        );
+        const chooserUid = assigneeFromApprover ?
+          String(auth.uid) :
+          String(data.requestedByUid ?? "");
+        const chooserRole = assigneeFromApprover ?
+          (auth.token.role as string | undefined) :
+          ((await db().collection("users").doc(String(data.requestedByUid ?? "")).get())
+            .data()?.role as string | undefined);
+        await assertAssignable([workAssignee], chooserUid, chooserRole);
+
+        // ــ الاسم يُشتقّ من المعرّف ولا يُؤخذ من الحمولة ــ
+        //
+        // كان يُكتب `payload.assigneeName`، والواجهة ترسل عند التعديل
+        // `assigneeUid` وحده — فيُكتب **المعرّف الجديد مع الاسم القديم**.
+        // عطلٌ كان نادراً (مسؤول النظام وحده يعدّل)، ويصير المسار الطبيعي
+        // متى كلّف مديرُ الإدارة عند الاعتماد. فيُعالَج من جذره.
+        const aSnap = await db().collection("users").doc(workAssignee).get();
+        workAssigneeName = String(aSnap.data()?.name ?? "");
       }
       await db().collection("works").doc().set({
         departmentId: data.departmentId ?? null,
         title: payload.title,
         description: payload.description ?? "",
-        assigneeUid: payload.assigneeUid ?? null,
-        assigneeName: payload.assigneeName ?? "",
+        assigneeUid: workAssignee || null,
+        assigneeName: workAssigneeName,
         priority: payload.priority ?? "medium",
         progressPercent: 0,
         dueDate: admin.firestore.Timestamp.fromDate(new Date(payload.dueDate as string)),

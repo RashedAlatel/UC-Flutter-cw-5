@@ -177,6 +177,54 @@ want_in "$SRC" "والإلغاء يُسجَّل" '"إلغاء تعيين مدي�
 want_in "$SRC" "والفروق تُحسب لا تُقدَّر" "const appointed = managerUids.filter"
 echo ""
 
+# ــــ حدود الاستثناء من بوابة البريد ــــ
+#
+# قرّر مسؤول النظام استثناءً **دائماً لتقرير السابعة صباحاً وحده**. وهو
+# تعديلٌ صريح لقاعدةٍ وضعها هو، فيُبنى ضيّقاً — وأخطر ما فيه أن يتّسع بصمت:
+# معاملٌ يُضاف يقبل نصّاً، أو مستلمٌ يُمرَّر من الطلب، فيصير الباب المفتوح
+# للتقرير باباً لكل بريد.
+JOB="functions/src/daily_report_job.ts"
+
+echo "استثناء البريد لتقرير السابعة وحده — وحدودُه:"
+want "المُرسِل مجدولٌ لا يقبل نداءً من العميل" 'export const dailyExecutiveReport = onSchedule'
+want "وبتوقيت الكويت لا بتوقيت الخادم" '"Asia/Kuwait"'
+want "وعلى السابعة صباحاً" 'schedule: "0 7 \* \* \*"'
+# ولولا هذا لَأمكن لمن يستدعي «ولّد الآن» أن يمرّر موضوعاً أو جسماً أو
+# مستلماً — فيصير التقرير غلافاً لبريدٍ يكتبه إنسان بلا اعتماد.
+want_in "$SRC" "والتوليد اليدوي لا يقرأ من الطلب إلا خيار الإرسال" \
+  'const {sendEmails} = (request.data ?? {}) as {sendEmails?: boolean};'
+want_in "$SRC" "وهو محصور بمسؤول النظام" 'const auth = requireAdmin(request);'
+want_in "$JOB" "وكل مستلمٍ يأخذ نطاقه هو" 'buildReport(snap, scope, dateKey, generatedAt)'
+want_in "$JOB" "وكل تشغيلٍ يُكتب في سجل التدقيق" '"التقرير التنفيذي اليومي"'
+echo ""
+
+echo "وما بقي من البريد لم يُمسّ:"
+# `sendUserNotification` هي الطريق الوحيد لبريدٍ يكتبه إنسان. وسقوط
+# `requireAdmin` عنها يفتح البوابة كلها، ولا يصيح تحليلٌ ولا اختبار.
+want "sendUserNotification ما زالت تشترط requireAdmin" \
+  'export const sendUserNotification = onCall'
+# **خارج التعليقات**: اسم الدالّة مذكورٌ في شرح حدود الاستثناء، وذلك مشروع.
+# الممنوع أن يصير نداءً يُنفَّذ.
+if grep -v '^[[:space:]]*\(//\|\*\)' "$JOB" | grep -q "sendUserNotification"; then
+  echo "  ✗ والمُرسِل المجدول لا ينادي دالّة البريد للبشر"
+  echo "      صار نداءً يُنفَّذ في $JOB"
+  FAIL=$((FAIL + 1))
+else
+  echo "  ✔ والمُرسِل المجدول لا ينادي دالّة البريد للبشر"
+  PASS=$((PASS + 1))
+fi
+reject_in "$JOB" "ولا يقرأ نصّاً من طلبٍ إطلاقاً" "request.data"
+echo ""
+
+echo "التقرير يُحسب مرةً واحدة على الخادم:"
+# الحساب في Dart إلى جانب TypeScript يعني أن يفترق ما يُقرأ عمّا يُرسَل عند
+# أول تعديل يُنسى في أحدهما — وهو ما بُني هذا كلّه لمنعه.
+REPORT_MODEL="lib/models/daily_report.dart"
+reject_in "$REPORT_MODEL" "ولا يُصنَّف في العميل" "critical :"
+reject_in "$REPORT_MODEL" "ولا تُحسب أيام تأخير فيه" "delayDays"
+want_in "$REPORT_MODEL" "بل يُقرأ كما كُتب" "class DailyReport"
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

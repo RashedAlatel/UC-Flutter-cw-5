@@ -1,10 +1,12 @@
 import * as admin from "firebase-admin";
 import {HttpsError, onCall, CallableRequest} from "firebase-functions/v2/https";
+import {onSchedule} from "firebase-functions/v2/scheduler";
 import {setGlobalOptions} from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
 
 import {notifyUser} from "./notify";
 import {notificationSecrets} from "./secrets";
+import {runDailyReport} from "./daily_report_job";
 
 admin.initializeApp();
 
@@ -1387,3 +1389,56 @@ export const adminRestampClaims = onCall(async (request) => {
   );
   return {ok: true, claims};
 });
+
+// ــــــــــــــــــــ التقرير التنفيذي اليومي ــــــــــــــــــــ
+//
+// **استثناءٌ دائم من بوابة البريد، لهذا التقرير وحده**، بقرار صريح من مسؤول
+// النظام. وحدودُه مكتوبةٌ في `runDailyReport` ومحروسةٌ بفحصٍ نصّي في
+// `tool/test/approval_gates_test.sh`. وما بقي من البريد على حاله: كلُّ رسالةٍ
+// يكتبها إنسان تمرّ بـ`sendUserNotification` وهي محصورة بـ`requireAdmin`،
+// أو بطلب `notifySend` الذي يبتّ فيه مسؤول النظام.
+
+/**
+ * يُشغَّل الساعة السابعة صباحاً بتوقيت الكويت.
+ *
+ * ولا يقبل مدخلاً من أحد: لا نصّاً ولا مستلماً ولا نطاقاً. هذا هو ما يجعل
+ * الاستثناء ضيّقاً: لا سبيل لأحدٍ أن يمرّر رسالته من هذا الباب.
+ */
+export const dailyExecutiveReport = onSchedule(
+  {
+    schedule: "0 7 * * *",
+    timeZone: "Asia/Kuwait",
+    secrets: notificationSecrets,
+    // التقرير يقرأ المنصة كلها ويرسل عشرات الرسائل؛ والمهلة المبدئية (٦٠ث)
+    // لا تكفيه في وزارة بمئتَي موظف.
+    timeoutSeconds: 540,
+    memory: "512MiB",
+  },
+  async () => {
+    const result = await runDailyReport(Date.now(), "مجدول");
+    logger.info("dailyExecutiveReport", result);
+  },
+);
+
+/**
+ * يولّد تقرير اليوم فوراً — لمسؤول النظام وحده.
+ *
+ * بدونها لا سبيل لتجربة التقرير إلا انتظار السابعة صباحاً، فيُنشر تغييرٌ في
+ * حسابه ولا يُرى أثره إلا بعد يوم.
+ *
+ * و`sendEmail` فيها اختيارية عمداً: التجربة المعتادة تريد رؤية التقرير على
+ * الشاشة لا إغراق صناديق البريد بنسخةٍ ثانية.
+ */
+export const generateDailyReportNow = onCall(
+  {secrets: notificationSecrets, timeoutSeconds: 540, memory: "512MiB"},
+  async (request) => {
+    const auth = requireAdmin(request);
+    const {sendEmails} = (request.data ?? {}) as {sendEmails?: boolean};
+    const result = await runDailyReport(
+      Date.now(),
+      `يدوي بطلب ${auth.token.name ?? "مسؤول النظام"}`,
+      {forceEmailOff: sendEmails !== true},
+    );
+    return {ok: true, ...result};
+  },
+);

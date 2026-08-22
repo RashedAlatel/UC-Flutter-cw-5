@@ -9,16 +9,25 @@ class AlertRulesConfig {
   final int dueSoonDays;
   final bool delayedEnabled;
 
+  /// «بلا تحديث حديث»: عمر آخر تحديث بالأيام قبل أن يُعدّ العنصر مهملاً.
+  ///
+  /// يقرؤها **التقرير التنفيذي اليومي** على الخادم من هذا المستند نفسه
+  /// (`settings/alertRules`)، فتُضبط من الشاشة التي تُضبط منها بقية عتبات
+  /// التنبيه بدل أن تكون رقماً مدفوناً في شيفرة الدالّة.
+  final int staleUpdateDays;
+
   const AlertRulesConfig({
     this.dueSoonEnabled = true,
     this.dueSoonDays = 3,
     this.delayedEnabled = true,
+    this.staleUpdateDays = 7,
   });
 
   Map<String, dynamic> toMap() => {
         'dueSoonEnabled': dueSoonEnabled,
         'dueSoonDays': dueSoonDays,
         'delayedEnabled': delayedEnabled,
+        'staleUpdateDays': staleUpdateDays,
       };
 
   factory AlertRulesConfig.fromMap(Map<String, dynamic>? map) {
@@ -27,6 +36,7 @@ class AlertRulesConfig {
       dueSoonEnabled: map['dueSoonEnabled'] as bool? ?? true,
       dueSoonDays: (map['dueSoonDays'] as num?)?.toInt() ?? 3,
       delayedEnabled: map['delayedEnabled'] as bool? ?? true,
+      staleUpdateDays: (map['staleUpdateDays'] as num?)?.toInt() ?? 7,
     );
   }
 }

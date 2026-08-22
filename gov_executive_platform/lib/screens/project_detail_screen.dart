@@ -1391,3 +1391,17 @@ class _AttachmentChip extends StatelessWidget {
     );
   }
 }
+
+/// يفتح صفحة المشروع بترويسة تحمل اسمه — نظير [openWorkDetail].
+///
+/// وُضِعت لأن ثلاثة مواضع صارت تفتح صفحة المشروع بالطريقة نفسها: الرابط
+/// الوارد من البريد، وسطر التقرير اليومي، وقائمة المشاريع. ونسخُ الدفع
+/// الثلاث مرات يعني أن يفترق ما تحمله الترويسة أو ما يُدفع تحتها.
+void openProjectDetail(BuildContext context, Project project) {
+  Navigator.of(context).push(MaterialPageRoute(
+    builder: (_) => Scaffold(
+      appBar: AppBar(title: Text(project.name)),
+      body: ProjectDetailScreen(projectId: project.id),
+    ),
+  ));
+}

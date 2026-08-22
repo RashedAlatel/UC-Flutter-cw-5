@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../screens/appearance_settings_screen.dart';
 import '../screens/audit_log_screen.dart';
+import '../screens/daily_report_screen.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/feedback_screen.dart';
 import '../screens/decision_center_screen.dart';
@@ -50,6 +51,7 @@ const Map<NavKey, IconData> _navIcons = {
   NavKey.works: Icons.checklist_rounded,
   NavKey.myAssignments: Icons.assignment_ind_outlined,
   NavKey.decisions: Icons.gavel_rounded,
+  NavKey.dailyReport: Icons.wb_twilight_rounded,
   NavKey.reports: Icons.assessment_rounded,
   NavKey.feedback: Icons.forum_outlined,
   NavKey.people: Icons.groups_rounded,
@@ -128,12 +130,7 @@ class _AppShellState extends State<AppShell> {
         ));
         return;
       }
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(title: Text(project.name)),
-          body: ProjectDetailScreen(projectId: project.id),
-        ),
-      ));
+      openProjectDetail(context, project);
     });
   }
 
@@ -170,6 +167,8 @@ class _AppShellState extends State<AppShell> {
         return const MyAssignmentsScreen();
       case NavKey.decisions:
         return const DecisionCenterScreen();
+      case NavKey.dailyReport:
+        return const DailyReportScreen();
       case NavKey.reports:
         return const ReportsScreen();
       case NavKey.feedback:

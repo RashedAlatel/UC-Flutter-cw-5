@@ -14,6 +14,7 @@ import '../models/attachment.dart';
 import '../models/approval_request.dart';
 import '../models/audit_log_entry.dart';
 import '../models/blocker.dart';
+import '../models/daily_report.dart';
 import '../models/daily_update.dart';
 import '../models/custom_role.dart';
 import '../models/closure_trail.dart';
@@ -1919,6 +1920,61 @@ class AppStore extends ChangeNotifier {
   /// وهي **ليست إذناً بإخراج بريد**: من ليس مسؤول نظام يبقى ما يضغطه طلباً
   /// يعتمده مسؤول النظام من مركز القرارات. راجع `sendOrRequestNotification`.
   bool get canBulkDelayAlert => hasPermission(RolePermission.bulkDelayAlerts);
+
+  // ــــــــــــــــــ التقرير التنفيذي اليومي ــــــــــــــــــ
+
+  /// هل يظهر مدخل التقرير لهذا المستخدم؟
+  ///
+  /// **المستوى الإشرافي وحده** بقرار صريح: مسؤول النظام، والمسؤول التنفيذي،
+  /// ومدير الإدارة، ومن يقود مشروعاً فعلاً — ولو كان دوره الأساسي «موظفاً»،
+  /// فقيادة المشروع صفةٌ على المشروع لا دورٌ على الشخص. ولا نسخة للموظف
+  /// العادي.
+  ///
+  /// وهذا الشرط **يطابق `scopesFor` على الخادم**: من يظهر له المدخل هو من
+  /// يُولَّد له مستند. ولو اختلفا لَوجد مستخدمٌ مدخلاً يفتح على شاشةٍ تقول
+  /// «لم يُولَّد تقريرك» كل يوم بلا سبب مفهوم.
+  bool get canReadDailyReport {
+    if (isAdmin || isExecutive || isManager) return true;
+    final uid = currentUser?.id;
+    return uid != null && projects.any((p) => p.managerUids.contains(uid));
+  }
+
+  /// يقرأ تقرير اليوم للمستخدم الحالي — أو null إن لم يُولَّد بعد.
+  ///
+  /// قراءةٌ لحظية لا اشتراك: التقرير يُكتب مرةً في اليوم، والاشتراك الدائم
+  /// عليه يفتح مستمعاً بلا فائدة.
+  Future<DailyReport?> loadMyDailyReport(DateTime day) async {
+    final uid = currentUser?.id;
+    if (uid == null) return null;
+    final key = '${day.year.toString().padLeft(4, '0')}-'
+        '${day.month.toString().padLeft(2, '0')}-'
+        '${day.day.toString().padLeft(2, '0')}';
+    final doc = await _db
+        .collection('dailyReports')
+        .doc(key)
+        .collection('recipients')
+        .doc(uid)
+        .get();
+    if (!doc.exists) return null;
+    return DailyReport.fromDoc(doc);
+  }
+
+  /// يولّد تقرير اليوم فوراً — لمسؤول النظام وحده.
+  ///
+  /// بدونها لا سبيل لتجربة التقرير إلا انتظار السابعة صباحاً. ولا يرسل
+  /// بريداً إلا بطلبٍ صريح، وإلا صار كل ضغطٍ نسخةً ثانية في كل صندوق بريد.
+  Future<String?> generateDailyReportNow({bool sendEmails = false}) async {
+    try {
+      await _functions
+          .httpsCallable('generateDailyReportNow')
+          .call({'sendEmails': sendEmails});
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر توليد التقرير';
+    } catch (e) {
+      return e.toString();
+    }
+  }
 
   /// حسابات المستخدمين المرتبطة بمشروع: مديره المُسنَد إليه، إضافة إلى
   /// المنفذين المطابَقين بالاسم. المشروع يخزّن أسماء المنفذين لا معرّفاتهم،

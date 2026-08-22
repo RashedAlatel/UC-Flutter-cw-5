@@ -495,7 +495,9 @@ class _AlertRulesManagerState extends State<_AlertRulesManager> {
   late bool _dueSoonEnabled;
   late int _dueSoonDays;
   late bool _delayedEnabled;
+  late int _staleUpdateDays;
   late final TextEditingController _daysCtrl;
+  late final TextEditingController _staleCtrl;
   bool _busy = false;
   bool _initialized = false;
 
@@ -505,25 +507,31 @@ class _AlertRulesManagerState extends State<_AlertRulesManager> {
     _dueSoonEnabled = config.dueSoonEnabled;
     _dueSoonDays = config.dueSoonDays;
     _delayedEnabled = config.delayedEnabled;
+    _staleUpdateDays = config.staleUpdateDays;
     _daysCtrl = TextEditingController(text: '$_dueSoonDays');
+    _staleCtrl = TextEditingController(text: '$_staleUpdateDays');
   }
 
   @override
   void dispose() {
     _daysCtrl.dispose();
+    _staleCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     final days = int.tryParse(_daysCtrl.text.trim()) ?? _dueSoonDays;
+    final stale = int.tryParse(_staleCtrl.text.trim()) ?? _staleUpdateDays;
     setState(() {
       _dueSoonDays = days.clamp(1, 90);
+      _staleUpdateDays = stale.clamp(1, 180);
       _busy = true;
     });
     await context.read<AppStore>().saveAlertRules(AlertRulesConfig(
           dueSoonEnabled: _dueSoonEnabled,
           dueSoonDays: _dueSoonDays,
           delayedEnabled: _delayedEnabled,
+          staleUpdateDays: _staleUpdateDays,
         ));
     if (!mounted) return;
     setState(() => _busy = false);
@@ -570,6 +578,31 @@ class _AlertRulesManagerState extends State<_AlertRulesManager> {
               value: _delayedEnabled,
               onChanged: (v) => setState(() => _delayedEnabled = v ?? true),
               title: const Text('تنبيه بالمشاريع المتأخرة عن الخطة', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+            ),
+            const Divider(height: 20),
+            // عتبة «بلا تحديث حديث»: يقرؤها التقرير التنفيذي اليومي من هذا
+            // المستند نفسه. ولا خانةَ تفعيلٍ لها لأنها **عتبةٌ لا قاعدة**:
+            // تُستعمل داخل أبوابٍ أخرى، وإطفاؤها لا معنى له.
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'يُعدّ العنصر «بلا تحديث حديث» في التقرير اليومي إذا مضى على آخر تحديث',
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 60,
+                  child: TextField(
+                    controller: _staleCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text('يوماً', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              ],
             ),
             const SizedBox(height: 8),
             SizedBox(

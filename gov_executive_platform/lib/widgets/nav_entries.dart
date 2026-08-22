@@ -27,6 +27,7 @@ enum NavKey {
   works('الأعمال'),
   myAssignments('المُسنَد إليّ'),
   decisions('مركز القرارات'),
+  dailyReport('التقرير اليومي'),
   reports('التقارير'),
   feedback('الشكاوى والاقتراحات'),
   people('متابعة الأشخاص'),
@@ -95,6 +96,14 @@ List<NavKey> navKeysFor(AppStore store) {
       store.approvalsIOwe.isNotEmpty) {
     keys.add(NavKey.decisions);
   }
+
+  // ــ التقرير التنفيذي اليومي: للمستوى الإشرافي وحده ــ
+  //
+  // بقرار صريح: لا نسخة للموظف العادي. والشرط في `canReadDailyReport`
+  // **يطابق `scopesFor` على الخادم** حرفاً — فمن يظهر له المدخل هو من
+  // يُولَّد له مستند. ولو افترقا لَوجد مستخدمٌ مدخلاً يفتح كل يوم على
+  // «لم يُولَّد تقريرك» بلا سبب مفهوم.
+  if (store.canReadDailyReport) keys.add(NavKey.dailyReport);
 
   if (store.currentUser?.role != UserRole.projectOfficer &&
       store.currentUser?.role != UserRole.employee) {

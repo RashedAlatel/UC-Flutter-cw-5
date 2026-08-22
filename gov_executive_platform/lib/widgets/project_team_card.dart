@@ -31,9 +31,12 @@ class _ProjectTeamCardState extends State<ProjectTeamCard> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (error != null) {
+      // النصّ يأتي مترجَماً من `describeWriteFailure`، ولا يُلفّ بعبارةٍ
+      // ثانية: «تعذّر تنفيذ العملية: رفض الخادم هذا الإجراء…» حشوٌ يُبعد
+      // العلاج عن أول سطرٍ يقرؤه المستخدم.
       messenger.showSnackBar(SnackBar(
-        content: Text('تعذّر تنفيذ العملية: $error'),
-        duration: const Duration(seconds: 8),
+        content: Text(error),
+        duration: const Duration(seconds: 12),
       ));
     }
   }

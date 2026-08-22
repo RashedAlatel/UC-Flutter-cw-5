@@ -44,6 +44,33 @@ import 'demo_data.dart';
 import 'ministry_import_data.dart';
 import 'ministry_projects_2026.dart';
 
+/// يصف إخفاق كتابةٍ بعبارةٍ تُقرأ، لا بنصّ Firebase الخام.
+///
+/// ــــ لماذا؟ ــــ
+///
+/// `[cloud_firestore/permission-denied] Missing or insufficient permissions`
+/// نصٌّ إنجليزي في منصةٍ عربية، ولا يقول **ما الذي مُنع ولا لماذا ولا ما
+/// العمل**. ومن يقرؤه يظنّ المنصة معطّلة — وقد وقع ذلك فعلاً.
+///
+/// وأشهرُ أسبابه ليس نقص الصلاحية أصلاً، بل **افتراق بطاقة الدخول عن سجلّ
+/// المستخدم**: الواجهة تقرأ الدور من السجل، والقواعد تقرؤه من البطاقة. فمن
+/// رُقّي ولم تُختم بطاقته يرى أزرار صلاحيته ويُردّ عند استعمالها. ولهذا
+/// يُذكر العلاج في الرسالة نفسها لا في وثيقةٍ يبحث عنها.
+///
+/// وما ليس منعاً يبقى كما هو: خطأ الشبكة ليس نقص صلاحية، ومن يُقال له
+/// «راجع صلاحياتك» وهو مقطوع الاتصال يبحث في المكان الخطأ.
+String describeWriteFailure(Object error) {
+  final text = error.toString();
+  if (!text.contains('permission-denied') && !text.contains('PERMISSION_DENIED')) {
+    return text;
+  }
+  return 'رفض الخادم هذا الإجراء. وأكثر ما يقع هذا حين تكون بطاقة الدخول '
+      'لديك أقدم من صلاحياتك المسجَّلة — فتعرض المنصة الزرّ ويردّه الخادم.\n\n'
+      'الحلّ: سجّل الخروج ثم الدخول من جديد، أو اطلب من مسؤول النظام '
+      '«إعادة ختم الصلاحيات» لحسابك من شاشة المستخدمين. فإن تكرّر بعدها، '
+      'فالإجراء فعلاً خارج صلاحيتك ويحتاج اعتماداً.';
+}
+
 /// طبقة إدارة الحالة المركزية للمنصة، مبنية بالكامل على Firebase:
 /// - المصادقة: Firebase Authentication (بريد إلكتروني/كلمة مرور)
 /// - البيانات: Cloud Firestore (استماع لحظي real-time لكل المجموعات)
@@ -3129,6 +3156,9 @@ class AppStore extends ChangeNotifier {
 
   /// يكتب قائمتَي عضوية المشروع معاً، ومعهما الحقل المفرد الموروث متسقاً.
   ///
+  /// **لا تُنادَ من خارج [_writeTeam]**: الكتابة المباشرة هي ما ترفضه قاعدة
+  /// الأمان على غير مسؤول النظام. راجع `test/project_membership_paths_test.dart`.
+  ///
   /// الكتابة في موضع واحد مقصودة: قاعدة الأمان تشترط أن يكون `managerUid`
   /// عضواً في `managerUids`، فأي مسار كتابة يغفل عن ذلك يُرفض على الخادم —
   /// أو أسوأ، يمرّ ويترك المستند متناقضاً.
@@ -3150,10 +3180,24 @@ class AppStore extends ChangeNotifier {
   ///
   /// ومسؤول النظام يبقى على الكتابة المباشرة: القاعدة لا تقيّده أصلاً، فلا
   /// مكسب من إدخاله في مسارٍ سحابي قد يفشل.
+  ///
+  /// ــــ ولماذا يُجرَّب المسار السحابي إن رُفضت الكتابة المباشرة؟ ــــ
+  ///
+  /// لأن `isAdmin` هنا يقرأ **سجلّ المستخدم**، والقاعدة تقرأ **بطاقة
+  /// الدخول**. وهما يفترقان: بطاقةٌ لم تُختم بعد تجعل العميل يظن نفسه
+  /// مسؤول نظام فيكتب مباشرةً، والخادمَ يردّه. وقد وقع ذلك فعلاً.
+  ///
+  /// فبدل أن يُلقى بالرفض في وجه المستخدم، يُعاد الطلب من الباب المحروس —
+  /// وهو يعمل بصلاحيات الخادم ويفحص الرتب ويكتب الأثر. فإن ردّه هو أيضاً،
+  /// فالرفض حقيقيٌّ ويُقال بعبارته.
   Future<void> _writeTeam(Project project, List<String> managers, List<String> executors) async {
     if (isAdmin) {
-      await _writeMembership(project, managers, executors);
-      return;
+      try {
+        await _writeMembership(project, managers, executors);
+        return;
+      } on FirebaseException catch (e) {
+        if (e.code != 'permission-denied') rethrow;
+      }
     }
     await _functions.httpsCallable('setProjectTeam').call({
       'projectId': project.id,
@@ -3192,16 +3236,26 @@ class AppStore extends ChangeNotifier {
           'سجّل ${currentUser?.name} نفسه ${asManager ? 'مديراً' : 'منفّذاً'} في مشروع "${project.name}"');
       return null;
     } catch (e) {
-      return e.toString();
+      return describeWriteFailure(e);
     }
   }
 
   /// انسحاب المستخدم الحالي من مشروع.
+  ///
+  /// ــــ ولماذا `_writeTeam` لا `_writeMembership`؟ ــــ
+  ///
+  /// لأن الانسحاب قد يمسّ **قائمة المديرين**، وتلك لا تُكتب من العميل: في
+  /// جولة فصل الدور صار إلغاء تعيين المدير يمرّ بالخادم ليُسجَّل «من ألغى
+  /// التعيين ومتى» كما طُلب. وبقيت هذه الدالّة تكتب مباشرةً بعد ذلك، فصار
+  /// الزرّ يُرفض لكل مدير مشروع ليس مسؤول نظام — وهو عطلٌ ظهر عند مستخدم.
+  ///
+  /// ومن هو **منفّذٌ فقط** كان ينسحب بلا مشكلة، لأن قائمة المديرين لا
+  /// تتغيّر — وهذا ما جعل العطل يمرّ في التجربة العابرة.
   Future<String?> leaveProject(Project project) async {
     final uid = currentUser?.id;
     if (uid == null) return 'لا يوجد مستخدم مسجَّل';
     try {
-      await _writeMembership(
+      await _writeTeam(
         project,
         project.managerUids.where((x) => x != uid).toList(),
         project.executorUids.where((x) => x != uid).toList(),
@@ -3209,7 +3263,7 @@ class AppStore extends ChangeNotifier {
       await _log('انسحاب من مشروع', 'سحب ${currentUser?.name} نفسه من مشروع "${project.name}"');
       return null;
     } catch (e) {
-      return e.toString();
+      return describeWriteFailure(e);
     }
   }
 
@@ -3229,7 +3283,7 @@ class AppStore extends ChangeNotifier {
           'عُدِّلت صفة "$name" في مشروع "${project.name}" إلى ${role == 'manager' ? 'مدير' : role == 'executor' ? 'منفّذ' : 'مُزال'}');
       return null;
     } catch (e) {
-      return e.toString();
+      return describeWriteFailure(e);
     }
   }
 
@@ -3315,8 +3369,12 @@ class AppStore extends ChangeNotifier {
 
   /// تعيين/تغيير "مدير المشروع" (مسؤول النظام فقط) — يُبقى للتوافق مع
   /// المسارات التي تُسنِد مديراً واحداً، ويكتب القائمة متسقةً.
+  ///
+  /// و`_writeTeam` لا `_writeMembership`: هي تمسّ قائمة المديرين، وتلك لا
+  /// تُكتب من العميل إلا لمسؤول نظام تحمل بطاقتُه صفته فعلاً. وقولُ التوثيق
+  /// «مسؤول النظام فقط» ليس فحصاً — والفحص عند الخادم.
   Future<void> setProjectManager(Project project, String? managerUid) async {
-    await _writeMembership(
+    await _writeTeam(
       project,
       managerUid == null || managerUid.isEmpty ? const [] : [managerUid],
       project.executorUids,

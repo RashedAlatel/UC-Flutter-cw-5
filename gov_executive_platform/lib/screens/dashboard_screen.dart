@@ -223,6 +223,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const _ArrangeHint(),
             const SizedBox(height: 12),
           ],
+          // لوحةٌ بلا ودجة واحدة كانت **صفحة بيضاء صامتة**: عنوانٌ ثم فراغ
+          // إلى آخر التمرير، ولا شيء يقول للمستخدم أن لوحته فارغة ولا كيف
+          // يملؤها. وهذا يقع بسهولة — يكفي أن يحذف ودجاته من «تخصيص اللوحة».
+          if (boardWidgets.isEmpty)
+            _EmptyBoardNotice(
+              onAdd: () => showDialog(
+                context: context,
+                builder: (_) => const CustomizeDashboardDialog(),
+              ),
+            )
+          else
           _WidgetBoard(
             widgets: boardWidgets,
             arranging: _arranging,
@@ -1829,3 +1840,44 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
+
+/// لوحة بلا ودجات — تقول ذلك وتدلّ على الطريق، بدل صفحة بيضاء صامتة.
+class _EmptyBoardNotice extends StatelessWidget {
+  final VoidCallback onAdd;
+  const _EmptyBoardNotice({required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 34, horizontal: 20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.dashboard_customize_outlined, size: 32, color: AppColors.textSecondary.withValues(alpha: 0.6)),
+          const SizedBox(height: 12),
+          const Text(
+            'لوحتك بلا رسوم ولا قوائم',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'المؤشرات أعلاه تبقى ظاهرة دائماً. أما الرسوم والقوائم فتُضاف من هنا.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12.5, height: 1.8, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 14),
+          ElevatedButton.icon(
+            onPressed: onAdd,
+            icon: const Icon(Icons.add_rounded, size: 17),
+            label: const Text('أضف ودجة'),
+          ),
+        ],
+      ),
+    );
+  }
+}

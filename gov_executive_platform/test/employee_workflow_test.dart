@@ -57,6 +57,7 @@ Project _project(String id, {DateTime? createdAt, DateTime? start}) => Project(
 
 void main() {
   _scopeEditorGuards();
+  _newestSortGuards();
 
   group('عضوية المشروع تصل إلى المستند', () {
     test('المشروع يُقرأ بأعضائه ويُكتب بهم', () {
@@ -320,6 +321,64 @@ void _scopeEditorGuards() {
       );
       await pump(tester, granted);
       expect(find.text('الدعم الفني'), findsWidgets, reason: 'تُعرض المربعات بلا نقر');
+    });
+  });
+}
+
+// ــــ ترتيب «الأحدث إضافةً» ــــ
+//
+// العطل الذي يحرسه: المقارنة كانت `(b.createdAt ?? b.startDate)` — أي أنها
+// تقارن **تاريخ إضافة** مشروع بـ**تاريخ بدء** آخر. ومشاريع الوزارة المستوردة
+// تحمل `startDate: DateTime(2026, 12, 1)` — في المستقبل — فكان كل مشروع
+// مستورد يعلو على كل مشروع أضافه المستخدم اليوم.
+void _newestSortGuards() {
+  group('الأحدث إضافةً', () {
+    /// بتاريخ البدء الحقيقي من ministry_import_data.dart — لا تاريخ مخترع.
+    Project imported(String id) => Project(
+          id: id,
+          departmentId: _dept,
+          name: 'مشروع مستورد $id',
+          description: '',
+          startDate: DateTime(2026, 12, 1),
+          dueDate: DateTime(2027, 6, 1),
+          status: ProjectStatus.onTrack,
+          priority: PriorityLevel.medium,
+          progressPercent: 0,
+        );
+
+    test('المُضاف اليوم يسبق المستورد الذي يبدأ في المستقبل', () {
+      final fresh = _project('new', createdAt: DateTime(2026, 8, 22));
+      final groups = groupProjects(
+        projects: [imported('old'), fresh],
+        sort: ProjectSort.newest,
+        categories: const [],
+      );
+      expect(groups.single.projects.first.id, 'new',
+          reason: 'تاريخ بدءٍ في المستقبل لا يجعل المشروع أحدثَ إضافةً');
+    });
+
+    test('وبين المعروفة يقدَّم الأحدث', () {
+      final groups = groupProjects(
+        projects: [
+          _project('a', createdAt: DateTime(2026, 3, 1)),
+          _project('b', createdAt: DateTime(2026, 8, 1)),
+        ],
+        sort: ProjectSort.newest,
+        categories: const [],
+      );
+      expect(groups.single.projects.map((p) => p.id), ['b', 'a']);
+    });
+
+    test('وبين المجهولة يبقى تاريخ البدء فيصلاً', () {
+      final groups = groupProjects(
+        projects: [
+          _project('early', start: DateTime(2025, 1, 1)),
+          _project('late', start: DateTime(2026, 12, 1)),
+        ],
+        sort: ProjectSort.newest,
+        categories: const [],
+      );
+      expect(groups.single.projects.map((p) => p.id), ['late', 'early']);
     });
   });
 }

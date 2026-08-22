@@ -435,7 +435,7 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
             const SizedBox(height: 6),
             Text(
               '${projects.where((p) => p.createdAt == null).length} مشروعاً لا يحمل تاريخ إضافة '
-              '(مستورد من ملفات الوزارة) — رُتّب بتاريخ بدئه.',
+              '(مستورد من ملفات الوزارة) — يقع بعد المشاريع المعروف تاريخ إضافتها.',
               style: AppText.micro.copyWith(color: AppColors.textSecondary, height: 1.7),
             ),
           ],

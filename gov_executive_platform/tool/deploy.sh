@@ -29,6 +29,8 @@ FORCE=""
 
 # shellcheck source=tool/worktree.sh
 . ./tool/worktree.sh
+# shellcheck source=tool/live_check.sh
+. ./tool/live_check.sh
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
 
@@ -204,23 +206,17 @@ firebase deploy --project "$PROJECT" --only hosting
 # فالسكربت يسأل الموقع بنفسه الآن. وإخفاق الاتصال ليس إخفاق نشر — يُقال ذلك
 # ولا يُفشَل النشر عليه.
 LIVE_RESULT="unknown"
-LIVE_COMMIT=""
-if true; then
-  say "٧/٧  التحقّق من أن الموقع يخدم هذا الالتزام…"
-  LIVE_JSON="$(curl -fsS --max-time 25 -H 'Cache-Control: no-cache' \
-      "https://${PROJECT}.web.app/build.json" 2>/dev/null || echo '')"
-  if [ -z "$LIVE_JSON" ]; then
-    echo "⚠ تعذّر الوصول إلى الموقع للتحقّق — قد يكون حجباً في شبكتك."
-    echo "  النشر تمّ، والتحقّق وحده لم يقع."
-  else
-    LIVE_COMMIT="$(printf '%s' "$LIVE_JSON" | sed -n 's/.*"commit"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
-    if [ "$LIVE_COMMIT" = "$COMMIT" ]; then
-      echo "✔ الموقع يخدم الالتزام $COMMIT."
-      LIVE_RESULT="ok"
-    else
-      LIVE_RESULT="mismatch"
-    fi
-  fi
+say "٧/٧  التحقّق من أن الموقع يخدم هذا الالتزام…"
+if live_commit_matches "$COMMIT" "https://${PROJECT}.web.app/build.json"; then
+  echo "✔ الموقع يخدم الالتزام $COMMIT."
+  LIVE_RESULT="ok"
+elif [ -z "$LIVE_COMMIT" ]; then
+  # لم يُقرأ شيء بعد كل المحاولات: انقطاعٌ أو حجب. وإخفاق الاتصال ليس
+  # إخفاق نشر، فلا يُفشَل النشر عليه.
+  echo "⚠ تعذّر الوصول إلى الموقع للتحقّق — قد يكون حجباً في شبكتك."
+  echo "  النشر تمّ، والتحقّق وحده لم يقع."
+else
+  LIVE_RESULT="mismatch"
 fi
 
 printf '\n══════════════════════════════════════════════════════════════\n'
@@ -228,8 +224,16 @@ if [ "$LIVE_RESULT" = "mismatch" ]; then
   printf '⛔ النشر تمّ، لكن الموقع ما زال يخدم التزاماً آخر.\n\n'
   printf '   بنينا ونشرنا: %s\n' "$COMMIT"
   printf '   والموقع يخدم: %s\n\n' "${LIVE_COMMIT:-غير معروف}"
-  printf '   لا تفتح المنصة قبل معالجة هذا — ستصف أعطالاً في شيفرة قديمة.\n'
-  printf '   جرّب: أعد تشغيل الأمر، وتأكّد أن مشروع Firebase هو %s.\n' "$PROJECT"
+  printf '   لا تفتح المنصة قبل معالجة هذا — ستصف أعطالاً في شيفرة قديمة.\n\n'
+  # وتأخّرُ الانتشار لم يعد سبباً محتملاً: سُئل الموقع مراراً على مدى نحو
+  # دقيقة. فإعادة النشر — وهي النصيحة التي كانت هنا — مُكلفة ولا تحلّ شيئاً،
+  # وتُبدَّل بما بقي من أسبابٍ ومعها ما يكشف كلاً منها.
+  printf '   وقد انتظرنا انتشار التحديث (%s محاولات) فلم ينزل — فالسبب ليس التأخّر.\n\n' "$LIVE_CHECK_TRIES"
+  printf '   والباقي سببان، وهذان الأمران يكشفانهما:\n\n'
+  printf '   ١) هل النشر يذهب إلى موقعٍ آخر في المشروع نفسه؟\n'
+  printf '        firebase hosting:sites:list --project %s\n\n' "$PROJECT"
+  printf '   ٢) وهل ما بُني هو ما نُشر؟\n'
+  printf '        cat build/web/build.json\n'
   printf '══════════════════════════════════════════════════════════════\n\n'
   exit 1
 fi

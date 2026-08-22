@@ -15,6 +15,7 @@ import 'package:provider/provider.dart';
 import 'package:gov_exec_platform/data/app_store.dart';
 import 'package:gov_exec_platform/models/app_user.dart';
 import 'package:gov_exec_platform/models/custom_widget_spec.dart';
+import 'package:gov_exec_platform/models/daily_update.dart';
 import 'package:gov_exec_platform/models/dashboard_widget_config.dart';
 import 'package:gov_exec_platform/models/department.dart';
 import 'package:gov_exec_platform/models/enums.dart';
@@ -109,6 +110,30 @@ AppStore _ministryStore() {
     ..currentUser = admin
     ..users = users
     ..departments = departments
+    // ــ التحديثات اليومية ليست تفصيلاً في هذا المتجر ــ
+    //
+    // متجر الاختبار كان **بلا تحديثات**، فبطاقة «أحدث التحديثات» تعرض «لا
+    // توجد تحديثات بعد» ولا تبني صفوفها أصلاً. وفي تلك الصفوف كان
+    // `Row(stretch)` بلا `IntrinsicHeight`، فارتفاع البطاقة **`Infinity`**
+    // على شاشة المستخدم. أي أن العطل كان يختبئ خلف بيانات ناقصة عندي، لا
+    // خلف منطقٍ معقّد.
+    ..dailyUpdates = [
+      for (var i = 0; i < 12; i++)
+        DailyUpdate(
+          id: 'du$i',
+          projectId: 'p$i',
+          departmentId: 'd${i % 38}',
+          authorUid: 'u$i',
+          authorName: 'عبدالرحمن بن عبدالعزيز المطيري $i',
+          date: DateTime(2026, 8, 20 - (i % 15)),
+          achievements: 'أُنجزت مرحلة التحليل ورُفعت الوثائق إلى لجنة المراجعة.',
+          completedTasks: const [],
+          newRisks: const [],
+          blockers: const [],
+          decisionsRequired: const [],
+          progressPercent: 40,
+        ),
+    ]
     ..projects = [
       for (var i = 0; i < 300; i++)
         Project(
@@ -150,6 +175,25 @@ bool _inHorizontalScroll(Element element) {
     return true;
   });
   return scrolls;
+}
+
+/// اسم البطاقة = أول نصّ فيها، وهو عنوانها.
+String _cardTitle(Element card) {
+  var title = '؟';
+  var found = false;
+  void visit(Element e) {
+    if (found) return;
+    final w = e.widget;
+    if (w is Text && (w.data ?? '').trim().isNotEmpty) {
+      title = w.data!;
+      found = true;
+      return;
+    }
+    e.visitChildren(visit);
+  }
+
+  card.visitChildren(visit);
+  return title;
 }
 
 void main() {
@@ -435,28 +479,23 @@ void main() {
     await tester.pump();
 
     final tall = <String>[];
+    final infinite = <String>[];
     for (final cardElement in find.byType(Card).evaluate()) {
       final box = cardElement.renderObject;
       if (box is! RenderBox || !box.hasSize || !box.attached) continue;
-      if (box.size.height <= 900) continue;
-      // اسم البطاقة = أول نصّ فيها، وهو عنوانها.
-      var title = '؟';
-      var found = false;
-      void visit(Element e) {
-        if (found) return;
-        final w = e.widget;
-        if (w is Text && (w.data ?? '').trim().isNotEmpty) {
-          title = w.data!;
-          found = true;
-          return;
-        }
-        e.visitChildren(visit);
+      // **المحدودية أولاً**: `Infinity` ليس «طويلاً» بل مكسوراً، والمقارنة
+      // `> 900` تصدق عليه فيُبلَّغ عنه كأنه بطاقة طويلة. وهو ليس كذلك: بطاقةٌ
+      // بارتفاع لا نهائي تبتلع الصفحة كلها وتظهر بيضاء إلى آخر التمرير.
+      if (!box.size.height.isFinite) {
+        infinite.add(_cardTitle(cardElement));
+        continue;
       }
-
-      cardElement.visitChildren(visit);
-      tall.add('«$title» بارتفاع ${box.size.height.toStringAsFixed(0)}');
+      if (box.size.height <= 900) continue;
+      tall.add('«${_cardTitle(cardElement)}» بارتفاع ${box.size.height.toStringAsFixed(0)}');
     }
 
+    expect(infinite, isEmpty,
+        reason: 'بطاقات بارتفاع لا نهائي — تبتلع الصفحة وتظهر بيضاء:\n${infinite.join('\n')}');
     expect(tall, isEmpty,
         reason: 'بطاقات أطول من شاشتين على الهاتف:\n${tall.join('\n')}');
   });

@@ -2973,9 +2973,14 @@ class AppStore extends ChangeNotifier {
 
   // ------------------------- تخصيص لوحة القيادة -------------------------
 
+  /// أحدث التحديثات اليومية لبطاقة اللوحة.
+  ///
+  /// ستة لا ثمانية: كل تحديث يحمل اسم صاحبه ونصّ إنجازه في سطرين واسم
+  /// مشروعه، فثمانيةٌ تجعل البطاقة أطول من شاشتي هاتف — وقد قيست بـ٩٠٥
+  /// بكسلاً. والبطاقة نظرةٌ سريعة لا سجلّ: من أراد السجل فتح صفحة الإدارة.
   List<DailyUpdate> get recentUpdates {
     final list = dailyUpdates.toList()..sort((a, b) => b.date.compareTo(a.date));
-    return list.take(8).toList();
+    return list.take(6).toList();
   }
 
   Future<void> saveDashboardWidgets(List<DashboardWidgetConfig> widgets) async {

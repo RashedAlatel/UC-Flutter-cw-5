@@ -1329,7 +1329,27 @@ class _RecentUpdatesCard extends StatelessWidget {
                         bottom: BorderSide(color: AppColors.border, width: i == updates.length - 1 ? 0 : 1),
                       ),
                     ),
-                    child: Row(
+                    // ــ `IntrinsicHeight` ليس زينةً هنا ــ
+                    //
+                    // `CrossAxisAlignment.stretch` في `Row` يمدّ أبناءه على
+                    // **ارتفاع الصفّ**. وهذه البطاقة تعيش في `Wrap` يعطيها
+                    // ارتفاعاً غير محدود، فصار الشريط الذهبي (لا ارتفاع له
+                    // بذاته) يُمدّ إلى ما لا نهاية — و**ارتفاع البطاقة يصير
+                    // `Infinity`**، فتبتلع الصفحة كلها وتظهر بيضاء إلى آخر
+                    // التمرير.
+                    //
+                    // وهو ما قاسه المستخدم بزرّ «قياس الفراغ» على شاشته:
+                    // «أحدث التحديثات اليومية · ارتفاع Infinity».
+                    //
+                    // ولم يظهر في أي اختبار عندي لأن متجر الاختبار كان **بلا
+                    // تحديثات يومية**، فلا يُبنى هذا الصفّ أصلاً — يُعرض
+                    // «لا توجد تحديثات بعد» ويمرّ كل شيء سليماً.
+                    //
+                    // و`IntrinsicHeight` هو النمط القائم في المنصة: كل
+                    // `Row(stretch)` في `project_detail_screen.dart` ملفوف به،
+                    // وهذا وحده كان عارياً.
+                    child: IntrinsicHeight(
+                      child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Container(width: 3, margin: const EdgeInsets.only(left: 10), decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(3))),
@@ -1358,6 +1378,7 @@ class _RecentUpdatesCard extends StatelessWidget {
                           ),
                         ),
                       ],
+                      ),
                     ),
                   ),
                 );

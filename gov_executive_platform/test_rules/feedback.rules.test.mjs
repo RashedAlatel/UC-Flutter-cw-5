@@ -151,7 +151,7 @@ describe('التسجيل الذاتي لا يمنح نفسه شيئاً', () => 
     await env.clearFirestore();
     const db = env.authenticatedContext('u-new', { }).firestore();
     await assertSucceeds(setDoc(doc(db, 'users/u-new'), {
-      name: 'جديد', email: 'a@moj.gov.kw', phone: '', role: 'projectOfficer',
+      name: 'جديد', email: 'a@moj.gov.kw', phone: '', role: 'employee',
       status: 'pending', createdAt: new Date(),
     }));
   });
@@ -160,7 +160,7 @@ describe('التسجيل الذاتي لا يمنح نفسه شيئاً', () => 
     await env.clearFirestore();
     const db = env.authenticatedContext('u-new', { }).firestore();
     await assertFails(setDoc(doc(db, 'users/u-new'), {
-      name: 'جديد', email: 'a@moj.gov.kw', phone: '', role: 'projectOfficer',
+      name: 'جديد', email: 'a@moj.gov.kw', phone: '', role: 'employee',
       status: 'pending', createdAt: new Date(),
       permissionOverrides: { vad: true },
     }));
@@ -170,9 +170,23 @@ describe('التسجيل الذاتي لا يمنح نفسه شيئاً', () => 
     await env.clearFirestore();
     const db = env.authenticatedContext('u-new', { }).firestore();
     await assertFails(setDoc(doc(db, 'users/u-new'), {
-      name: 'جديد', email: 'a@gmail.com', phone: '', role: 'projectOfficer',
+      name: 'جديد', email: 'a@gmail.com', phone: '', role: 'employee',
       status: 'pending', createdAt: new Date(),
       emailVerificationExempt: true,
     }));
+  });
+
+  // كان الحاجز `projectOfficer`، وقد سقط ذلك الدور من الأدوار المُتاحة، فصار
+  // الحاجز أدناها. والحقلان أعلاه يُكتبان الآن بدور مقبول عمداً: لولا ذلك
+  // لرُفضا **بسبب الدور** فبدا الحارسان يعملان وهما لا يُبلَغان أصلاً.
+  test('ودورٌ أعلى من «موظف» لحظة التسجيل — يُرفض', async () => {
+    await env.clearFirestore();
+    const db = env.authenticatedContext('u-new', { }).firestore();
+    for (const role of ['departmentManager', 'executiveViewer', 'projectOfficer', 'systemAdmin']) {
+      await assertFails(setDoc(doc(db, 'users/u-new'), {
+        name: 'جديد', email: 'a@moj.gov.kw', phone: '', role,
+        status: 'pending', createdAt: new Date(),
+      }));
+    }
   });
 });

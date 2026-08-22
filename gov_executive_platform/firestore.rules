@@ -63,11 +63,19 @@ service cloud.firestore {
       return isApproved() && deptId != null && myDepts() != null && deptId in myDepts();
     }
     function isMyDeptAny(deptId) { return isMyDept(deptId) || isMyDeptOfManager(deptId); }
-    // "مدير مشروع" (projectOfficer) مقيَّد بمشروعه المُسنَد إليه فقط عبر
-    // managerUid المخزَّن على المشروع (ومنسوخ إلى المستندات التابعة له)، وليس
-    // بإدارته كاملة كما هو الحال لمدير الإدارة.
-    function isOfficer() { return isApproved() && role() == 'projectOfficer'; }
-    function isMyProject(managerUid) { return isOfficer() && managerUid != null && managerUid == request.auth.uid; }
+    // ــــ قيادةُ المشروع صفةٌ على المشروع لا دورٌ على الشخص ــــ
+    //
+    // كانت هذه الدالّة تشترط `role() == 'projectOfficer'`، فكان **الدور
+    // الأساسي** هو الذي يفتح مشروعاً لا العضويةُ فيه. ونتج عن ذلك خطآن
+    // متقابلان: موظفٌ يقود مشروعاً فعلاً لا يستطيع فتح مهامه، وصاحبُ الدور
+    // يحمل صفة «مدير مشروع» في كل مشاريع المنصة لمجرّد أنه قاد واحداً.
+    //
+    // فصار المعيار المطابقة على المشروع نفسه: من كُتب معرّفه مديراً عليه —
+    // أيّاً كان دوره في الهيكل التنظيمي — يملك ما يملكه مديرُ مشروع، **داخل
+    // هذا المشروع وحده**. وخارجه يعود إلى دوره الأساسي.
+    function isMyProject(managerUid) {
+      return isApproved() && managerUid != null && managerUid == request.auth.uid;
+    }
     // عضوية المشروع صارت قائمتين (تعدّد المديرين بقرار من مسؤول النظام).
     // الحقل المفرد managerUid يبقى مكتوباً للتوافق، لكن الفحص يعتمد القائمة.
     function managersOf(data) { return data.get('managerUids', []); }
@@ -79,6 +87,14 @@ service cloud.firestore {
     // صلاحية القراءة/الكتابة على مستند مرتبط بمشروع (تقدّم عبر departmentId و managerUid المنسوخين عليه).
     function canEditDept(deptId) { return isAdmin() || (isDeptManager() && isMyDeptOfManager(deptId)); }
     function canAccessProjectDoc(deptId, managerUid) { return canEditDept(deptId) || isMyProject(managerUid); }
+    // ونظيرُها للمستندات التي تحمل قائمتَي العضوية كاملتين (مستندُ المشروع
+    // نفسه، والمهام): بها يعمل **المدير الثاني** فصاعداً، إذ الحقل المفرد
+    // `managerUid` أوّلُ الأسماء وحده.
+    function canAccessProjectDocOrMember(data) {
+      return canEditDept(deptOf(data))
+          || isMyProject(managerOf(data))
+          || request.auth.uid in managersOf(data);
+    }
     // صلاحية «الانضمام لمشاريع الإدارة» صارت تحكم **التسجيل** وحده — راجع
     // isSelfMembershipChange. أما الاطّلاع على مشاريع الإدارة فحقٌّ أساسي لكل
     // موظف فيها عبر isMyDeptAny في شرط القراءة أدناه، لا صلاحية تُمنح.
@@ -108,13 +124,26 @@ service cloud.firestore {
       return request.resource.data.get('managerUid', null) == null
           || request.resource.data.get('managerUid', null) in managersOf(request.resource.data);
     }
+    // ــــ ولا يُسجّل أحدٌ نفسه **مديراً** ــــ
+    //
+    // كان `selfOnlyDelta` يسمح للموظف بإضافة نفسه إلى **أيّ** من القائمتين،
+    // فيصير مديراً لمشروع بضغطةٍ منه وحده. وقيادة المشروع تُعطى ولا تُؤخذ:
+    // من يقودُه يرى تفاصيله كاملة ويُسنِد مهامه ويعتمد ما يُنجَز فيه.
+    //
+    // فصارت قائمة المديرين **لا تتغيّر إطلاقاً** في تسجيل المرء نفسه، ويبقى
+    // التسجيل منفّذاً مباشراً كما كان — وهو إعلانُ مشاركةٍ في التنفيذ لا
+    // تولّي مسؤولية. والتعيين مديراً يمرّ بطلبٍ يعتمده مدير إدارة المشروع أو
+    // مسؤول النظام (`ApprovalType.projectManagerAppointment`).
+    function managersUnchanged() {
+      return managersOf(request.resource.data).toSet() == managersOf(resource.data).toSet();
+    }
     function isSelfMembershipChange() {
       return isApproved()
           && perm('sap')
           && isMyDeptAny(deptOf(resource.data))
           && onlyMembershipKeys()
           && legacyManagerConsistent()
-          && selfOnlyDelta(managersOf(resource.data), managersOf(request.resource.data))
+          && managersUnchanged()
           && selfOnlyDelta(executorsOf(resource.data), executorsOf(request.resource.data));
     }
     // عند إنشاء مستند تابع لمشروع (مهمة/تحديث يومي/خطر/عائق)، نتحقق أن الحقول
@@ -217,7 +246,12 @@ service cloud.firestore {
       allow create: if isSignedIn()
                     && request.auth.uid == uid
                     && request.resource.data.status == 'pending'
-                    && request.resource.data.role == 'projectOfficer'
+                    // الدور المكتوب لحظة التسجيل **حاجزٌ لا منحة**: الحساب
+                    // `pending` فلا يملك شيئاً، والدورُ المطلوب يمرّ في طلب
+                    // الاعتماد ويُختم بقرار مسؤول النظام. وكان الحاجز
+                    // `projectOfficer`، وقد سقط ذلك الدور من الأدوار
+                    // المُتاحة — فصار الحاجز أدناها.
+                    && request.resource.data.role == 'employee'
                     && request.resource.data.get('emailVerificationExempt', false) == false
                     && request.resource.data.get('permissionOverrides', {}).keys().size() == 0;
       // أي تغيير على الدور/الحالة/الإدارة لا يتم إلا عبر مسؤول النظام (عادة عبر Cloud Function).
@@ -275,7 +309,11 @@ service cloud.firestore {
       // مديره - أي تغيير في الموعد النهائي يمر عبر طلب موافقة منفصل، وتغيير
       // مدير المشروع لا يقوم به إلا مسؤول النظام.
       allow update: if isAdmin()
-                    || (canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                    // ومديرُ المشروع — أيّاً كان دوره الأساسي — يحرّك تقدّمه
+                    // وحالته. و`canAccessProjectDocOrMember` لا
+                    // `canAccessProjectDoc`: الثانية تقرأ الحقل المفرد وحده،
+                    // فيسقط منها المدير الثاني فصاعداً.
+                    || (canAccessProjectDocOrMember(resource.data)
                         && !request.resource.data.diff(resource.data).affectedKeys()
                               .hasAny(['dueDate', 'departmentId', 'createdByUid',
                                        'managerUid', 'managerUids', 'executorUids']))
@@ -341,7 +379,7 @@ service cloud.firestore {
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                         || isMemberOfRealProject(request.resource.data.projectId))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
-      allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+      allow update: if canAccessProjectDocOrMember(resource.data)
                     && !request.resource.data.diff(resource.data).affectedKeys()
                           .hasAny(['projectId', 'departmentId', 'managerUid']);
       allow delete: if isAdmin();
@@ -355,7 +393,7 @@ service cloud.firestore {
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                         || isMemberOfRealProject(request.resource.data.projectId))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
-      allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+      allow update: if canAccessProjectDocOrMember(resource.data)
                     && !request.resource.data.diff(resource.data).affectedKeys()
                           .hasAny(['projectId', 'departmentId', 'managerUid']);
       allow delete: if isAdmin();

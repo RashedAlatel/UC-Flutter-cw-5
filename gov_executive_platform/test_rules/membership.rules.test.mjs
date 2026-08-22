@@ -65,20 +65,66 @@ describe('انضمام الموظف بنفسه', () => {
     }));
   });
 
-  test('يضيف نفسه مديراً مع وجود مدير آخر — يُقبل (تعدّد المديرين)', async () => {
+  // ولو كان على المشروع مديرٌ قائم. وهذه الحالة تحديداً هي ما يمرّ على
+  // `managersUnchanged()` بقائمتين **غير فارغتين**: لو كانت المقارنة تُخفق
+  // على قائمةٍ فيها اسم، لَحُرم كلُّ موظفٍ من التسجيل في مشروعٍ له مدير —
+  // وهو أغلب مشاريع المنصة — والاختبار الذي فوقه لا يكشفه لأن قائمتيه فارغتان.
+  test('ويضيف نفسه منفّذاً إلى مشروعٍ له مدير — يُقبل', async () => {
     await env.clearFirestore();
     await seed({ managerUids: [COLLEAGUE], managerUid: COLLEAGUE });
     const db = env.authenticatedContext(ME, claims()).firestore();
     await assertSucceeds(updateDoc(doc(db, 'projects/p1'), {
+      executorUids: [ME], managerUids: [COLLEAGUE], managerUid: COLLEAGUE,
+    }));
+  });
+
+  test('وينسحب من التنفيذ — يُقبل', async () => {
+    await env.clearFirestore();
+    await seed({ executorUids: [COLLEAGUE, ME], managerUids: [COLLEAGUE], managerUid: COLLEAGUE });
+    const db = env.authenticatedContext(ME, claims()).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'projects/p1'), {
+      executorUids: [COLLEAGUE], managerUids: [COLLEAGUE], managerUid: COLLEAGUE,
+    }));
+  });
+});
+
+// ــــ قيادة المشروع تُعطى ولا تُؤخذ ــــ
+//
+// كان الاختباران التاليان يشترطان **القبول**: أن يضيف الموظف نفسه مديراً،
+// وأن ينسحب من القيادة بنفسه. وقد انعكسا بقرارٍ صريح في جولة فصل الدور عن
+// قيادة المشروع، لا بعطلٍ طرأ:
+//
+// - **الإضافة**: من يقود المشروع يرى تفاصيله كاملة ويُسنِد مهامه ويعتمد ما
+//   يُنجَز فيه. فلا تُنال بضغطةٍ من صاحبها، بل بطلبٍ يعتمده مدير إدارة
+//   المشروع أو مسؤول النظام.
+// - **الانسحاب**: أهون في الأثر، وأخطرُ في السجل. طُلب صراحةً أن يُكتب «من
+//   ألغى التعيين ومتى»، والكتابةُ المباشرة من العميل لا تمرّ بمن يكتب ذلك.
+//   فيمرّ الانسحاب بـ`setProjectTeam` التي تحسب الفروق وتسمّيها في سجل
+//   التدقيق. وقد يبقى المشروع بلا مدير لو تُرك الأمر للعميل.
+describe('ولا يسجّل أحدٌ نفسه **مديراً**', () => {
+  test('يضيف نفسه مديراً مع وجود مدير آخر — يُرفض', async () => {
+    await env.clearFirestore();
+    await seed({ managerUids: [COLLEAGUE], managerUid: COLLEAGUE });
+    const db = env.authenticatedContext(ME, claims()).firestore();
+    await assertFails(updateDoc(doc(db, 'projects/p1'), {
       managerUids: [COLLEAGUE, ME], managerUid: COLLEAGUE, executorUids: [],
     }));
   });
 
-  test('ينسحب من مشروعه — يُقبل', async () => {
+  test('ويضيف نفسه مديراً وحيداً لمشروعٍ بلا مدير — يُرفض', async () => {
+    await env.clearFirestore();
+    await seed({});
+    const db = env.authenticatedContext(ME, claims()).firestore();
+    await assertFails(updateDoc(doc(db, 'projects/p1'), {
+      managerUids: [ME], managerUid: ME, executorUids: [],
+    }));
+  });
+
+  test('وينسحب من قيادة مشروعه — يُرفض، فالإلغاء يُسجَّل باسم من ألغاه', async () => {
     await env.clearFirestore();
     await seed({ managerUids: [COLLEAGUE, ME], managerUid: COLLEAGUE });
     const db = env.authenticatedContext(ME, claims()).firestore();
-    await assertSucceeds(updateDoc(doc(db, 'projects/p1'), {
+    await assertFails(updateDoc(doc(db, 'projects/p1'), {
       managerUids: [COLLEAGUE], managerUid: COLLEAGUE, executorUids: [],
     }));
   });

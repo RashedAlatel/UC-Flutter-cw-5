@@ -137,6 +137,46 @@ else
 fi
 echo ""
 
+# ــــ فصل الدور الأساسي عن قيادة المشروع ــــ
+#
+# ثلاثة أبوابٍ أُغلقت، وكلها من الصنف الذي يعود بصمت: شرطٌ يُعاد إلى دالّة
+# في القواعد، أو اسمُ دورٍ يُضاف إلى قائمة، فلا يصيح تحليلٌ ولا اختبارُ
+# واجهة — ويعود «مدير مشروع» دوراً يسري على كل مشاريع المنصة.
+echo "قيادة المشروع صفةٌ على المشروع لا دورٌ على الشخص:"
+# **خارج التعليقات**: نصّ الدور مذكورٌ في شرح ما أُزيل وفي جدول رتب الإسناد
+# (`roleRank`)، وكلاهما مشروع. الممنوع أن يعود **شرطاً يُنفَّذ**.
+if grep -v '^[[:space:]]*//' "$RULES" | grep -q "role() == 'projectOfficer'"; then
+  echo "  ✗ لا أثر لاشتراط الدور في القواعد"
+  echo "      عاد شرط الدور إلى سطرٍ يُنفَّذ في $RULES"
+  FAIL=$((FAIL + 1))
+else
+  echo "  ✔ لا أثر لاشتراط الدور في القواعد"
+  PASS=$((PASS + 1))
+fi
+reject_in "$RULES" "ولا دالّة isOfficer" "function isOfficer()"
+want_in "$RULES" "وتسجيل المرء نفسه لا يمسّ قائمة المديرين" "managersUnchanged()"
+want_in "$RULES" "والتسجيل الذاتي يُكتب بأدنى الأدوار" "request.resource.data.role == 'employee'"
+echo ""
+
+echo "و«مدير مشروع» لا يُمنح دوراً أساسياً:"
+want_in "$SRC" "قائمة الأدوار المُتاحة عند الاعتماد موجودة" "const GRANTABLE_ROLES"
+if grep -q 'const GRANTABLE_ROLES.*projectOfficer' "$SRC"; then
+  echo "  ✗ ولا تحوي الدور الموروث"
+  echo "      وُجد projectOfficer في GRANTABLE_ROLES"
+  FAIL=$((FAIL + 1))
+else
+  echo "  ✔ ولا تحوي الدور الموروث"
+  PASS=$((PASS + 1))
+fi
+want_in "lib/models/enums.dart" "وقائمة الأدوار في العميل كذلك" "static const List<UserRole> assignable"
+echo ""
+
+echo "وأثر التعيين يُكتب بالاسم لا بالعدد:"
+want_in "$SRC" "التعيين المباشر يُسجَّل" '"تعيين مدير مشروع"'
+want_in "$SRC" "والإلغاء يُسجَّل" '"إلغاء تعيين مدير مشروع"'
+want_in "$SRC" "والفروق تُحسب لا تُقدَّر" "const appointed = managerUids.filter"
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

@@ -125,11 +125,24 @@ class _ProjectTeamCardState extends State<ProjectTeamCard> {
                 spacing: 10,
                 runSpacing: 10,
                 children: [
+                  // ــ «اطلب» لا «سجّلني» ــ
+                  //
+                  // اللفظ يتبع ما يقع: قيادةُ المشروع صارت تُطلب ويعتمدها
+                  // مدير إدارة المشروع، فزرٌّ يقول «سجّلني مديراً» يَعِد
+                  // بما لا يقع. ومن يملك تعديل الفريق (مدير الإدارة ومسؤول
+                  // النظام) يسجّل نفسه مباشرةً كما كان — لا معنى لأن يطلب
+                  // من نفسه.
                   if (!iAmManager)
                     OutlinedButton.icon(
-                      onPressed: _busy ? null : () => _run(() => store.joinProject(project, asManager: true)),
+                      onPressed: _busy || store.hasPendingManagerAppointment(project)
+                          ? null
+                          : () => _run(() => store.joinProject(project, asManager: true)),
                       icon: const Icon(Icons.manage_accounts_outlined, size: 17),
-                      label: const Text('سجّلني مديراً للمشروع'),
+                      label: Text(store.hasPendingManagerAppointment(project)
+                          ? 'طلب التعيين قيد الاعتماد'
+                          : (canManageTeam
+                              ? 'سجّلني مديراً للمشروع'
+                              : 'اطلب تعييني مديراً للمشروع')),
                     ),
                   if (!iAmExecutor)
                     OutlinedButton.icon(
@@ -184,8 +197,14 @@ class _ProjectTeamCardState extends State<ProjectTeamCard> {
                   label: Text(_nameOf(store, uid), style: const TextStyle(fontSize: 12.5)),
                   // مسؤول النظام ومدير الإدارة يحوّلان الصفة أو يزيلان العضو؛
                   // وهذا ما طلبه مسؤول النظام: تحويل مدير المشروع إلى منفّذ.
+                  // وإزالةُ **مدير** تمرّ بـ`revokeProjectManager` لا
+                  // بـ`setProjectMemberRole` مباشرةً: تلك تكتب سطراً عاماً
+                  // «عُدِّل الفريق»، وهذه تكتب «ألغى فلانٌ تعيين فلان مديراً
+                  // لمشروع كذا» — وهو ما يُسأل عنه في المراجعة.
                   onDeleted: canManageTeam && !_busy
-                      ? () => _run(() => store.setProjectMemberRole(project, uid, null))
+                      ? () => _run(() => isManagerGroup
+                          ? store.revokeProjectManager(project, uid)
+                          : store.setProjectMemberRole(project, uid, null))
                       : null,
                   deleteIcon: const Icon(Icons.close_rounded, size: 16),
                   deleteButtonTooltipMessage: 'إزالة من الفريق',

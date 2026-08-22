@@ -5,7 +5,17 @@ enum UserRole {
   systemAdmin, // مسؤول نظام - كامل الصلاحيات
   executiveViewer, // مستخدم تنفيذي - عرض فقط لكل الإدارات
   departmentManager, // مدير إدارة - تعديل مشاريع إدارته فقط
-  projectOfficer, // مدير مشروع - يرى مشروعه المُسنَد إليه فقط
+  // ــــ دورٌ موروث لا يُمنح بعد اليوم ــــ
+  //
+  // كان «مدير مشروع» دوراً أساسياً يُختار عند التسجيل، فيسري على صاحبه في
+  // كل مشاريع المنصة لمجرّد أنه قاد مشروعاً واحداً. وصار قيادةُ المشروع
+  // **مسؤوليةً داخل مشروع بعينه** تُقرأ من `managerUids` عليه — راجع
+  // `isMyProject` في firestore.rules و`canEditProject` في المتجر.
+  //
+  // ويبقى العنصر في التعداد لأن حساباتٍ حيّة في الوزارة تحمله، وحذفُه يجعل
+  // سجلّاتها تُقرأ بدورٍ آخر فجأةً. ولا يظهر في أي قائمة اختيار — راجع
+  // [assignableAtSignup] و[adminAssignable].
+  projectOfficer, // (موروث) مدير مشروع
   employee, // موظف - ينفّذ الأعمال التشغيلية المُسنَدة إليه ضمن إدارته
   custom; // دور مخصص مُعرَّف من مسؤول النظام (راجع CustomRole)
 
@@ -36,8 +46,26 @@ enum UserRole {
     UserRole.employee,
   ];
 
+  /// الأدوار التي يختارها الموظف عند التسجيل، ويمنحها مسؤول النظام عند
+  /// إنشاء حساب أو تعديله.
+  ///
+  /// و«مدير مشروع» ليس منها بقرار صريح: هو مسؤوليةٌ داخل مشروع بعينه تُطلب
+  /// وتُعتمد (راجع [ApprovalType.projectManagerAppointment])، لا موقعٌ في
+  /// الهيكل التنظيمي. ومنحُه دوراً أساسياً كان يُعطي صاحبه صفة مدير مشروع
+  /// في **كل** مشاريع المنصة لمجرّد أنه قاد واحداً.
+  static const List<UserRole> assignable = [
+    UserRole.executiveViewer,
+    UserRole.departmentManager,
+    UserRole.employee,
+  ];
+
+  /// هل هذا الدور موروثٌ لا يُمنح بعد اليوم؟ يُعرض لصاحبه ولا يُختار لغيره.
+  bool get isLegacy => this == UserRole.projectOfficer;
+
+  /// والافتراض عند قراءة دورٍ غير معروف **أدنى الأدوار** لا أعلاها: مستندٌ
+  /// تالفٌ أو حقلٌ ناقص يجب أن يُنقص الوصول لا أن يزيده.
   static UserRole fromName(String name) =>
-      UserRole.values.firstWhere((e) => e.name == name, orElse: () => UserRole.projectOfficer);
+      UserRole.values.firstWhere((e) => e.name == name, orElse: () => UserRole.employee);
 }
 
 /// حالة اعتماد حساب المستخدم
@@ -224,6 +252,15 @@ enum ApprovalType {
   // نطاقه، ويعتمده مسؤول النظام وحده — فلا ينتقل مشروعٌ من يدٍ إلى يد بقرار
   // طرفٍ واحد، ويبقى الأثر في سجل التدقيق.
   managerChange,
+  // ــــ تعيين موظف مديراً لمشروع بعينه ــــ
+  //
+  // «مدير المشروع» لم يعد دوراً أساسياً يُمنح عند التسجيل فيسري على كل
+  // مشاريع المنصة، بل **مسؤولية مؤقتة داخل مشروع واحد**. والموظف يطلبها
+  // لنفسه، ويعتمدها **مدير إدارة المشروع** أو مسؤول النظام.
+  //
+  // وقبل هذا كان صاحب صلاحية «الانضمام لمشاريع الإدارة» يسجّل نفسه مديراً
+  // بلا اعتماد أحد — وهو الباب الذي أُغلق.
+  projectManagerAppointment,
   decision; // قرار تنفيذي عام مطلوب من القيادة
 
   String get label {
@@ -240,6 +277,8 @@ enum ApprovalType {
         return 'إرسال بريد';
       case ApprovalType.managerChange:
         return 'تغيير مدير المشروع';
+      case ApprovalType.projectManagerAppointment:
+        return 'تعيين مدير مشروع';
       case ApprovalType.decision:
         return 'قرار تنفيذي';
     }

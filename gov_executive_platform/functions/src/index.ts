@@ -111,6 +111,16 @@ function readScopedGrants(
 /** الأدوار الأساسية التي يضبط مسؤول النظام صلاحياتها من شاشة "صلاحيات الأدوار". */
 const CONFIGURABLE_ROLES = ["executiveViewer", "departmentManager", "projectOfficer", "employee"] as const;
 
+/**
+ * الأدوار التي **تُمنح** عند اعتماد تسجيل.
+ *
+ * و`projectOfficer` ليس منها بعد اليوم: قيادةُ المشروع صارت مسؤوليةً داخل
+ * مشروع بعينه تُطلب وتُعتمد، لا دوراً في الهيكل التنظيمي يسري على كل
+ * مشاريع المنصة. ويبقى في `CONFIGURABLE_ROLES` أعلاه لأن حساباتٍ حيّة تحمله
+ * ولصلاحياتها إعدادٌ يُقرأ — حذفُه منها يُسقط إعدادها بلا قرار.
+ */
+const GRANTABLE_ROLES = ["executiveViewer", "departmentManager", "employee"] as const;
+
 /** الإعداد المبدئي إن لم يُنشأ مستند settings/rolePermissions بعد — مطابق لسلوك المنصة السابق. */
 const DEFAULT_ROLE_PERMS: Record<string, string[]> = {
   // "dsh"/"dpg": مدخلا لوحة القيادة وصفحة الإدارة. مفتوحان لكل دور إلا
@@ -489,6 +499,18 @@ function checkApprovalPermission(
         tokenScopeCovers(auth, "mpr", departmentId);
       break;
     }
+    // ــ تعيين مدير مشروع: مدير إدارة **المشروع** أو مسؤول النظام ــ
+    //
+    // وإدارةُ المشروع لا إدارةُ الطالب: المسؤولية على مشروعٍ بعينه، فصاحبُ
+    // ذلك المشروع هو من يقرّر. و`departmentId` على مستند الطلب مكتوبٌ من
+    // إدارة المشروع، ويُعاد التحقّق منه عند التنفيذ أدناه.
+    case "projectManagerAppointment": {
+      const myDepts = callerRole === "departmentManager" ?
+        ((auth?.token.departmentIds as string[] | undefined) ?? []) :
+        [];
+      allowed = isAdmin || (departmentId !== null && myDepts.includes(departmentId));
+      break;
+    }
     // registration و deadlineChange و notifySend و managerChange: مسؤول
     // النظام وحده، بلا استثناء. و`notifySend` أُلحقت بهنّ بقرار صريح منه: كل بريد يخرج باسم
     // المنصة يمرّ بموافقته. ولا يفتحها مفتاح مفوَّض — لا `ntf` ولا غيرها —
@@ -554,12 +576,13 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
 
       // ١) لا يُمنح عبر التسجيل إلا دور أساسي مضبوط الصلاحيات. وعلى رأس
       // المستبعَد systemAdmin: مسؤول النظام لا يُصنع إلا بـ setUserRole.
-      if (!(CONFIGURABLE_ROLES as readonly string[]).includes(role)) {
+      if (!(GRANTABLE_ROLES as readonly string[]).includes(role)) {
         throw new HttpsError(
           "invalid-argument",
           "الدور المطلوب في هذا الطلب غير مسموح به عند التسجيل. " +
-          "الأدوار المسموحة: مستخدم تنفيذي، مدير إدارة، مدير مشروع، موظف. " +
-          "لمنح دور آخر استخدم شاشة إدارة المستخدمين بعد الاعتماد.",
+          "الأدوار المسموحة: مستخدم تنفيذي، مدير إدارة، موظف. " +
+          "و«مدير مشروع» لم يعد دوراً أساسياً: يُطلب تعييناً داخل مشروع بعينه " +
+          "بعد اعتماد الحساب، ويعتمده مدير إدارة المشروع.",
         );
       }
 
@@ -709,6 +732,47 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         createdByUid: data.requestedByUid,
         createdAt: now(),
       });
+      break;
+    }
+    case "projectManagerAppointment": {
+      const projectId = String(payload.projectId ?? "");
+      const uid = String(payload.uid ?? "");
+      if (!projectId || !uid) {
+        throw new HttpsError("invalid-argument", "حمولة طلب التعيين ناقصة");
+      }
+      // ــ الحمولة لا يُوثَق بها ــ
+      //
+      // مستند الطلب يكتبه العميل. فلو أُخذ `uid` منها بلا فحص لأمكن أن يقدّم
+      // موظفٌ طلباً باسمه وحمولتُه معرّفُ غيره — أو أن يشير إلى مشروعٍ في
+      // إدارة أخرى غير التي فُحص عليها نطاق المعتمِد. فيُطابَق الاثنان.
+      if (uid !== data.requestedByUid) {
+        throw new HttpsError("invalid-argument", "حمولة الطلب لا تطابق مُقدّمه");
+      }
+      const projRef = db().collection("projects").doc(projectId);
+      const projSnap = await projRef.get();
+      if (!projSnap.exists) throw new HttpsError("not-found", "المشروع غير موجود");
+      const proj = projSnap.data() ?? {};
+      if ((proj.departmentId ?? null) !== (data.departmentId ?? null)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "إدارة المشروع تغيّرت بعد تقديم الطلب — يُرفض الطلب ويُقدَّم من جديد.",
+        );
+      }
+      const managers = uidList(proj.managerUids);
+      if (!managers.includes(uid)) managers.push(uid);
+      await projRef.update({
+        managerUids: managers,
+        managerUid: managers.length ? managers[0] : null,
+      });
+      // ــ سجل التدقيق: من عُيّن، ولأي مشروع، ومن عيّنه، ومتى ــ
+      //
+      // والتاريخ من `logAudit` نفسها (`timestamp`)، فهو تاريخ بداية التعيين.
+      await logAudit(
+        auth.token.name ?? "معتمِد",
+        "تعيين مدير مشروع",
+        `عيّن "${payload.name ?? uid}" مديراً لمشروع "${proj.name ?? projectId}" ` +
+        `(اعتماد طلبٍ قدّمه بنفسه)`,
+      );
       break;
     }
     case "deadlineChange": {
@@ -1073,7 +1137,8 @@ async function restampClaims(uid: string): Promise<Record<string, unknown>> {
   const doc = await db().collection("users").doc(uid).get();
   if (!doc.exists) throw new HttpsError("not-found", "لا يوجد سجل لهذا المستخدم");
   const u = doc.data()!;
-  const role = (u.role as string | undefined) ?? "projectOfficer";
+  // وأدنى الأدوار افتراضاً: سجلٌّ بلا دورٍ مكتوب يجب أن يُنقص الوصول لا أن يزيده.
+  const role = (u.role as string | undefined) ?? "employee";
   const claims = {
     role,
     departmentId: (u.departmentId as string | null) ?? null,
@@ -1256,11 +1321,49 @@ export const setProjectTeam = onCall(async (request) => {
     managerUid: managerUids.length ? managerUids[0] : null,
   });
 
-  await logAudit(
-    (auth.token.name as string | undefined) ?? "مستخدم",
-    "تعديل فريق المشروع",
-    `مشروع "${project.name ?? projectId}": ${managerUids.length} مديراً و${executorUids.length} منفّذاً`,
-  );
+  // ــــ سجل التدقيق: التعيينُ باسمه لا بعدده ــــ
+  //
+  // كان يُكتب سطرٌ واحد: «مشروع كذا: ٣ مديراً و٥ منفّذاً». وهو لا يجيب عن
+  // السؤال الذي يُسأل في المراجعة بعد شهر: **من عُيّن مديراً، ومن عيّنه،
+  // ومتى، ومن أُلغي تعيينه**. والعدد وحده لا يقول أيّاً من ذلك — بل يُخفي
+  // تعييناً وإلغاءً وقعا معاً فبقي العدد كما هو.
+  //
+  // فتُحسب الفروق بين ما كان وما صار، ويُكتب سطرٌ لكل تعيين وكل إلغاء.
+  const before = uidList(project.managerUids);
+  const appointed = managerUids.filter((u) => !before.includes(u));
+  const revoked = before.filter((u) => !managerUids.includes(u));
+  const actor = (auth.token.name as string | undefined) ?? "مستخدم";
+  const projectName = project.name ?? projectId;
+
+  /** اسم صاحب المعرّف كما هو مكتوب في سجلّه — لا معرّفاً خاماً في السجل. */
+  const nameOf = async (uid: string): Promise<string> => {
+    const snap = await db().collection("users").doc(uid).get();
+    return (snap.data()?.name as string | undefined) ?? uid;
+  };
+
+  for (const uid of appointed) {
+    await logAudit(
+      actor,
+      "تعيين مدير مشروع",
+      `عيّن "${await nameOf(uid)}" مديراً لمشروع "${projectName}"`,
+    );
+  }
+  for (const uid of revoked) {
+    await logAudit(
+      actor,
+      "إلغاء تعيين مدير مشروع",
+      `ألغى تعيين "${await nameOf(uid)}" مديراً لمشروع "${projectName}"`,
+    );
+  }
+  // وسطرُ الفريق يبقى: تغييرُ المنفّذين وحده لا يُنتج شيئاً مما سبق، وتركُه
+  // بلا أثر يجعل تعديلاً كاملاً يمرّ بلا ذكر.
+  if (appointed.length === 0 && revoked.length === 0) {
+    await logAudit(
+      actor,
+      "تعديل فريق المشروع",
+      `مشروع "${projectName}": ${managerUids.length} مديراً و${executorUids.length} منفّذاً`,
+    );
+  }
   return {ok: true};
 });
 

@@ -1964,8 +1964,24 @@ class AppStore extends ChangeNotifier {
       case ApprovalType.managerChange:
       case ApprovalType.notifySend:
         return false;
+      // ــ تعيين مدير مشروع: مدير إدارة المشروع أو مسؤول النظام ــ
+      //
+      // ومدير الإدارة هنا لا في بوابة `managerChange`: الفرق أن هذه **إضافة
+      // مسؤولية داخل مشروع من مشاريعه**، وتلك **نقل قيادة مشروع** من يدٍ إلى
+      // يد — والثانية بقيت لمسؤول النظام وحده كما قرّر.
+      case ApprovalType.projectManagerAppointment:
+        return isManager && myDepartmentIds.contains(r.departmentId);
     }
   }
+
+  /// الطلبات المعلّقة التي يستطيع المستخدم الحالي البتّ فيها.
+  ///
+  /// وبها يظهر «مركز القرارات» لمدير الإدارة: مدخلُه كان معلَّقاً بصلاحية
+  /// «اعتماد القرارات العامة» وحدها، فمن صار عليه اعتمادُ تعيينٍ في إدارته
+  /// لم يكن يجد الشاشة التي يعتمد فيها.
+  List<ApprovalRequest> get approvalsIOwe => approvalRequests
+      .where((r) => r.status == DecisionStatus.pending && canApprove(r))
+      .toList();
 
   /// هل يستطيع هذا المستخدم **طلب** تغيير مدير مشروع؟
   ///
@@ -2917,6 +2933,15 @@ class AppStore extends ChangeNotifier {
     final uid = currentUser?.id;
     if (uid == null) return 'لا يوجد مستخدم مسجَّل';
     if (!canSelfAssign(project)) return 'لا تملك صلاحية الانضمام لمشاريع هذه الإدارة';
+    // ــ الباب الذي أُغلق ــ
+    //
+    // كان صاحب «الانضمام لمشاريع الإدارة» يسجّل نفسه **مديراً** بضغطة، بلا
+    // اعتماد أحد. فقيادةُ المشروع تُؤخذ لا تُعطى. وصارت طلباً يعتمده مدير
+    // إدارة المشروع أو مسؤول النظام. أما التسجيل **منفّذاً** فيبقى مباشراً:
+    // هو إعلانُ مشاركةٍ في التنفيذ لا تولّي مسؤولية.
+    if (asManager && !isAdmin && !canManageProjectTeam(project)) {
+      return requestProjectManagerAppointment(project);
+    }
     final managers = project.managerUids.toList()..remove(uid);
     final executors = project.executorUids.toList()..remove(uid);
     if (asManager) {
@@ -2985,6 +3010,70 @@ class AppStore extends ChangeNotifier {
   bool canManageProjectTeam(Project project) {
     if (isAdmin) return true;
     return isManager && myDepartmentIds.contains(project.departmentId);
+  }
+
+  /// هل عليه طلبُ تعيينٍ معلّق في هذا المشروع؟ — فلا يُقدّم طلبين.
+  bool hasPendingManagerAppointment(Project project) {
+    final uid = currentUser?.id;
+    if (uid == null) return false;
+    return approvalRequests.any((r) =>
+        r.type == ApprovalType.projectManagerAppointment &&
+        r.status == DecisionStatus.pending &&
+        r.projectId == project.id &&
+        r.requestedByUid == uid);
+  }
+
+  /// يطلب الموظف تعيينَ نفسه مديراً لهذا المشروع.
+  ///
+  /// ــــ لماذا طلبٌ لا ضغطة؟ ــــ
+  ///
+  /// لأن «مدير المشروع» صار مسؤوليةً لا صفة: من يقودُ مشروعاً يرى تفاصيله
+  /// كاملة، ويُسنِد مهامه، ويعتمد ما يُنجَز فيه. وأخذُ ذلك بضغطةٍ من صاحبها
+  /// نفسه ليس تعييناً.
+  ///
+  /// ويبتّ فيه **مدير إدارة المشروع** أو مسؤول النظام — لا إدارةُ الطالب:
+  /// المسؤولية على مشروعٍ بعينه، فصاحبُ ذلك المشروع هو من يقرّر.
+  Future<String?> requestProjectManagerAppointment(Project project) async {
+    final me = currentUser;
+    if (me == null) return 'لا يوجد مستخدم مسجَّل';
+    if (project.managerUids.contains(me.id)) return 'أنت مدير لهذا المشروع أصلاً';
+    if (hasPendingManagerAppointment(project)) {
+      return 'لديك طلب تعيين معلّق على هذا المشروع — بانتظار البتّ فيه';
+    }
+    try {
+      await _db.collection('approvalRequests').add(ApprovalRequest(
+            id: '',
+            type: ApprovalType.projectManagerAppointment,
+            status: DecisionStatus.pending,
+            title: 'طلب تعيين مدير مشروع: ${project.name}',
+            description: 'يطلب ${me.name} تعيينه مديراً لمشروع "${project.name}".',
+            priority: PriorityLevel.medium,
+            delayImpactDays: 0,
+            // إدارة **المشروع** لا إدارة الطالب: بها يُفحص من يحقّ له البتّ.
+            departmentId: project.departmentId,
+            projectId: project.id,
+            requestedByUid: me.id,
+            requestedByName: me.name,
+            requestedDate: DateTime.now(),
+            payload: {'projectId': project.id, 'uid': me.id, 'name': me.name},
+          ).toMap());
+      await _log('طلب تعيين مدير مشروع',
+          'طلب ${me.name} تعيينه مديراً لمشروع "${project.name}"');
+      return null;
+    } catch (e) {
+      return 'تعذّر رفع الطلب: $e';
+    }
+  }
+
+  /// يُلغي تعيين مديرٍ عن مشروع — ويُكتب في سجل التدقيق باسمه وباسم من ألغاه.
+  Future<String?> revokeProjectManager(Project project, String uid) async {
+    if (!canManageProjectTeam(project)) return 'لا تملك صلاحية تعديل فريق هذا المشروع';
+    final name = users.where((u) => u.id == uid).map((u) => u.name).firstOrNull ?? uid;
+    final err = await setProjectMemberRole(project, uid, null);
+    if (err != null) return err;
+    await _log('إلغاء تعيين مدير مشروع',
+        'ألغى ${currentUser?.name} تعيين "$name" مديراً لمشروع "${project.name}"');
+    return null;
   }
 
   /// تعيين/تغيير "مدير المشروع" (مسؤول النظام فقط) — يُبقى للتوافق مع
@@ -3156,6 +3245,38 @@ class AppStore extends ChangeNotifier {
     } on FirebaseFunctionsException catch (e) {
       return e.message ?? 'تعذر تعديل دور المستخدم';
     }
+  }
+
+  /// الحسابات التي ما زالت تحمل الدور الموروث «مدير مشروع».
+  List<AppUser> get legacyProjectOfficers =>
+      users.where((u) => u.role.isLegacy).toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+
+  /// يحوّل حساباً موروثاً إلى «موظف» — **بلا مساس بعضويات مشاريعه**.
+  ///
+  /// ــــ ولماذا لا يفقد شيئاً؟ ــــ
+  ///
+  /// لأن قيادة المشروع لم تعد تُقرأ من الدور بل من `managerUids` على المشروع
+  /// نفسه (راجع `isMyProject` في firestore.rules). فمن كان مديراً لمشاريع
+  /// يبقى مديراً لها بعد التحويل حرفاً، ويفقد وحده ما لم يكن يستحقّه: صفةَ
+  /// «مدير مشروع» في مشاريع لا علاقة له بها.
+  Future<String?> convertLegacyOfficerToEmployee(AppUser user) async {
+    if (!isAdmin) return 'هذا الإجراء لمسؤول النظام وحده';
+    if (!user.role.isLegacy) return 'هذا الحساب ليس بالدور الموروث';
+    final err = await setUserRole(
+      user,
+      role: UserRole.employee,
+      departmentId: user.departmentId,
+      departmentIds: user.departmentIds,
+    );
+    if (err != null) return err;
+    final led = projects.where((p) => p.managerUids.contains(user.id)).length;
+    await _log(
+      'تحويل دور موروث',
+      'حوّل ${currentUser?.name} حساب "${user.name}" من «مدير مشروع» إلى «موظف» '
+          '— ويبقى مديراً لـ$led مشروعاً مسجَّلاً عليه',
+    );
+    return null;
   }
 
   // ------------------------- الأدوار المخصصة -------------------------

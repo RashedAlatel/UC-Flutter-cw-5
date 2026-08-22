@@ -187,6 +187,42 @@ class _RequestCardState extends State<_RequestCard> {
               const SizedBox(height: 12),
               _ManagerChangePanel(request: r),
             ],
+            // ــ تعيين مدير مشروع: ما الذي يُمنَح باعتماد هذا الطلب؟ ــ
+            //
+            // المعتمِد مدير إدارة لا مسؤول نظام، وقد لا يعرف ماذا تعني
+            // «قيادة المشروع» في المنصة. فتُذكر آثارها صراحةً قبل الضغط —
+            // اعتمادٌ لا يعرف صاحبه ماذا منح ليس اعتماداً.
+            if (r.type == ApprovalType.projectManagerAppointment) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'باعتماد هذا الطلب يصير «${r.requestedByName}» مديراً '
+                      'لهذا المشروع — وداخله وحده.',
+                      style: const TextStyle(
+                          fontSize: 12.5, height: 1.8, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'فيطّلع على تفاصيله ومهامه كاملة، ويُسنِد المهام لمنفّذيه، '
+                      'ويتابع تحديثاتهم اليومية، وينشئ العوائق والمخاطر، ويعتمد ما '
+                      'يُنجَز فيه. ولا يتغيّر دوره الأساسي، ولا يمسّ ذلك مشروعاً آخر.',
+                      style: TextStyle(
+                          fontSize: 11.5, height: 1.8, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 18,

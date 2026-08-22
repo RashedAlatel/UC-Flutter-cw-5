@@ -82,9 +82,19 @@ List<NavKey> navKeysFor(AppStore store) {
   // ذلك — لا مدخلاً يظهر ويختفي بتبدّل بياناته فيظنّه عطلاً.
   keys.add(NavKey.myAssignments);
 
-  // مركز القرارات لمن يعتمد فعلاً قراراً فيه — مدير الإدارة ومدير المشروع
-  // يقدّمان الطلبات ولا يعتمدان شيئاً هناك.
-  if (store.hasPermission(RolePermission.approveGeneralDecisions)) keys.add(NavKey.decisions);
+  // مركز القرارات لمن يعتمد فعلاً قراراً فيه.
+  //
+  // وكان معلَّقاً بصلاحية «اعتماد القرارات العامة» وحدها. ثم صار على مدير
+  // الإدارة أن يعتمد **تعيين مدير مشروع** في إدارته — فلم يكن يجد الشاشة
+  // التي يعتمد فيها، ويبقى الطلب معلّقاً بلا أن يعرف أحدٌ لماذا.
+  //
+  // فصار المدخل يظهر كذلك لمن عليه طلبٌ معلّق يستطيع البتّ فيه. وهو أصدق
+  // شرطٍ ممكن: يُبنى من الطلبات نفسها لا من قائمة أنواعٍ تُنسى عند إضافة
+  // نوعٍ جديد — وقد نُسيت مرة.
+  if (store.hasPermission(RolePermission.approveGeneralDecisions) ||
+      store.approvalsIOwe.isNotEmpty) {
+    keys.add(NavKey.decisions);
+  }
 
   if (store.currentUser?.role != UserRole.projectOfficer &&
       store.currentUser?.role != UserRole.employee) {

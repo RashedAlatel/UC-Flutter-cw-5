@@ -39,12 +39,10 @@ class _SignupScreenState extends State<SignupScreen> {
   /// (راجع `signUp`)، وقاعدة `/users/{uid}` تمنع المسجِّل من ترقية نفسه.
   /// الدور المطلوب يمرّ في طلب الاعتماد، ولا يصير دوراً فعلياً إلا بختم
   /// مسؤول النظام.
-  static const _selectableRoles = [
-    UserRole.employee,
-    UserRole.departmentManager,
-    UserRole.executiveViewer,
-    UserRole.projectOfficer,
-  ];
+  /// و«مدير مشروع» سقط من هذه القائمة بقرار صريح: صار مسؤوليةً داخل مشروع
+  /// بعينه يطلبها الموظف بعد اعتماد حسابه ويعتمدها مدير إدارة المشروع — لا
+  /// دوراً أساسياً يسري على كل مشاريع المنصة. راجع [UserRole.assignable].
+  static const _selectableRoles = UserRole.assignable;
 
   /// يُنشأ مرة واحدة فقط. لو تُرِك داخل build() لأعاد FutureBuilder إطلاق
   /// استعلام Firestore مع كل setState (تغيير الدور، ظهور رسالة خطأ...) —

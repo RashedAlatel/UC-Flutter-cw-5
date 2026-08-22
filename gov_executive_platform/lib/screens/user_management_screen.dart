@@ -73,6 +73,54 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+          // ــــ الدور الموروث «مدير مشروع» ــــ
+          //
+          // لم يعد يُمنح: قيادة المشروع صارت مسؤوليةً داخل مشروع بعينه تُقرأ
+          // من `managerUids` عليه. والحسابات الحاملة له تعمل كما هي، ولا
+          // تُحوَّل تلقائياً — تحويلُ حساباتٍ حيّة دفعةً واحدة قرارُ مسؤول
+          // النظام لا قرارُ نشرٍ يقع بلا أن يراه.
+          //
+          // واللافتة تظهر ما دام أحدٌ يحمله، وتختفي وحدها حين لا يبقى منه شيء.
+          if (store.isAdmin && store.legacyProjectOfficers.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: AppColors.warning.withValues(alpha: 0.40)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${store.legacyProjectOfficers.length} حساباً ما زال بالدور '
+                    'الموروث «مدير مشروع»',
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                  ),
+                  const SizedBox(height: 5),
+                  const Text(
+                    'هذا الدور لم يعد يُمنح: قيادة المشروع صارت تعييناً داخل مشروع '
+                    'بعينه. والتحويل إلى «موظف» **لا يُفقد أحداً مشاريعه** — من كان '
+                    'مديراً لمشروع يبقى مديراً له، ويفقد وحده صفة المدير في مشاريع '
+                    'لا علاقة له بها.',
+                    style: TextStyle(
+                        fontSize: 11.5, height: 1.8, color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: 9),
+                  OutlinedButton.icon(
+                    onPressed: () => showDialog(
+                      context: context,
+                      builder: (_) => const _LegacyRoleDialog(),
+                    ),
+                    icon: const Icon(Icons.published_with_changes_rounded, size: 17),
+                    label: const Text('مراجعة الحسابات وتحويلها'),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 18),
           Card(
             child: Padding(
@@ -388,7 +436,15 @@ class _RoleFields extends StatelessWidget {
     final isManagerRole = role == UserRole.departmentManager;
     final needsSingleDept = role == UserRole.projectOfficer;
     final isCustom = role == UserRole.custom;
-    final selectableRoles = UserRole.values.where((r) => r != UserRole.custom || store.customRoles.isNotEmpty).toList();
+    // ــ «مدير مشروع» لا يُمنح بعد اليوم ــ
+    //
+    // يسقط من القائمة إلا لمن يحمله أصلاً: حسابٌ حيٌّ دورُه كذلك يجب أن
+    // تُفتح شاشته بلا انهيار، وأن يبقى الدور مرئياً حتى يقرّر مسؤول النظام
+    // تحويله. ومتى حُوِّل لم يعد يُختار.
+    final selectableRoles = UserRole.values
+        .where((r) => !r.isLegacy || r == role)
+        .where((r) => r != UserRole.custom || store.customRoles.isNotEmpty)
+        .toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -565,7 +621,7 @@ class _UserFormDialogState extends State<_UserFormDialog> {
   final _emailCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
-  UserRole _role = UserRole.projectOfficer;
+  UserRole _role = UserRole.employee;
   String? _customRoleId;
   String? _departmentId;
   List<String> _departmentIds = [];
@@ -673,6 +729,109 @@ class _UserFormDialogState extends State<_UserFormDialog> {
               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : const Text('إضافة'),
         ),
+      ],
+    );
+  }
+}
+
+/// مراجعة الحسابات الحاملة للدور الموروث «مدير مشروع» وتحويلها.
+///
+/// ــــ لماذا شاشةُ مراجعةٍ لا زرُّ «حوّل الجميع»؟ ــــ
+///
+/// لأن التحويل يمسّ حساباتٍ حيّة في وزارة. ومسؤول النظام يحتاج أن يرى، قبل
+/// كل تحويل، **كم مشروعاً يقوده صاحبه فعلاً**: من يقود ثلاثة مشاريع يبقى
+/// مديراً لها بعد التحويل، ومن لا يقود شيئاً يفقد صفةً لم تكن تقابل عملاً.
+/// وزرٌّ واحد يفعل ذلك بالجملة يُخفي هذا الفرق تماماً.
+class _LegacyRoleDialog extends StatefulWidget {
+  const _LegacyRoleDialog();
+
+  @override
+  State<_LegacyRoleDialog> createState() => _LegacyRoleDialogState();
+}
+
+class _LegacyRoleDialogState extends State<_LegacyRoleDialog> {
+  String? _busyUid;
+  String? _error;
+
+  Future<void> _convert(AppStore store, AppUser user) async {
+    setState(() {
+      _busyUid = user.id;
+      _error = null;
+    });
+    final err = await store.convertLegacyOfficerToEmployee(user);
+    if (!mounted) return;
+    setState(() {
+      _busyUid = null;
+      _error = err;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final legacy = store.legacyProjectOfficers;
+
+    return AlertDialog(
+      title: const Text('الدور الموروث: مدير مشروع'),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'التحويل إلى «موظف» يُبقي كل عضويات المشاريع كما هي: قيادة المشروع '
+                'تُقرأ من تسجيل الشخص مديراً عليه، لا من دوره في الهيكل.',
+                style: TextStyle(fontSize: 12.5, height: 1.9, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 14),
+              if (legacy.isEmpty)
+                const Text('لم يبقَ حسابٌ بالدور الموروث.',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
+              for (final u in legacy)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(u.name,
+                                style: const TextStyle(
+                                    fontSize: 12.5, fontWeight: FontWeight.w700)),
+                            Text(
+                              'يقود ${store.projects.where((p) => p.managerUids.contains(u.id)).length} مشروعاً '
+                              '· ${store.departmentById(u.departmentId ?? '')?.name ?? 'بلا إدارة'}',
+                              style: const TextStyle(
+                                  fontSize: 10.5, color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_busyUid == u.id)
+                        const SizedBox(
+                            width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      else
+                        OutlinedButton(
+                          onPressed: _busyUid != null ? null : () => _convert(store, u),
+                          child: const Text('تحويل إلى موظف'),
+                        ),
+                    ],
+                  ),
+                ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!,
+                    style: const TextStyle(fontSize: 12, color: AppColors.danger, height: 1.6)),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق')),
       ],
     );
   }

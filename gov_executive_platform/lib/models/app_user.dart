@@ -124,7 +124,7 @@ class AppUser {
       name: json['name'] as String? ?? '',
       email: json['email'] as String? ?? '',
       phone: json['phone'] as String? ?? '',
-      role: UserRole.fromName(json['role'] as String? ?? UserRole.projectOfficer.name),
+      role: UserRole.fromName(json['role'] as String? ?? UserRole.employee.name),
       customRoleId: json['customRoleId'] as String?,
       departmentId: json['departmentId'] as String?,
       departmentIds: List<String>.from(json['departmentIds'] as List? ?? const []),

@@ -169,12 +169,24 @@ class DashboardWidgetConfig {
   /// القائمة الفارغة (أو null) تعني «هذه الطبقة لم تُضبط» لا «لوحة بلا
   /// ودجات»، فتُتخطّى إلى الطبقة التالية — لولا ذلك لظهرت لوحة خالية لأي
   /// مستخدم حُذف آخر ودجت من لوحته.
+  ///
+  /// و[personalAllowed] هو الفرق بين «لم يخصّص» و«لا يملك التخصيص»:
+  ///
+  /// كان زرّ «تخصيص اللوحة» معروضاً لكل مستخدم بلا استثناء، فالمستخدم
+  /// التنفيذي — ولو لم تُمنح له صلاحية «تخصيص لوحة القيادة» — يخصّص لوحته
+  /// مرةً واحدة، فتُحفظ طبقتُه الشخصية وتعلو أبداً على لوحة الدور. ومسؤول
+  /// النظام يضبط لوحة الدور فلا يقع منها شيء، ولا يعرف لماذا.
+  ///
+  /// فمن لا يملك الصلاحية لا يُقرأ له تخصيصٌ سابق: هو ليس اختياراً قائماً
+  /// بل أثرٌ لبابٍ كان مفتوحاً. ولا يُحذف من قاعدة البيانات — فإن أعاد
+  /// مسؤول النظام منحَه الصلاحية عادت لوحته كما تركها.
   static List<DashboardWidgetConfig> resolveLayers({
     List<DashboardWidgetConfig>? personal,
     List<DashboardWidgetConfig>? role,
     List<DashboardWidgetConfig>? global,
+    bool personalAllowed = true,
   }) {
-    if (personal != null && personal.isNotEmpty) return personal;
+    if (personalAllowed && personal != null && personal.isNotEmpty) return personal;
     if (role != null && role.isNotEmpty) return role;
     if (global != null && global.isNotEmpty) return global;
     return defaults();

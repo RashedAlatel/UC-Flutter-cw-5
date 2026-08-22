@@ -18,6 +18,9 @@ import '../models/notify_templates.dart';
 import '../widgets/focus_assignment_dialog.dart';
 import '../widgets/notify_dialog.dart';
 import '../widgets/project_actions.dart';
+import '../models/daily_update.dart';
+import '../widgets/month_calendar.dart' show dayOnly;
+import '../widgets/updates_calendar.dart';
 import '../widgets/section_picker.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
@@ -26,6 +29,85 @@ import 'request_deadline_change_dialog.dart';
 class ProjectDetailScreen extends StatelessWidget {
   final String projectId;
   const ProjectDetailScreen({super.key, required this.projectId});
+
+  /// يحوّل سجل التحديثات إلى خلاصة يومٍ لكل يوم — وهو ما يقرؤه التقويم.
+  ///
+  /// واليوم الذي فيه أكثر من تحديث يُعرض بأحدثها ويُقال كم فيه: التقويم
+  /// نظرةٌ لا سجل، والسجل كامل تحته.
+  Map<DateTime, DayDigest> _digestsOf(List<DailyUpdate> updates) {
+    final byDay = <DateTime, List<DailyUpdate>>{};
+    for (final u in updates) {
+      byDay.putIfAbsent(dayOnly(u.date), () => []).add(u);
+    }
+    return {
+      for (final entry in byDay.entries)
+        entry.key: () {
+          final sorted = entry.value..sort((a, b) => b.date.compareTo(a.date));
+          final latest = sorted.first;
+          // الملخّص أول سطرٍ ممّا كُتب: البطاقة تُقرأ بلمحة، والنصّ الكامل
+          // في السجل.
+          final firstLine = latest.achievements.trim().split('\n').first.trim();
+          return DayDigest(
+            day: entry.key,
+            summary: firstLine,
+            count: sorted.length,
+            progress: latest.progressPercent,
+            // العائق علامةٌ حمراء: هو ما يحتاج قراراً، ولا يجوز أن يختفي
+            // بين سطور السجل.
+            hasBlocker: sorted.any((u) => u.blockers.isNotEmpty),
+          );
+        }(),
+    };
+  }
+
+  /// يفتح يوماً من التقويم: نموذج التحديث مفتوحاً على ذلك اليوم.
+  ///
+  /// ولمن لا يملك الكتابة يُعرض ما فيه بلا نموذج — فالتقويم يُقرأ ولو لم
+  /// يُكتب فيه.
+  void _openDay(BuildContext context, Project project, DateTime day) {
+    final store = context.read<AppStore>();
+    if (store.canEditProject(project)) {
+      showDialog(
+        context: context,
+        builder: (_) => DailyUpdateForm(project: project, initialDay: day),
+      );
+      return;
+    }
+    final updates = store.updatesOnDay(project.id, day);
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(Formatters.date(day)),
+        content: SizedBox(
+          width: 420,
+          child: updates.isEmpty
+              ? const Text('لا يوجد تحديث مسجَّل لهذا اليوم.')
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final u in updates) ...[
+                      Text(u.authorName,
+                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
+                      const SizedBox(height: 4),
+                      Text(u.achievements.trim().isEmpty ? 'بلا ملخّص إنجازات' : u.achievements,
+                          style: const TextStyle(fontSize: 12.5, height: 1.7)),
+                      if (u.blockers.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text('عوائق: ${u.blockers.join('، ')}',
+                            style: const TextStyle(fontSize: 12, color: AppColors.danger, height: 1.6)),
+                      ],
+                      const SizedBox(height: 10),
+                    ],
+                  ],
+                ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('إغلاق')),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -311,8 +393,33 @@ class ProjectDetailScreen extends StatelessWidget {
           const SizedBox(height: 12),
           _KanbanBoard(projectId: projectId, canEdit: canEdit),
           const SizedBox(height: 24),
-          const Text('سجل التحديثات اليومية', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          const Text('التحديثات اليومية', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          const Text(
+            'خطٌّ زمني للمشروع: أين وقع العمل، وأين الفجوات، وأين العوائق.',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.7),
+          ),
           const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: UpdatesCalendar(
+                firstDay: project.startDate,
+                lastDay: DateTime.now(),
+                digests: _digestsOf(updates),
+                onOpenDay: (day) => _openDay(context, project, day),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          // السجل النصّي يبقى تحت التقويم مطويّاً: هو الأثر الكامل، ويُقرأ
+          // حين يُراد قراءته — لا أن يُزاحم النظرة الأولى.
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: EdgeInsets.zero,
+            title: Text('السجل الكامل (${updates.length})',
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+            children: [
           if (updates.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
@@ -360,6 +467,8 @@ class ProjectDetailScreen extends StatelessWidget {
                     ),
                   ),
                 )),
+            ],
+          ),
           const SizedBox(height: 28),
           CustomWidgetsSection(
             store: store,

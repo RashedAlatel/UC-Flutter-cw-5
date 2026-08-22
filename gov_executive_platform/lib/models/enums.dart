@@ -205,6 +205,10 @@ enum ApprovalType {
   // إرسال بريد/إشعار باسم المنصة. بوابة اعتماد كسابقتيها: كل بريد يخرج
   // للمستخدمين يمرّ بمسؤول النظام، ولا يفتحه مفتاح مفوَّض.
   notifySend,
+  // تغيير مدير مشروع قائم. يطلبه مدير الإدارة أو المستخدم التنفيذي في
+  // نطاقه، ويعتمده مسؤول النظام وحده — فلا ينتقل مشروعٌ من يدٍ إلى يد بقرار
+  // طرفٍ واحد، ويبقى الأثر في سجل التدقيق.
+  managerChange,
   decision; // قرار تنفيذي عام مطلوب من القيادة
 
   String get label {
@@ -219,6 +223,8 @@ enum ApprovalType {
         return 'تعديل موعد نهائي';
       case ApprovalType.notifySend:
         return 'إرسال بريد';
+      case ApprovalType.managerChange:
+        return 'تغيير مدير المشروع';
       case ApprovalType.decision:
         return 'قرار تنفيذي';
     }

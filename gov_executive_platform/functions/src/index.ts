@@ -426,8 +426,8 @@ function checkApprovalPermission(
         tokenScopeCovers(auth, "mpr", departmentId);
       break;
     }
-    // registration و deadlineChange و notifySend: مسؤول النظام وحده، بلا
-    // استثناء. و`notifySend` أُلحقت بهنّ بقرار صريح منه: كل بريد يخرج باسم
+    // registration و deadlineChange و notifySend و managerChange: مسؤول
+    // النظام وحده، بلا استثناء. و`notifySend` أُلحقت بهنّ بقرار صريح منه: كل بريد يخرج باسم
     // المنصة يمرّ بموافقته. ولا يفتحها مفتاح مفوَّض — لا `ntf` ولا غيرها —
     // وإلا لعاد الإرسال بلا رقابة من باب آخر.
     default:
@@ -630,6 +630,40 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         .collection("projects")
         .doc(payload.projectId as string)
         .update({dueDate: admin.firestore.Timestamp.fromDate(new Date(payload.newDueDate as string))});
+      break;
+    }
+    // ــ تغيير مدير المشروع ــ
+    //
+    // يطلبه مدير الإدارة أو المستخدم التنفيذي، ولا يبتّ فيه إلا مسؤول
+    // النظام (راجع `checkApprovalPermission`). والأثر يُكتب في سجل التدقيق
+    // باسمَي المدير القديم والجديد ومقدّم الطلب — فلا ينتقل مشروع من يدٍ
+    // إلى يد بلا سطرٍ يقول من نقله ومتى ولماذا.
+    case "managerChange": {
+      const newUid = payload.newManagerUid as string | undefined;
+      if (!newUid) {
+        throw new HttpsError("failed-precondition", "الطلب لا يحمل مديراً جديداً");
+      }
+      const projectId = payload.projectId as string;
+      const projectRef = db().collection("projects").doc(projectId);
+      const snap = await projectRef.get();
+      if (!snap.exists) {
+        throw new HttpsError("failed-precondition", "المشروع لم يعد موجوداً");
+      }
+      // القائمة **تُستبدل** لا يُضاف إليها: «تغيير المدير» يعني أن من كان
+      // يقود لم يعد يقود. ومن أراد مديرين اثنين يضيفهما من صفحة المشروع.
+      await projectRef.update({
+        managerUids: [newUid],
+        managerUid: newUid,
+      });
+      const oldNames = (payload.currentManagerNames as string[] | undefined) ?? [];
+      await logAudit(
+        auth.token.name ?? "مسؤول النظام",
+        "تغيير مدير المشروع",
+        `اعتُمد نقل قيادة المشروع "${payload.projectName ?? projectId}" من ` +
+          `${oldNames.length ? oldNames.join("، ") : "بلا مدير"} إلى ` +
+          `${payload.newManagerName ?? newUid} — بطلب من ${data.requestedByName ?? "مستخدم"}` +
+          `${payload.reason ? ` — السبب: ${payload.reason}` : ""}`,
+      );
       break;
     }
     case "notifySend": {

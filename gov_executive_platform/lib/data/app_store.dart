@@ -179,11 +179,13 @@ class AppStore extends ChangeNotifier {
       personal: _myDashboard,
       role: key == null ? null : _roleDashboards[key],
       global: globalDashboardWidgets,
+      personalAllowed: canManageDashboard,
     );
   }
 
   /// هل خصّص المستخدم الحالي لوحته الخاصة؟ (لإظهار زر "العودة للوحة الافتراضية")
-  bool get hasPersonalDashboard => (_myDashboard ?? const []).isNotEmpty;
+  bool get hasPersonalDashboard =>
+      canManageDashboard && (_myDashboard ?? const []).isNotEmpty;
 
   /// ضبط تخطيط اللوحة مباشرةً — للاختبارات وحدها.
   ///
@@ -1549,13 +1551,11 @@ class AppStore extends ChangeNotifier {
     if (RolePermission.scoped.contains(permission)) {
       return !(currentUser?.scopeOf(permission) ?? GrantScope.none).isEmpty;
     }
-    // رفع الشكوى أو الاقتراح **حق لكل حساب معتمد**، لا صلاحية تُمنح لدور.
-    //
-    // ولم يكن جعله كذلك بتعديل الإعداد المبدئي كافياً: مستند
-    // `settings/rolePermissions` مكتوبٌ فعلاً في المنصة الحيّة، والمخزَّن
-    // يُقدَّم على أي إعداد في الشيفرة — فكان التبويب يبقى مخفياً عن الجميع.
-    // ومن أراد مسؤول النظام حرمانه يُسحب منه فرداً بالاستثناء أعلاه.
-    if (permission == RolePermission.submitFeedback) return true;
+    // «رفع الشكاوى والاقتراحات» كان حقاً مفروضاً هنا بـ`return true`، فلم
+    // يكن لمسؤول النظام سبيلٌ إلى ضبطه لدور. صار يُقرأ كبقية الصلاحيات من
+    // الشبكة — والانتقال محميّ بعلامة في المستند
+    // (`RolePermissionsConfig.feedbackAssignableField`) فلا يفقده أحد قبل
+    // أن يقرّر مسؤول النظام.
     if (role == UserRole.custom) {
       final r = myCustomRole;
       if (r == null) return false;
@@ -1578,8 +1578,11 @@ class AppStore extends ChangeNotifier {
           return true;
         case RolePermission.manageWorks:
         case RolePermission.deleteRecords:
-        case RolePermission.sendNotifications:
+        // رفع الشكوى مفتوح لحامل الدور المخصص كبقية الأدوار — ومسؤول
+        // النظام يسحبه من فرد بالاستثناء الفردي.
         case RolePermission.submitFeedback:
+          return true;
+        case RolePermission.sendNotifications:
         case RolePermission.manageFeedback:
         // والمقيَّدتان بنطاق لا تُمنحان لدور إطلاقاً — لا أساسي ولا مخصص.
         case RolePermission.manageProjects:
@@ -1809,9 +1812,89 @@ class AppStore extends ChangeNotifier {
       // إرسال البريد بوابةٌ ثالثة من هذا الصنف: لا يبتّ فيها إلا مسؤول
       // النظام، وقد مرّ في `isAdmin` أعلاه. و`ntf` تُجيز **كتابة** الطلب لا
       // البتّ فيه، فلا تُذكر هنا.
+      // وتغيير مدير المشروع بوابةٌ من الصنف نفسه: يطلبه مدير الإدارة أو
+      // المستخدم التنفيذي، ولا يبتّ فيه إلا مسؤول النظام. فلا ينتقل مشروع
+      // من يدٍ إلى يد بقرار طرفٍ واحد.
+      case ApprovalType.managerChange:
       case ApprovalType.notifySend:
         return false;
     }
+  }
+
+  /// هل يستطيع هذا المستخدم **طلب** تغيير مدير مشروع؟
+  ///
+  /// مدير الإدارة في إدارته، والمستخدم التنفيذي في نطاق ما يراه، ومسؤول
+  /// النظام في كل شيء. والموظف ومدير المشروع لا يطلبان تغيير من يقودهما.
+  bool canRequestManagerChange(Project project) {
+    if (isAdmin) return true;
+    if (canViewAllDepartments) return true;
+    return isManager && myDepartmentIds.contains(project.departmentId);
+  }
+
+  /// يرفع طلب تغيير مدير مشروع إلى مسؤول النظام.
+  Future<void> submitManagerChangeRequest({
+    required Project project,
+    required String newManagerUid,
+    required String newManagerName,
+    required String reason,
+  }) async {
+    final currentNames = project.managerUids
+        .map((uid) => users.where((u) => u.id == uid).firstOrNull?.name)
+        .whereType<String>()
+        .toList();
+    await _db.collection('approvalRequests').add(ApprovalRequest(
+          id: '',
+          type: ApprovalType.managerChange,
+          status: DecisionStatus.pending,
+          title: 'طلب تغيير مدير المشروع: ${project.name}',
+          description: reason,
+          priority: project.priority,
+          delayImpactDays: 0,
+          departmentId: project.departmentId,
+          requestedByUid: currentUser?.id ?? '',
+          requestedByName: currentUser?.name ?? '',
+          requestedDate: DateTime.now(),
+          payload: {
+            'projectId': project.id,
+            'projectName': project.name,
+            // الاسم الحالي يُنسخ في الحمولة لا يُقرأ وقت الاعتماد: مسؤول
+            // النظام يبتّ بعد يومٍ أو يومين، وقد تبدّل المدير بينهما — فما
+            // يراه في البطاقة يجب أن يكون ما كان وقت الطلب.
+            'currentManagerUids': project.managerUids,
+            'currentManagerNames': currentNames,
+            'newManagerUid': newManagerUid,
+            'newManagerName': newManagerName,
+            'reason': reason,
+          },
+        ).toMap());
+    await _log('تغيير مدير المشروع',
+        'طلب ${currentUser?.name} تغيير مدير المشروع "${project.name}" إلى $newManagerName');
+  }
+
+  /// تغيير مدير المشروع مباشرةً — لمسؤول النظام وحده.
+  ///
+  /// فلسفة المنصة تعتبره أعلى صلاحية، فلا يُطلب منه أن يرفع طلباً إلى نفسه.
+  /// والأثر يُكتب في سجل التدقيق في الحالين — بالطلب أو بالمباشر — فالحوكمة
+  /// في **الأثر** لا في عدد الخطوات.
+  Future<void> changeProjectManagerDirectly({
+    required Project project,
+    required String newManagerUid,
+    required String newManagerName,
+    String reason = '',
+  }) async {
+    final before = project.managerUids
+        .map((uid) => users.where((u) => u.id == uid).firstOrNull?.name ?? uid)
+        .join('، ');
+    await _db.collection('projects').doc(project.id).update({
+      'managerUids': [newManagerUid],
+      'managerUid': newManagerUid,
+    });
+    await _log(
+      'تغيير مدير المشروع',
+      'غيّر ${currentUser?.name} مدير المشروع "${project.name}" من '
+          '${before.isEmpty ? 'بلا مدير' : before} إلى $newManagerName'
+          '${reason.trim().isEmpty ? '' : ' — السبب: ${reason.trim()}'}',
+    );
   }
 
   /// إدارة/إدارات مدير الإدارة الحالي (دور departmentManager فقط قد يملك أكثر من إدارة).

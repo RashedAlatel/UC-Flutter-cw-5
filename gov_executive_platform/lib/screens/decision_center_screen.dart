@@ -179,6 +179,14 @@ class _RequestCardState extends State<_RequestCard> {
               const SizedBox(height: 12),
               _NotifyPreviewPanel(preview: r.notifyPreview!, store: store),
             ],
+            // طلب تغيير مدير المشروع: من كان ومن سيصير — جنباً إلى جنب.
+            // ولا يُقرأ المدير الحالي من المشروع وقت العرض بل من الحمولة:
+            // مسؤول النظام يبتّ بعد يوم أو يومين، وما يراه يجب أن يكون ما
+            // كان وقت الطلب لا ما صار إليه بعده.
+            if (r.type == ApprovalType.managerChange) ...[
+              const SizedBox(height: 12),
+              _ManagerChangePanel(request: r),
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 18,
@@ -662,6 +670,98 @@ class _UidPicker extends StatelessWidget {
                       onChanged();
                     },
                   ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// «من → إلى» لطلب تغيير مدير المشروع.
+class _ManagerChangePanel extends StatelessWidget {
+  final ApprovalRequest request;
+  const _ManagerChangePanel({required this.request});
+
+  @override
+  Widget build(BuildContext context) {
+    final payload = request.payload;
+    final currentNames = (payload['currentManagerNames'] as List?)
+            ?.map((e) => e.toString())
+            .where((e) => e.trim().isNotEmpty)
+            .toList() ??
+        const <String>[];
+    final newName = payload['newManagerName']?.toString() ?? 'غير معروف';
+    final reason = payload['reason']?.toString().trim() ?? '';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.info.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.info.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('نقل قيادة المشروع', style: AppText.label),
+          const SizedBox(height: 8),
+          _ChangeLine(
+            label: 'المدير الحالي',
+            value: currentNames.isEmpty ? 'بلا مدير' : currentNames.join('، '),
+            icon: Icons.person_outline_rounded,
+          ),
+          const SizedBox(height: 6),
+          _ChangeLine(
+            label: 'المدير المقترح',
+            value: newName,
+            icon: Icons.person_add_alt_1_outlined,
+            emphasis: true,
+          ),
+          if (reason.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _ChangeLine(label: 'السبب', value: reason, icon: Icons.notes_rounded),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ChangeLine extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final bool emphasis;
+  const _ChangeLine({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.emphasis = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 15, color: AppColors.textSecondary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textPrimary, height: 1.7),
+              children: [
+                TextSpan(
+                  text: '$label: ',
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 11.5),
+                ),
+                TextSpan(
+                  text: value,
+                  style: TextStyle(fontWeight: emphasis ? FontWeight.w800 : FontWeight.w600),
+                ),
               ],
             ),
           ),

@@ -77,8 +77,10 @@ void main() {
         });
       expect(store.canManageFeedback, isTrue);
       expect(store.hasPermission(RolePermission.selfAssignProjects), isTrue);
-      // ورفع الشكوى حق أساسي لا يتأثّر باستثناء صلاحية أخرى.
-      expect(store.canSubmitFeedback, isTrue);
+      // ورفع الشكوى لم يعد حقاً مفروضاً: صار يُضبط للدور من الشبكة، وهذا
+      // الإعداد يقول إن «موظف» يملك `sap` وحدها. واستثناء `mfb` لا يمنحه.
+      expect(store.canSubmitFeedback, isFalse,
+          reason: 'رفع الشكوى صار قرار مسؤول النظام لكل دور');
       expect(store.hasPermission(RolePermission.manageWorks), isFalse,
           reason: 'ما لم يُمنح ولم يكن حقاً أساسياً يبقى ممنوعاً');
     });

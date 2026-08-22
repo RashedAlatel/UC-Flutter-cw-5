@@ -143,6 +143,49 @@ describe('الأعمال تُطلب بنطاقها', () => {
     const db = env.authenticatedContext('u-mgr', manager()).firestore();
     await assertFails(getDocs(query(collection(db, 'works'), where('departmentId', 'in', [OTHER_DEPT]))));
   });
+
+  // ــ شكوى: «العمل لا يظهر في المُسنَد إليّ لمدير الإدارة والمستخدم
+  // التنفيذي ومدير المشروع رغم إسناده إليهم» ــ
+  //
+  // الشاشة سليمة (يحرسها `test/my_assignments_test.dart` لكل دور)، فالسؤال
+  // هل يصل الاستعلام أصلاً. وهذه هي الاستعلامات التي يُصدرها البرنامج
+  // لكل دور حرفياً.
+  const ROLES = {
+    departmentManager: {
+      role: 'departmentManager', approved: true,
+      departmentId: DEPT, departmentIds: [DEPT], perms: {mw: true},
+    },
+    executiveViewer: {
+      role: 'executiveViewer', approved: true,
+      departmentId: DEPT, departmentIds: [], perms: {vad: true},
+    },
+    projectOfficer: {
+      role: 'projectOfficer', approved: true,
+      departmentId: DEPT, departmentIds: [], perms: {},
+    },
+  };
+
+  for (const [name, claim] of Object.entries(ROLES)) {
+    test(`المُسنَدة إليّ في دور ${name} — يُقبل`, async () => {
+      await seedAll();
+      await seed('works/w-role', {departmentId: DEPT, assigneeUid: ME, title: 'عمل الدور'});
+      const db = env.authenticatedContext(ME, claim).firestore();
+      const snap = await assertSucceeds(
+        getDocs(query(collection(db, 'works'), where('assigneeUid', '==', ME))),
+      );
+      if (snap.empty) {
+        throw new Error(`الاستعلام نجح ولم يُعِد شيئاً في دور ${name}`);
+      }
+    });
+  }
+
+  // والمستخدم التنفيذي يطلب المجموعة كاملةً (يرى كل الإدارات)، فيجب أن يُقبل
+  // منه ما يُرفض من غيره — وإلا بقيت صفحته فارغة.
+  test('والمستخدم التنفيذي يطلب الأعمال كلها — يُقبل', async () => {
+    await seedAll();
+    const db = env.authenticatedContext(ME, ROLES.executiveViewer).firestore();
+    await assertSucceeds(getDocs(collection(db, 'works')));
+  });
 });
 
 describe('طلبات الاعتماد تُطلب بنطاقها', () => {

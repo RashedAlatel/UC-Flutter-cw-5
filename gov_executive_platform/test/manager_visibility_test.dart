@@ -137,8 +137,9 @@ void main() {
         ..rolePermissions = const RolePermissionsConfig({
           'departmentManager': {'mw', 'sap'},
         });
-      // و`sfb` حق أساسي لكل حساب معتمد، فهو في المتوقَّع دائماً بلا منح.
-      expect(store.expectedPermissionKeys, {'mw', 'sap', 'sfb'});
+      // و`sfb` لم يعد حقاً أساسياً: صار يُضبط للدور من الشبكة كبقية
+      // الصلاحيات، فالمتوقَّع هو ما في الإعداد لا أكثر.
+      expect(store.expectedPermissionKeys, {'mw', 'sap'});
     });
 
     test('بطاقة تنقصها صلاحية ممنوحة تُكشف', () {

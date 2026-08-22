@@ -31,6 +31,9 @@ AppUser _manager() => AppUser(
       email: 'mgr@moj.gov.kw',
       phone: '',
       role: UserRole.departmentManager,
+      // التخصيص صار بصلاحية، والاختبار يضبط التخطيط بيده — فبلا `md` تُهمَل
+      // الطبقة الشخصية ويُقاس التخطيط الافتراضي بدل تخطيط المستخدم.
+      permissionOverrides: const {'md': true},
       departmentId: _dept,
       departmentIds: const [_dept],
       status: UserStatus.approved,

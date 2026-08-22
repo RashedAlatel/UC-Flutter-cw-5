@@ -12,7 +12,14 @@ import '../utils/file_picker.dart';
 
 class DailyUpdateForm extends StatefulWidget {
   final Project project;
-  const DailyUpdateForm({super.key, required this.project});
+
+  /// اليوم الذي يُفتح عليه النموذج — اليومُ الحالي إن لم يُحدَّد.
+  ///
+  /// يُمرَّر حين يُفتح من تقويم التحديثات: من ضغط على ٢٢ أغسطس يريد أن يكتب
+  /// لـ٢٢ أغسطس، لا أن يفتح النموذج على اليوم ثم يبحث عن يومه في التقويم.
+  final DateTime? initialDay;
+
+  const DailyUpdateForm({super.key, required this.project, this.initialDay});
 
   @override
   State<DailyUpdateForm> createState() => _DailyUpdateFormState();
@@ -38,7 +45,21 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
   void initState() {
     super.initState();
     _progress = widget.project.progressPercent;
-    _day = dayOnly(DateTime.now());
+    _day = dayOnly(widget.initialDay ?? DateTime.now());
+  }
+
+  bool _prefilled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // الملء هنا لا في `initState`: يحتاج المتجر، ويقع مرةً واحدة. ومن فتح
+    // النموذج على يومٍ فيه تحديث يجب أن يراه مملوءاً كما لو اختاره بيده من
+    // التقويم — وإلا بدا اليوم فارغاً وهو ليس كذلك.
+    if (_prefilled) return;
+    _prefilled = true;
+    final existing = context.read<AppStore>().updatesOnDay(widget.project.id, _day);
+    if (existing.isNotEmpty) _selectDay(_day, existing);
   }
 
   /// ينقل الاختيار إلى يومٍ آخر، ويملأ الحقول بتحديث ذلك اليوم إن وُجد.

@@ -102,7 +102,33 @@ class WorkDetailScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  MetaLine(icon: Icons.person_outline_rounded, text: 'المسؤول: ${work.assigneeName}'),
+                  MetaLine(
+                    icon: Icons.person_outline_rounded,
+                    text: 'المسؤول: ${work.assigneeName.isEmpty ? 'غير مُسنَد' : work.assigneeName}',
+                  ),
+                  // ــ الإسناد بالاسم وحده ــ
+                  //
+                  // «المُسنَد إليّ» تُبنى على حساب المستخدم لا على اسمه
+                  // المكتوب. فعملٌ يحمل اسماً بلا حساب يبدو مُسنَداً هنا ولا
+                  // يظهر لصاحبه في صفحته أبداً — ولا شيء يقول لماذا. فيُقال.
+                  if (work.assigneeUid.isEmpty && work.assigneeName.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.warning.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+                      ),
+                      child: const Text(
+                        'هذا العمل مُسنَد بالاسم لا بحساب على المنصة، فلا يظهر لصاحبه في صفحة '
+                        '«المُسنَد إليّ». افتح «تعديل بيانات العمل» واختر المسؤول من قائمة '
+                        'الحسابات ليظهر له.',
+                        style: TextStyle(fontSize: 11.5, height: 1.7, color: AppColors.textPrimary),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   Wrap(
                     spacing: 8,

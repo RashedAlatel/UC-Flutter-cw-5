@@ -50,7 +50,11 @@ enum RolePermission {
 
   /// حقوق أساسية لكل حساب معتمد: لا تُمنح لدور ولا تظهر في شبكة
   /// «صلاحيات الأدوار»، ولا تُسحب إلا من فرد بعينه عبر استثناءات المستخدم.
-  static const Set<RolePermission> baseline = {RolePermission.submitFeedback};
+  ///
+  /// وهي **فارغة الآن**: كان «رفع الشكاوى والاقتراحات» فيها، فأخرجه مسؤول
+  /// النظام إلى الشبكة ليقرّر لكل دور. والمجموعة باقية لا مُلغاة: قد يُقرّر
+  /// غداً أن حقاً ما لا يُنازع فيه، والآليةُ حاضرة.
+  static const Set<RolePermission> baseline = <RolePermission>{};
 
   /// ما يضبطه مسؤول النظام لكل دور — أي ما ليس حقاً أساسياً ولا مقيَّداً
   /// بنطاق. والمقيَّدة بنطاق خارج الشبكة عمداً: مفتاحٌ بلا نطاق يوهم بمنحٍ
@@ -153,10 +157,13 @@ class RolePermissionsConfig {
   factory RolePermissionsConfig.defaults() => const RolePermissionsConfig({
         // 'dsh' و'dpg' مفتوحان لكل دور إلا «موظف» — فلا ينحسر شيء عمّن كان
         // يراه، ويبدأ الموظف من عمله.
-        'executiveViewer': {'vad', 'mr', 'agd', 'dsh', 'dpg'},
-        'departmentManager': {'mw', 'dsh', 'dpg'},
-        'projectOfficer': {'dsh', 'dpg'},
-        'employee': <String>{},
+        // و'sfb' لكل دور: كان حقاً أساسياً لكل حساب معتمد، فإخراجه إلى
+        // الشبكة لا يجوز أن يسحبه من أحد. ومن أراد مسؤول النظام حرمانه
+        // يُطفئه له صراحةً من الشبكة.
+        'executiveViewer': {'vad', 'mr', 'agd', 'dsh', 'dpg', 'sfb'},
+        'departmentManager': {'mw', 'dsh', 'dpg', 'sfb'},
+        'projectOfficer': {'dsh', 'dpg', 'sfb'},
+        'employee': {'sfb'},
       });
 
   bool has(UserRole role, RolePermission permission) =>
@@ -183,9 +190,23 @@ class RolePermissionsConfig {
   /// **الصنف كله** بدل استثناء لكل مفتاح جديد.
   static const String knownKeysField = '_knownKeys';
 
+  /// علامة أن «رفع الشكاوى» صار يُضبط من الشبكة.
+  ///
+  /// ــ ولماذا علامةٌ لا يكفي `_knownKeys`؟ ــ
+  ///
+  /// لأن `toMap` يكتب **كل** المفاتيح في `_knownKeys` بما فيها `sfb`، وهو
+  /// حتى اليوم حقٌّ أساسي لا يُكتب في مجموعة أي دور. فالمستند الحيّ يزعم أنه
+  /// «يعرف» `sfb` وهي غائبة عن الجميع — فتُقرأ منعاً، ويفقد كل مستخدم في
+  /// الوزارة تبويب الشكاوى في اللحظة التي يُنشر فيها هذا التغيير.
+  ///
+  /// فما دامت العلامة غائبة، تُمنح `sfb` لكل دور مهما قال المستند. وأول
+  /// حفظٍ من الشبكة يكتب العلامة، فيصير قرار مسؤول النظام هو الحاكم.
+  static const String feedbackAssignableField = '_sfbAssignable';
+
   Map<String, dynamic> toMap() => {
         for (final e in byRole.entries) e.key: e.value.toList()..sort(),
         knownKeysField: RolePermission.values.map((p) => p.key).toList()..sort(),
+        feedbackAssignableField: true,
       };
 
   factory RolePermissionsConfig.fromMap(Map<String, dynamic>? map) {
@@ -206,6 +227,10 @@ class RolePermissionsConfig {
               .toSet() ??
           <String>{};
       parsed[role.name] = {...stored, ...unknownDefaults};
+      // قبل أن يقرّر مسؤول النظام، تبقى `sfb` لكل دور كما كانت حقاً أساسياً.
+      if (map[feedbackAssignableField] != true) {
+        parsed[role.name]!.add(RolePermission.submitFeedback.key);
+      }
     }
     return RolePermissionsConfig(parsed);
   }

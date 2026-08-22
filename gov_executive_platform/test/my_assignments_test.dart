@@ -138,11 +138,15 @@ void main() {
       expect(find.text('مشروع not-mine'), findsNothing);
     });
 
-    testWidgets('ويظهر العمل المُسنَد إليّ دون عمل غيري', (tester) async {
-      await _pump(tester, const MyAssignmentsScreen(), _store(UserRole.employee));
-      expect(find.text('عمل mine'), findsOneWidget);
-      expect(find.text('عمل theirs'), findsNothing);
-    });
+    // كل دور بلا استثناء: شُكي أن العمل لا يظهر لمدير الإدارة والمستخدم
+    // التنفيذي ومدير المشروع رغم إسناده إليهم.
+    for (final role in UserRole.values) {
+      testWidgets('ويظهر العمل المُسنَد إليّ في دور ${role.name}', (tester) async {
+        await _pump(tester, const MyAssignmentsScreen(), _store(role));
+        expect(find.text('عمل mine'), findsOneWidget);
+        expect(find.text('عمل theirs'), findsNothing);
+      });
+    }
 
     testWidgets('ومسؤول النظام يرى عضويته هو لا كل المنصة', (tester) async {
       // رؤية كل شيء ليست معرفة ما هو عليّ: الصفحة تُجيب عن الثانية.

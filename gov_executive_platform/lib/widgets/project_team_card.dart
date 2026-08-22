@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/project.dart';
+import '../screens/change_manager_dialog.dart';
 import '../theme/app_theme.dart';
 
 /// بطاقة «فريق المشروع» — مديروه ومنفّذوه، وانضمام الموظف بنفسه.
@@ -74,6 +75,24 @@ class _ProjectTeamCardState extends State<ProjectTeamCard> {
               ],
             ),
             const SizedBox(height: 14),
+            // ــ تغيير المدير من حيث يُرى ــ
+            //
+            // كان تعديل مدير المشروع متعذّراً على مسؤول النظام نفسه: لا زرّ
+            // في المنصة يفعله. فصار هنا، بجوار اسم المدير — لا في شاشة
+            // إعدادات بعيدة.
+            if (store.canRequestManagerChange(project))
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: OutlinedButton.icon(
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (_) => ChangeManagerDialog(project: project),
+                  ),
+                  icon: const Icon(Icons.swap_horiz_rounded, size: 17),
+                  label: Text(store.isAdmin ? 'تغيير مدير المشروع' : 'طلب تغيير مدير المشروع'),
+                ),
+              ),
+            if (store.canRequestManagerChange(project)) const SizedBox(height: 12),
             _group(
               store,
               project,

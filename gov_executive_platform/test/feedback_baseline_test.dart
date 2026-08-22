@@ -1,12 +1,20 @@
-// رفع الشكوى حق أساسي، ومتابعة الوارد صلاحية.
+// رفع الشكوى: من حقٍّ مفروض إلى صلاحيةٍ يضبطها مسؤول النظام.
 //
-// حارس عطلٍ وقع فعلاً: التبويب لم يظهر لأحد إطلاقاً. وسببه أن الحق عومل
-// معاملة صلاحية دور، ومستند `settings/rolePermissions` مكتوبٌ في المنصة
-// الحيّة — والمخزَّن يُقدَّم على أي إعداد مبدئي في الشيفرة، فتبقى مطفأة
-// مهما غُيّر المبدئي.
+// ــ تاريخ هذا الملف ــ
+//
+// كُتب أولاً ليحرس أن رفع الشكوى **حق أساسي** لا صلاحية، بعد عطلٍ وقع فعلاً:
+// التبويب لم يظهر لأحد إطلاقاً، لأن الحق عومل معاملة صلاحية دور ومستند
+// `settings/rolePermissions` مكتوبٌ في المنصة الحيّة — والمخزَّن يُقدَّم على
+// أي إعداد مبدئي في الشيفرة.
+//
+// ثم قرّر مسؤول النظام أن يضبطه لكل دور. فانقلب العقد، وبقي **الدرس**:
+// نقلُ الحق إلى الشبكة يُعيد العطل نفسه حرفياً — المستند الحيّ يزعم في
+// `_knownKeys` أنه يعرف المفتاح وهو غائب عن كل دور، فيُقرأ منعاً. ولذلك
+// عَلَمُ الانتقال، وهذا الملف يحرسه.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gov_exec_platform/data/app_store.dart';
 import 'package:gov_exec_platform/models/app_user.dart';
+import 'package:gov_exec_platform/models/custom_role.dart';
 import 'package:gov_exec_platform/models/enums.dart';
 import 'package:gov_exec_platform/models/role_permissions.dart';
 
@@ -26,91 +34,95 @@ AppUser _user(
       createdAt: DateTime(2026, 1, 1),
     );
 
-/// الحالة الحقيقية في منصة مسؤول النظام: المستند محفوظ ولا يمنح شيئاً.
-const _storedAndEmpty = RolePermissionsConfig({
-  'employee': <String>{},
-  'projectOfficer': <String>{},
-  'departmentManager': {'mw'},
-  'executiveViewer': {'vad', 'mr', 'agd'},
+/// صورة المستند المكتوب في المنصة اليوم: يعرف كل المفاتيح، ولا يمنح `sfb`
+/// لأحد — لأنها كانت حقاً أساسياً لا يُكتب في مجموعة أي دور. وبلا علامة
+/// الانتقال.
+final _liveDocument = RolePermissionsConfig.fromMap({
+  'employee': <String>[],
+  'projectOfficer': <String>[],
+  'departmentManager': ['mw'],
+  'executiveViewer': ['vad'],
+  RolePermissionsConfig.knownKeysField: RolePermission.values.map((p) => p.key).toList(),
 });
 
 void main() {
-  group('رفع الشكوى حق لا صلاحية', () {
-    test('الموظف يرفع شكوى ولو كان مستند الصلاحيات المحفوظ فارغاً', () {
+  group('الانتقال لا يسحب الحق من أحد', () {
+    for (final role in UserRole.configurable) {
+      test('${role.name} يبقى يرفع الشكوى قبل قرار مسؤول النظام', () {
+        final store = AppStore()
+          ..currentUser = _user(role)
+          ..rolePermissions = _liveDocument;
+        expect(store.canSubmitFeedback, isTrue,
+            reason: 'المستند الحيّ لا يحمل قراراً في sfb — والغياب هنا ليس منعاً');
+      });
+    }
+
+    test('ومسؤول النظام دائماً', () {
       final store = AppStore()
-        ..currentUser = _user(UserRole.employee)
-        ..rolePermissions = _storedAndEmpty;
+        ..currentUser = _user(UserRole.systemAdmin)
+        ..rolePermissions = _liveDocument;
       expect(store.canSubmitFeedback, isTrue);
     });
 
-    test('وكذلك مدير المشروع ومدير الإدارة والمستخدم التنفيذي', () {
-      for (final role in [UserRole.projectOfficer, UserRole.departmentManager, UserRole.executiveViewer]) {
-        final store = AppStore()
-          ..currentUser = _user(role)
-          ..rolePermissions = _storedAndEmpty;
-        expect(store.canSubmitFeedback, isTrue, reason: 'الدور: ${role.label}');
-      }
+    test('وحامل الدور المخصص كذلك', () {
+      final store = AppStore()
+        ..currentUser = _user(UserRole.custom).copyWith(customRoleId: 'r1')
+        ..customRoles = [CustomRole(id: 'r1', name: 'منسّق تنفيذي')];
+      expect(store.canSubmitFeedback, isTrue);
     });
 
-    // ولولا هذا لصار الحق مطلقاً لا يُسحب، وقد اشتُرط أن يبقى بيد مسؤول النظام.
-    test('ويُسحب من فرد بعينه', () {
+    test('وحاملُ دورٍ مخصص لم يعد موجوداً لا يُمنح شيئاً', () {
+      // دورٌ حُذف من الإعدادات وبقي معرّفه على الحساب: لا يُقرأ منحاً — وهو
+      // الاتجاه الآمن، فالمنح المجهول أخطر من المنع.
+      final store = AppStore()..currentUser = _user(UserRole.custom);
+      expect(store.canSubmitFeedback, isFalse);
+    });
+  });
+
+  group('وبعد القرار يحكم الإعداد', () {
+    RolePermissionsConfig decided(Map<String, List<String>> byRole) =>
+        RolePermissionsConfig.fromMap({
+          ...byRole,
+          RolePermissionsConfig.knownKeysField:
+              RolePermission.values.map((p) => p.key).toList(),
+          RolePermissionsConfig.feedbackAssignableField: true,
+        });
+
+    test('من مُنح يرفع', () {
       final store = AppStore()
-        ..currentUser = _user(UserRole.employee, overrides: {'sfb': false})
-        ..rolePermissions = _storedAndEmpty;
+        ..currentUser = _user(UserRole.employee)
+        ..rolePermissions = decided({
+          'employee': ['sfb'],
+        });
+      expect(store.canSubmitFeedback, isTrue);
+    });
+
+    test('ومن مُنع لا يرفع', () {
+      final store = AppStore()
+        ..currentUser = _user(UserRole.employee)
+        ..rolePermissions = decided({'employee': <String>[]});
       expect(store.canSubmitFeedback, isFalse);
     });
 
-    test('ولا يظهر في شبكة صلاحيات الأدوار', () {
-      expect(RolePermission.roleAssignable, isNot(contains(RolePermission.submitFeedback)));
-      expect(RolePermission.baseline, contains(RolePermission.submitFeedback));
+    test('والاستثناء الفردي يعلو على قرار الدور', () {
+      final store = AppStore()
+        ..currentUser = _user(UserRole.employee, overrides: const {'sfb': true})
+        ..rolePermissions = decided({'employee': <String>[]});
+      expect(store.canSubmitFeedback, isTrue);
     });
   });
 
-  group('متابعة الوارد تبقى صلاحية تُمنح', () {
-    test('لا تُمنح لأحد بمستند فارغ', () {
+  group('الشبكة', () {
+    test('المفتاح صار يظهر في شبكة صلاحيات الأدوار', () {
+      // هذا ما طلبه مسؤول النظام: أن يقرّره لكل دور بيده.
+      expect(RolePermission.roleAssignable, contains(RolePermission.submitFeedback));
+    });
+
+    test('ومتابعة الوارد بقيت صلاحية كما كانت', () {
       final store = AppStore()
         ..currentUser = _user(UserRole.employee)
-        ..rolePermissions = _storedAndEmpty;
+        ..rolePermissions = _liveDocument;
       expect(store.canManageFeedback, isFalse);
-      expect(store.incomingFeedback, isEmpty);
     });
-
-    test('وتُمنح لدور', () {
-      final store = AppStore()
-        ..currentUser = _user(UserRole.departmentManager)
-        ..rolePermissions = const RolePermissionsConfig({
-          'departmentManager': {'mfb'},
-        });
-      expect(store.canManageFeedback, isTrue);
-    });
-
-    test('أو لفرد بعينه دون تغيير دوره', () {
-      final store = AppStore()
-        ..currentUser = _user(UserRole.employee, overrides: {'mfb': true})
-        ..rolePermissions = _storedAndEmpty;
-      expect(store.canManageFeedback, isTrue);
-    });
-
-    test('وتبقى في شبكة صلاحيات الأدوار', () {
-      expect(RolePermission.roleAssignable, contains(RolePermission.manageFeedback));
-    });
-  });
-
-  // الحارس الذي يزامن البطاقات القديمة يعتمد على هذه المجموعة: لو لم تشمل
-  // `sfb` لبقيت بطاقات المستخدمين الحاليين بلا البصمة، ولرفض الخادمُ إنشاء
-  // الشكوى بينما التبويب ظاهر لهم — أسوأ من إخفائه.
-  test('البصمة المتوقَّعة تشمل الحق الأساسي', () {
-    final store = AppStore()
-      ..currentUser = _user(UserRole.employee)
-      ..rolePermissions = _storedAndEmpty;
-    expect(store.expectedPermissionKeys, contains('sfb'));
-    expect(store.expectedPermissionKeys.difference(store.tokenPermissionKeys(const {})), contains('sfb'));
-  });
-
-  test('ومسؤول النظام يبقى خارج المقارنة', () {
-    final store = AppStore()..currentUser = _user(UserRole.systemAdmin);
-    expect(store.canSubmitFeedback, isTrue);
-    expect(store.canManageFeedback, isTrue);
-    expect(store.expectedPermissionKeys, isEmpty);
   });
 }

@@ -20,6 +20,22 @@ import 'work_detail_screen.dart';
 /// شاشة "الأعمال": بنود العمل التشغيلية المستقلة عن المشاريع.
 ///
 /// تعرض تبويبين: الأعمال الجارية، وسجل الإنجاز (المنجَزة مرتّبة بالأحدث).
+/// وصف الإسناد كما يُقرأ — ومعه تحذيرٌ إن كان بالاسم وحده.
+///
+/// ــــ لماذا التفريق؟ ــــ
+///
+/// «المُسنَد إليّ» تُبنى على **حساب** المستخدم (`assigneeUid`) لا على اسمه
+/// المكتوب. فعملٌ يحمل اسماً بلا حساب يبدو مُسنَداً في قائمة الأعمال، ولا
+/// يظهر لصاحبه في صفحته أبداً — ولا شيء في الشاشة يقول لماذا.
+///
+/// ويقع هذا في حالين حقيقيّين: عملٌ أُنشئ قبل أن يكون للشخص حساب، أو طلبٌ
+/// اعتُمد بلا اختيار مسؤول من القائمة (الخادم يكتب `assigneeUid: null`).
+String assigneeLabel(WorkItem work) {
+  if (work.assigneeName.isEmpty) return 'غير مُسنَد';
+  if (work.assigneeUid.isEmpty) return '${work.assigneeName} (بالاسم فقط)';
+  return work.assigneeName;
+}
+
 class WorksListScreen extends StatefulWidget {
   const WorksListScreen({super.key});
 
@@ -281,7 +297,7 @@ class _WorkRow extends StatelessWidget {
                         Text(work.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
                         const SizedBox(height: 3),
                         Text(
-                          '${dept?.name ?? 'بدون إدارة'} · ${work.assigneeName.isEmpty ? 'غير مُسنَد' : work.assigneeName}',
+                          '${dept?.name ?? 'بدون إدارة'} · ${assigneeLabel(work)}',
                           style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
                         ),
                       ],

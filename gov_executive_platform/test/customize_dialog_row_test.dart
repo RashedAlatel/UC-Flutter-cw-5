@@ -33,6 +33,9 @@ AppStore _store() => AppStore()
     email: 'mgr@moj.gov.kw',
     phone: '',
     role: UserRole.departmentManager,
+    // التخصيص صار بصلاحية: بلا `md` تُهمَل الطبقة الشخصية بحقّ، فلا يُقاس
+    // شيء. والاختبار هنا عن هندسة الصفّ لا عن الصلاحية.
+    permissionOverrides: const {'md': true},
     status: UserStatus.approved,
     createdAt: DateTime(2026, 1, 1),
   )
@@ -134,9 +137,15 @@ void main() {
     await _pump(tester);
     // المؤشرات تُعرض في الشريط القيادي الذي يوزّع أعمدته بنفسه، فـ«ثلث/نصف»
     // خيارٌ يَعِد بما لا يقع.
-    final menu = _menuOf('مؤشر: نسبة الإنجاز العام');
-    await tester.ensureVisible(menu);
+    // القائمة تُبنى بالتمرير لا كلّها دفعةً واحدة، فصفّ المؤشر لا يوجد في
+    // الشجرة قبل الوصول إليه. و`ensureVisible` تحتاج عنصراً موجوداً أصلاً.
+    await tester.scrollUntilVisible(
+      find.text('مؤشر: نسبة الإنجاز العام'),
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
     await tester.pumpAndSettle();
+    final menu = _menuOf('مؤشر: نسبة الإنجاز العام');
     await tester.tap(menu);
     await tester.pumpAndSettle();
     expect(find.text('عرض البطاقة'), findsNothing);

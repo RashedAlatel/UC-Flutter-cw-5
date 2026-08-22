@@ -126,18 +126,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
               // صلاحية "التحكم بلوحة القيادة".
               // وضع الترتيب: السحب على الصفحة نفسها بدل قائمة في نافذة.
               // ترتيب اللوحة قرارٌ بصري، ولا يُتّخذ إلا أمام ما يُرى.
-              BandButton(
-                label: _arranging ? 'إنهاء الترتيب' : 'ترتيب اللوحة',
-                icon: _arranging ? Icons.check_rounded : Icons.dashboard_customize_outlined,
-                active: _arranging,
-                onPressed: () => setState(() => _arranging = !_arranging),
-              ),
-              BandButton(
-                label: 'تخصيص اللوحة',
-                icon: Icons.tune_rounded,
-                filled: true,
-                onPressed: () => showDialog(context: context, builder: (_) => const CustomizeDashboardDialog()),
-              ),
+              // وترتيب اللوحة بالسحب تخصيصٌ كذلك — يُحفظ في الطبقة الشخصية
+              // نفسها، فحجبُ النافذة وحدها يترك الباب الثاني مفتوحاً.
+              if (store.canManageDashboard)
+                BandButton(
+                  label: _arranging ? 'إنهاء الترتيب' : 'ترتيب اللوحة',
+                  icon: _arranging ? Icons.check_rounded : Icons.dashboard_customize_outlined,
+                  active: _arranging,
+                  onPressed: () => setState(() => _arranging = !_arranging),
+                ),
+              // ــ التخصيص بصلاحية لا بحقٍّ عام ــ
+              //
+              // كان الزرّ معروضاً لكل مستخدم بلا استثناء، بحجّة أن «كلاً
+              // يعدّل لوحته هو». وأثرُه أن مسؤول النظام يضبط لوحة الدور فلا
+              // تقع على أحد: أيّ مستخدم خصّص لوحته مرةً واحدة تعلو طبقتُه
+              // الشخصية على لوحة الدور أبداً. فصار التخصيص — الشخصيُّ منه
+              // ولوحاتِ الأدوار — بصلاحية «تخصيص لوحة القيادة».
+              if (store.canManageDashboard)
+                BandButton(
+                  label: 'تخصيص اللوحة',
+                  icon: Icons.tune_rounded,
+                  filled: true,
+                  onPressed: () =>
+                      showDialog(context: context, builder: (_) => const CustomizeDashboardDialog()),
+                ),
               // ــ قياس الفراغ ــ
               //
               // ليس زينةً: شكا المستخدم من فراغٍ أبيض بطول شاشة في أسفل

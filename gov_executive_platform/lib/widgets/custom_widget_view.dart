@@ -218,30 +218,57 @@ class CustomWidgetCard extends StatelessWidget {
                 ),
             ]),
             const SizedBox(height: 14),
-            SizedBox(height: spec.display == CustomWidgetDisplay.stat ? 70 : 220, child: _body(counts)),
+            // ــ لماذا لا ارتفاع ثابت هنا؟ ــ
+            //
+            // كان الجسم `SizedBox(height: 220)` مهما كان ما فيه. وودجت يجمّع
+            // المشاريع حسب الحالة عند مدير إدارة يعطي خانتين — نحو أربعين
+            // بكسلاً — فيبقى داخل البطاقة **مئتا بكسل فراغاً**. وهو آخر ودجة
+            // في لوحة المستخدم وعلى الجوال كل ودجة بعرض السطر، فوقع الفراغ
+            // في ذيل الصفحة كلها. وهو ما قاسه
+            // `test/dashboard_blank_tail_test.dart` بتخطيطه: ٢٥٠ بكسل.
+            //
+            // فصار الارتفاع من المحتوى: القوائم تنكمش على صفوفها بسقفٍ ٢٢٠
+            // (فيبقى الكثير قابلاً للتمرير كما كان)، والرسم الدائري وحده
+            // يحتفظ بارتفاع ثابت لأنه لا محتوى له يُقاس.
+            _body(counts),
           ],
         ),
       ),
     );
   }
 
+  /// أقصى ارتفاع لقائمةٍ داخل الودجت — بعده تُمرَّر بدل أن تطول البطاقة.
+  static const double _maxListHeight = 220;
+
+  /// ارتفاع ما لا محتوى له يُقاس: رقمٌ واحد، أو رسالة «لا بيانات».
+  static const double _compactHeight = 70;
+
   Widget _body(Map<String, int> counts) {
     if (counts.values.fold<int>(0, (a, b) => a + b) == 0) {
-      return const Center(child: Text('لا توجد بيانات مطابقة', style: TextStyle(color: AppColors.textSecondary)));
+      return const SizedBox(
+        height: _compactHeight,
+        child: Center(child: Text('لا توجد بيانات مطابقة', style: TextStyle(color: AppColors.textSecondary))),
+      );
     }
     switch (spec.display) {
       case CustomWidgetDisplay.stat:
         final total = counts.values.fold<int>(0, (a, b) => a + b);
-        return Center(
-          child: Text('$total', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: AppColors.primary)),
+        return SizedBox(
+          height: _compactHeight,
+          child: Center(
+            child: Text('$total', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: AppColors.primary)),
+          ),
         );
       case CustomWidgetDisplay.donut:
         final colors = {for (var i = 0; i < counts.length; i++) counts.keys.elementAt(i): _palette[i % _palette.length]};
-        return StatusDonutChart(data: counts, colors: colors);
+        return SizedBox(height: _maxListHeight, child: StatusDonutChart(data: counts, colors: colors));
       case CustomWidgetDisplay.bar:
         final entries = counts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
         final maxVal = entries.first.value;
-        return ListView.separated(
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: _maxListHeight),
+          child: ListView.separated(
+          shrinkWrap: true,
           itemCount: entries.length,
           separatorBuilder: (context, i) => const SizedBox(height: 12),
           itemBuilder: (context, i) {
@@ -263,10 +290,14 @@ class CustomWidgetCard extends StatelessWidget {
               SizedBox(width: 26, child: Text('${e.value}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700))),
             ]);
           },
+          ),
         );
       case CustomWidgetDisplay.table:
         final entries = counts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-        return ListView.separated(
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: _maxListHeight),
+          child: ListView.separated(
+          shrinkWrap: true,
           itemCount: entries.length,
           separatorBuilder: (context, i) => const Divider(height: 1),
           itemBuilder: (context, i) {
@@ -279,6 +310,7 @@ class CustomWidgetCard extends StatelessWidget {
               ]),
             );
           },
+          ),
         );
     }
   }

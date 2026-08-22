@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 
 import 'package:gov_exec_platform/data/app_store.dart';
 import 'package:gov_exec_platform/models/app_user.dart';
+import 'package:gov_exec_platform/models/custom_widget_spec.dart';
 import 'package:gov_exec_platform/models/dashboard_widget_config.dart';
 import 'package:gov_exec_platform/models/department.dart';
 import 'package:gov_exec_platform/models/enums.dart';
@@ -128,6 +129,58 @@ void main() {
     });
   }
 
+  testWidgets('الودجت المخصص ذو الخانتين لا يحجز ارتفاع عشرٍ', (tester) async {
+    // الحارس المباشر على ما سمّاه القياس: `SizedBox(height: 220)` مهما كان
+    // ما فيه. ومدير إدارة يجمّع مشاريعه حسب الحالة يحصل على خانتين، فكان
+    // يبقى داخل بطاقته نحو مئتي بكسل فراغاً — وهي آخر ودجة في لوحته.
+    const size = Size(390, 2000);
+    await tester.binding.setSurfaceSize(size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final store = _store()
+      ..setDashboardWidgetsForTest([
+        DashboardWidgetConfig(
+          id: 'c1',
+          type: DashboardWidgetType.custom,
+          custom: const CustomWidgetSpec(
+            title: 'المشاريع المهمة',
+            source: CustomWidgetSource.projects,
+            groupBy: 'status',
+            display: CustomWidgetDisplay.bar,
+          ),
+        ),
+      ]);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.theme,
+      home: ChangeNotifierProvider<AppStore>.value(
+        value: store,
+        child: const Directionality(
+          textDirection: TextDirection.rtl,
+          child: Scaffold(body: DashboardScreen()),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    final scroller = find.byType(SingleChildScrollView).first;
+    final content = tester.renderObject<RenderBox>(
+      find.descendant(of: scroller, matching: find.byType(Column)).first,
+    );
+    final top = content.localToGlobal(Offset.zero).dy;
+    final bottom = content.localToGlobal(Offset(0, content.size.height)).dy;
+    var painted = top;
+    for (final element in tester.allElements) {
+      final object = element.renderObject;
+      if (object is! RenderBox || !object.hasSize || !object.attached) continue;
+      if (!_paints(element.widget) || _inHorizontalScroll(element)) continue;
+      final b = object.localToGlobal(Offset(0, object.size.height)).dy;
+      if (b > painted) painted = b;
+    }
+    expect(bottom - painted, lessThan(100),
+        reason: 'ودجت مخصص بخانتين يترك ${bottom - painted} بكسل فراغاً');
+  });
+
   testWidgets('لوحة القيادة لا تترك فراغاً في ذيلها', (tester) async {
     // سطح طويل عمداً: يُلغي التمرير فيقع كل شيء في إحداثيات واحدة، فيُقاس
     // ذيل المحتوى مباشرةً بلا حساب إزاحة تمرير.
@@ -135,18 +188,30 @@ void main() {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    // تخطيط المستخدم كما ظهر في حوار «تخصيص اللوحة» في تسجيله: رسمان
-    // وقائمتان وتفاصيل الترتيب — لا التخطيط الافتراضي.
+    // تخطيط المستخدم **حرفياً** كما قرأتُه من حوار «تخصيص اللوحة» في
+    // تسجيله — لا تخطيطاً مشابهاً ولا الافتراضي. والفرق ليس تفصيلاً: محاولتي
+    // السابقة قاست ٧٤ بكسلاً ولم تُعِد إنتاج شكواه، لأن فيها ما ليس عنده
+    // وليس فيها ما عنده: **ودجت مخصص**، و**جدول بعرض نصف**.
     final store = _store()
-      ..setDashboardWidgetsForTest(const [
-        DashboardWidgetConfig(id: 'k1', type: DashboardWidgetType.kpiAvgProgress),
-        DashboardWidgetConfig(id: 'k2', type: DashboardWidgetType.kpiProjectCount),
-        DashboardWidgetConfig(id: 'w1', type: DashboardWidgetType.deptBarChart),
-        DashboardWidgetConfig(id: 'w2', type: DashboardWidgetType.statusPieChart),
-        DashboardWidgetConfig(id: 'w3', type: DashboardWidgetType.pendingApprovalsList),
-        DashboardWidgetConfig(id: 'w4', type: DashboardWidgetType.recentUpdatesList),
-        DashboardWidgetConfig(id: 'w5', type: DashboardWidgetType.departmentRankingList),
-        DashboardWidgetConfig(id: 'w6', type: DashboardWidgetType.projectsTable, width: DashboardWidgetWidth.full),
+      ..setDashboardWidgetsForTest([
+        ...DashboardWidgetConfig.kpiDefaults(),
+        const DashboardWidgetConfig(id: 'w1', type: DashboardWidgetType.pendingApprovalsList),
+        const DashboardWidgetConfig(id: 'w2', type: DashboardWidgetType.deptBarChart),
+        const DashboardWidgetConfig(id: 'w3', type: DashboardWidgetType.recentUpdatesList),
+        const DashboardWidgetConfig(id: 'w4', type: DashboardWidgetType.departmentRankingList),
+        const DashboardWidgetConfig(id: 'w5', type: DashboardWidgetType.statusPieChart),
+        const DashboardWidgetConfig(id: 'w6', type: DashboardWidgetType.projectsTable),
+        const DashboardWidgetConfig(id: 'w7', type: DashboardWidgetType.topProjectsList),
+        DashboardWidgetConfig(
+          id: 'w8',
+          type: DashboardWidgetType.custom,
+          custom: const CustomWidgetSpec(
+            title: 'المشاريع المهمة',
+            source: CustomWidgetSource.projects,
+            groupBy: 'status',
+            display: CustomWidgetDisplay.bar,
+          ),
+        ),
       ]);
 
     await tester.pumpWidget(MaterialApp(

@@ -29,6 +29,14 @@ class _DashboardScope {
   bool get isGlobal => id == global;
 }
 
+/// الإجراءات غير المُعبَّر عنها بقيمة في قائمة صفّ الودجة. (المقياس والعرض
+/// يُمرَّران بقيمتيهما نفسيهما، فلا يحتاجان رمزاً.)
+enum _WidgetRowAction { delete }
+
+/// عنوان قسمٍ داخل قائمة صفّ الودجة — يفصل المقياس عن العرض عن الحذف.
+const TextStyle _menuHeaderStyle =
+    TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textSecondary);
+
 /// محرر لوحة القيادة: إضافة/حذف/إعادة ترتيب الودجات (الرسوم البيانية
 /// والقوائم) المعروضة أسفل مؤشرات الأداء الرئيسية.
 ///
@@ -70,6 +78,20 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
     }
     list.add(const _DashboardScope(_DashboardScope.global, 'اللوحة العامة', 'نقطة البداية لكل من لم يُضبط لدوره تخطيط'));
     return list;
+  }
+
+  /// السطر الفرعي لصفّ الودجة: كل ما كان معروضاً على الأزرار قبل جمعها في
+  /// قائمة. فإخفاء الزرّ لا يُخفي المعلومة — العرض والمقياس يُقرآن هنا بلا
+  /// فتح القائمة.
+  Widget? _rowSubtitle(DashboardWidgetConfig w, bool isCustom) {
+    final parts = <String>[
+      if (isCustom) 'ودجت مخصص — اضغط للتعديل',
+      if (w.type.hasMetric) 'المقياس: ${w.metric.label}',
+      if (!w.type.isKpi) 'العرض: ${w.width.label}',
+    ];
+    if (parts.isEmpty) return null;
+    return Text(parts.join(' · '),
+        style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary));
   }
 
   _DashboardScope get _scope => _scopes.firstWhere((s) => s.id == _scopeId, orElse: () => _scopes.first);
@@ -271,6 +293,10 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
   Widget build(BuildContext context) {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      // هامش `Dialog` المبدئي أربعون بكسلاً على كل جانب — ثمانون من شاشة
+      // هاتف عرضها ٣٩٠، أي خُمس الشاشة يذهب فراغاً بينما يُهرَس النص داخله.
+      // فيُضيَّق على الهاتف؛ و`maxWidth` أدناه يحكم الشاشات العريضة كما كان.
+      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480, maxHeight: 640),
         child: Column(
@@ -346,62 +372,86 @@ class _CustomizeDashboardDialogState extends State<CustomizeDashboardDialog> {
                           child: ListTile(
                             leading: Icon(w.type.icon, color: AppColors.primary, size: 20),
                             title: Text(isCustom ? (w.custom?.title ?? w.type.label) : w.type.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                            subtitle: isCustom
-                                ? const Text('ودجت مخصص — اضغط للتعديل',
-                                    style: TextStyle(fontSize: 10.5, color: AppColors.textSecondary))
-                                : w.type.hasMetric
-                                    ? Text('المقياس: ${w.metric.label}',
-                                        style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary))
-                                    : null,
+                            subtitle: _rowSubtitle(w, isCustom),
                             onTap: isCustom ? () => _openCustomBuilder(editing: w) : null,
+                            // ــ لماذا قائمة واحدة لا صفٌّ من الأزرار؟ ــ
+                            //
+                            // `ListTile` يعطي `trailing` عرضاً غير محدود ثم
+                            // يترك للعنوان ما بقي. فحين كان الصفّ يحمل زرّ
+                            // المقياس وزرّ العرض (وعليه كلمة «نصف العرض»
+                            // كاملةً) وزرّ الحذف والمقبض، أخذت الأربعة نحو
+                            // ٢٥٠ بكسل من شاشة ٣٩٠، فلم يبق للاسم إلا نحو
+                            // أربعين — فكان يلتفّ **حرفاً في كل سطر**.
+                            //
+                            // والعلاج ليس إعادة توزيع عروض أربعة أزرار: أيّ
+                            // إجراء يُضاف غداً يُعيد العطل. بل بنيةٌ لا يزيد
+                            // عرضها بزيادة الإجراءات — قائمة واحدة، كما في
+                            // بطاقة المشروع في `projects_list_screen.dart`.
+                            //
+                            // ويبقى **مقبض السحب** وحده ظاهراً: هو ليس إجراءً
+                            // يُنقر بل يدٌ تُمسك، وإخفاؤه في قائمة يُلغي
+                            // إعادة الترتيب بالسحب أصلاً.
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // المقياس يُضبط هنا كما يُضبط من وضع الترتيب:
-                                // من يضبط لوحة دور أو اللوحة العامة لا يراها
-                                // أمامه، فلا سبيل له إلى المقياس إلا هنا.
-                                if (w.type.hasMetric)
-                                  PopupMenuButton<DashboardMetric>(
-                                    tooltip: 'مقياس البطاقة',
-                                    initialValue: w.metric,
-                                    onSelected: (m) => setState(() => _widgets[i] = w.copyWith(metric: m)),
-                                    itemBuilder: (_) => [
-                                      for (final m in DashboardMetric.values)
-                                        PopupMenuItem(value: m, child: Text(m.label)),
-                                    ],
-                                    child: const Padding(
-                                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                                      child: Icon(Icons.straighten_rounded, size: 18, color: AppColors.textSecondary),
-                                    ),
-                                  ),
-                                // العرض يُضبط هنا كما يُضبط من وضع الترتيب على
-                                // الصفحة: من ضبط لوحة دور أو اللوحة العامة لا
-                                // يراها أمامه، فلا سبيل له إلى العرض إلا هنا.
-                                //
-                                // ويُخفى عن المؤشرات: هي تُعرض في الشريط
-                                // القيادي الذي يوزّع أعمدته بنفسه، فـ«ثلث/نصف/
-                                // كامل» خيارٌ بلا أثر — وعرضُه يَعِد بما لا يقع.
-                                if (!w.type.isKpi)
-                                PopupMenuButton<DashboardWidgetWidth>(
-                                  tooltip: 'عرض البطاقة',
-                                  initialValue: w.width,
-                                  onSelected: (width) =>
-                                      setState(() => _widgets[i] = w.copyWith(width: width)),
+                                PopupMenuButton<Object>(
+                                  tooltip: 'خيارات الودجة',
+                                  icon: const Icon(Icons.more_vert_rounded, size: 19, color: AppColors.textSecondary),
+                                  onSelected: (value) => setState(() {
+                                    if (value is DashboardMetric) {
+                                      _widgets[i] = w.copyWith(metric: value);
+                                    } else if (value is DashboardWidgetWidth) {
+                                      _widgets[i] = w.copyWith(width: value);
+                                    } else {
+                                      _widgets.removeAt(i);
+                                    }
+                                  }),
                                   itemBuilder: (_) => [
-                                    for (final width in DashboardWidgetWidth.values)
-                                      PopupMenuItem(value: width, child: Text(width.label)),
-                                  ],
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                                    child: Text(
-                                      w.width.label,
-                                      style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                                    // المقياس يُضبط هنا كما يُضبط من وضع
+                                    // الترتيب: من يضبط لوحة دور أو اللوحة
+                                    // العامة لا يراها أمامه، فلا سبيل له إلى
+                                    // المقياس إلا هنا.
+                                    if (w.type.hasMetric) ...[
+                                      const PopupMenuItem<Object>(
+                                        enabled: false,
+                                        height: 30,
+                                        child: Text('المقياس', style: _menuHeaderStyle),
+                                      ),
+                                      for (final m in DashboardMetric.values)
+                                        CheckedPopupMenuItem<Object>(
+                                          value: m,
+                                          checked: m == w.metric,
+                                          child: Text(m.label, style: const TextStyle(fontSize: 12.5)),
+                                        ),
+                                      const PopupMenuDivider(),
+                                    ],
+                                    // والعرض يُخفى عن المؤشرات: هي تُعرض في
+                                    // الشريط القيادي الذي يوزّع أعمدته بنفسه،
+                                    // فـ«ثلث/نصف/كامل» خيارٌ بلا أثر — وعرضُه
+                                    // يَعِد بما لا يقع.
+                                    if (!w.type.isKpi) ...[
+                                      const PopupMenuItem<Object>(
+                                        enabled: false,
+                                        height: 30,
+                                        child: Text('عرض البطاقة', style: _menuHeaderStyle),
+                                      ),
+                                      for (final width in DashboardWidgetWidth.values)
+                                        CheckedPopupMenuItem<Object>(
+                                          value: width,
+                                          checked: width == w.width,
+                                          child: Text(width.label, style: const TextStyle(fontSize: 12.5)),
+                                        ),
+                                      const PopupMenuDivider(),
+                                    ],
+                                    const PopupMenuItem<Object>(
+                                      value: _WidgetRowAction.delete,
+                                      child: Row(children: [
+                                        Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
+                                        SizedBox(width: 10),
+                                        Text('حذف الودجة', style: TextStyle(fontSize: 12.5, color: AppColors.danger)),
+                                      ]),
                                     ),
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline_rounded, size: 19, color: AppColors.danger),
-                                  onPressed: () => setState(() => _widgets.removeAt(i)),
+                                  ],
                                 ),
                                 const Icon(Icons.drag_handle_rounded, color: AppColors.textSecondary),
                               ],

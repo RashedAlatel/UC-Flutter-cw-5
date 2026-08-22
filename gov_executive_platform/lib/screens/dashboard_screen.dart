@@ -781,9 +781,15 @@ class _TopProjectsCard extends StatelessWidget {
     return _ChartCard(
       title: 'أعلى المشاريع تقدماً',
       height: 210,
+      // ثلاثة مشاريع لا تملأ مئتي بكسل، والباقي كان فراغاً داخل البطاقة.
+      shrinkToChild: true,
       child: items.isEmpty
-          ? const Center(child: Text('لا توجد مشاريع مطابقة', style: TextStyle(color: AppColors.textSecondary)))
+          ? const SizedBox(
+              height: 60,
+              child: Center(child: Text('لا توجد مشاريع مطابقة', style: TextStyle(color: AppColors.textSecondary))),
+            )
           : ListView.separated(
+              shrinkWrap: true,
               itemCount: items.length,
               separatorBuilder: (context, i) => const SizedBox(height: 16),
               itemBuilder: (context, i) {
@@ -974,8 +980,25 @@ class _ChartCard extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget child;
+
+  /// ارتفاع البطاقة. وهو **سقفٌ** لا مقدارٌ مفروض حين يكون [shrinkToChild].
   final double height;
-  const _ChartCard({required this.title, this.subtitle, required this.child, required this.height});
+
+  /// هل يُترك للمحتوى أن يُقصّر البطاقة؟
+  ///
+  /// الرسوم لا محتوى لها يُقاس فتحتاج ارتفاعاً محدداً؛ أما القوائم فتعرف
+  /// ارتفاعها من صفوفها. وفرضُ ارتفاعٍ ثابت على قائمةٍ من ثلاثة صفوف يترك
+  /// فراغاً داخل البطاقة، وعلى الجوال — حيث كل ودجة بعرض السطر — تتراكم
+  /// هذه الفراغات فتصير الصفحة بيضاء أكثر مما هي مقروءة.
+  final bool shrinkToChild;
+
+  const _ChartCard({
+    required this.title,
+    this.subtitle,
+    required this.child,
+    required this.height,
+    this.shrinkToChild = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -991,7 +1014,13 @@ class _ChartCard extends StatelessWidget {
               Text(subtitle!, style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
             ],
             const SizedBox(height: 14),
-            SizedBox(height: subtitle != null ? height - 68 : height - 50, child: child),
+            if (shrinkToChild)
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: subtitle != null ? height - 68 : height - 50),
+                child: child,
+              )
+            else
+              SizedBox(height: subtitle != null ? height - 68 : height - 50, child: child),
           ],
         ),
       ),

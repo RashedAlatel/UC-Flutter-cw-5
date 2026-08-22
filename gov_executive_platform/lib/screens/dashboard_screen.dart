@@ -13,6 +13,7 @@ import '../theme/brand.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
 import '../widgets/command_band.dart';
+import '../widgets/blank_probe.dart';
 import '../widgets/custom_widget_view.dart';
 import '../widgets/focused_project_card.dart';
 import '../widgets/pinned_work_card.dart';
@@ -137,6 +138,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 filled: true,
                 onPressed: () => showDialog(context: context, builder: (_) => const CustomizeDashboardDialog()),
               ),
+              // ــ قياس الفراغ ــ
+              //
+              // ليس زينةً: شكا المستخدم من فراغٍ أبيض بطول شاشة في أسفل
+              // اللوحة، وأخفقت ثلاث جولات من الإصلاح لأنني كنت أقيس لوحةً
+              // ببيانات اخترعتُها بينما لوحته على بيانات الوزارة. وبياناته
+              // لا سبيل لي إليها، فالمقياس يُنقل إليه.
+              //
+              // ولمسؤول النظام وحده: هو أداة تشخيص لا وظيفة، وعرضُها لكل
+              // موظف يُثقل الشريط بما لا يعني أحداً.
+              if (store.isAdmin)
+                BandButton(
+                  label: 'قياس الفراغ',
+                  icon: Icons.straighten_rounded,
+                  onPressed: () => _measureBlank(context),
+                ),
             ],
             metrics: [
               for (var i = 0; i < kpiWidgets.length; i++)
@@ -419,6 +435,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // لا يُستدعى إلا لأنواع المؤشرات؛ مذكور ليكتمل التفريع.
         return (title: '', value: '', icon: Icons.help_outline, color: AppColors.textSecondary, emphasize: false);
     }
+  }
+
+  /// يقيس اللوحة المعروضة الآن ويعرض الحصيلة.
+  ///
+  /// والقياس يقع بعد إطار كامل عمداً: لو قيس في اللحظة نفسها لكانت بعض
+  /// الودجات لم تُخطَّط بعد فتُقاس بارتفاع صفر — وتقريرٌ يقول «لا فراغ» وهو
+  /// لم ينظر أسوأ من لا تقرير.
+  void _measureBlank(BuildContext context) {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final report = measurePage(this.context);
+      if (report == null) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('تعذّر قياس هذه الصفحة — لم يُعثر على منطقة تمرير.')),
+        );
+        return;
+      }
+      showDialog(
+        context: navigator.context,
+        builder: (_) => BlankReportDialog(report: report),
+      );
+    });
   }
 
   Widget _buildWidget(
@@ -1123,6 +1163,23 @@ class _DepartmentRankingList extends StatelessWidget {
   final DashboardMetric metric;
   const _DepartmentRankingList({required this.store, required this.ranking, required this.metric});
 
+  /// أكثر ما تعرضه البطاقة من إدارات.
+  ///
+  /// ــــ ولماذا سقف أصلاً؟ ــــ
+  ///
+  /// كانت تعرض **كل** إدارة بلا حدّ. وبوزارةٍ فيها أربعون إدارة صار ارتفاع
+  /// هذه البطاقة وحدها **٦٢٥٧ بكسل** — ثماني شاشات هاتف لبطاقة واحدة، في
+  /// صفحةٍ صار طولها عشرة آلاف بكسل. وهذا ما لم يكشفه أي قياس سابق: كنت
+  /// أقيس بثلاثين مشروعاً وإدارةٍ واحدة، فتظهر البطاقة بمئتي بكسل سليمة.
+  ///
+  /// والسقف هو النمط القائم في اللوحة لا اختراعاً هنا: جدول المشاريع يعرض
+  /// خمسة وعشرين ويقول كم أخفى، والقرارات المعلّقة خمسة، وأعلى المشاريع
+  /// ثلاثة. وهذه وحدها كانت بلا سقف.
+  ///
+  /// وعشرة لا خمسة: السؤال هنا «من في الصدارة ومن في المؤخّرة»، وخمسةٌ
+  /// تُجيب عن نصفه.
+  static const int _maxRows = 10;
+
   /// سقف شريط التقدّم: النسبة تُقاس على ١٠٠، والعدد على أكبر قيمة في القائمة
   /// — وإلا ظهرت إدارةٌ بثلاثة مشاريع بشريط شبه فارغ بلا معنى.
   double get _ceiling {
@@ -1134,6 +1191,9 @@ class _DepartmentRankingList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ceiling = _ceiling;
+    // السقف يُطبَّق بعد الترتيب، فالمعروض هو **الصدارة** لا أول ما ورد.
+    final shown = ranking.take(_maxRows).toList();
+    final hidden = ranking.length - shown.length;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -1143,8 +1203,8 @@ class _DepartmentRankingList extends StatelessWidget {
             Text('ترتيب الإدارات حسب: ${metric.label}',
                 style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
             const Divider(height: 20),
-            ...List.generate(ranking.length, (i) {
-              final entry = ranking[i];
+            ...List.generate(shown.length, (i) {
+              final entry = shown[i];
               final dept = entry.key;
               final value = entry.value as double;
               return InkWell(
@@ -1158,7 +1218,7 @@ class _DepartmentRankingList extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
                     border: Border(
-                      bottom: BorderSide(color: AppColors.border, width: i == ranking.length - 1 ? 0 : 1),
+                      bottom: BorderSide(color: AppColors.border, width: i == shown.length - 1 ? 0 : 1),
                     ),
                   ),
                   child: Row(
@@ -1171,7 +1231,15 @@ class _DepartmentRankingList extends StatelessWidget {
                       const SizedBox(width: 12),
                       Expanded(
                         flex: 3,
-                        child: Text(dept.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        // سطران بحدّ أقصى: أسماء الوزارة طويلة («الإدارة
+                        // العامة لتقنية المعلومات والتحول الرقمي»)، وبلا حدٍّ
+                        // يصير الصفّ الواحد بارتفاع بطاقة كاملة على الهاتف.
+                        child: Text(
+                          dept.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
                       ),
                       Expanded(
                         flex: 4,
@@ -1203,6 +1271,17 @@ class _DepartmentRankingList extends StatelessWidget {
                 ),
               );
             }),
+            // يُقال كم أُخفي، فلا يظن القارئ أن الوزارة عشر إدارات.
+            if (hidden > 0) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  'يُعرض $_maxRows من ${ranking.length} إدارة — افتح صفحة "الإدارات" لعرضها كلها.',
+                  style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                ),
+              ),
+            ],
           ],
         ),
       ),

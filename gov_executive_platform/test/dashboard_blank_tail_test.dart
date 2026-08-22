@@ -59,6 +59,75 @@ AppStore _store() => AppStore()
   ]
   ..projects = [for (var i = 0; i < 30; i++) _project(i)];
 
+/// متجرٌ بحجم الوزارة: مسؤول نظام، ومئتا موظف، وأربعون إدارة، وثلاثمئة
+/// مشروع — لا ثلاثون مشروعاً في إدارة واحدة.
+///
+/// ــــ ولماذا هذا الحجم بالذات؟ ــــ
+///
+/// لأن ثلاث جولات من الإصلاح أخفقت وأنا أقيس لوحةً ببيانات اخترعتُها: ثلاثون
+/// مشروعاً ومستخدمان. فكان الحارس يقول «الذيل ٧٤ بكسل» صادقاً فيما قاس،
+/// كاذباً عمّا يراه المستخدم — إذ لوحته تعمل على بيانات وزارة.
+///
+/// وفيه إدارتان **بلا مشاريع** عمداً: القسمة على صفر تعطي `NaN`، ورسمٌ
+/// بقيمة `NaN` قد لا يرسم شيئاً ويشغل ارتفاعه كاملاً — بطاقةٌ بيضاء تماماً.
+AppStore _ministryStore() {
+  final admin = AppUser(
+    id: 'admin',
+    name: 'مسؤول النظام',
+    email: 'admin@moj.gov.kw',
+    phone: '',
+    role: UserRole.systemAdmin,
+    status: UserStatus.approved,
+    createdAt: DateTime(2026, 1, 1),
+  );
+  final departments = [
+    for (var d = 0; d < 40; d++)
+      Department(
+        id: 'd$d',
+        name: 'الإدارة العامة رقم $d للتخطيط والمتابعة',
+        headName: 'رئيس الإدارة $d',
+        colorValue: 0xFF1B5E4A,
+        iconKey: 'settings',
+      ),
+  ];
+  final users = [
+    admin,
+    for (var u = 0; u < 200; u++)
+      AppUser(
+        id: 'u$u',
+        name: 'عبدالرحمن بن عبدالعزيز المطيري $u',
+        email: 'u$u@moj.gov.kw',
+        phone: '',
+        role: UserRole.employee,
+        departmentId: 'd${u % 40}',
+        departmentIds: ['d${u % 40}'],
+        status: UserStatus.approved,
+        createdAt: DateTime(2026, 1, 1),
+      ),
+  ];
+  return AppStore()
+    ..currentUser = admin
+    ..users = users
+    ..departments = departments
+    ..projects = [
+      for (var i = 0; i < 300; i++)
+        Project(
+          id: 'p$i',
+          // إدارتان بلا مشاريع: `% 38` يترك d38 وd39 فارغتين.
+          departmentId: 'd${i % 38}',
+          name: 'مشروع رقم $i لتطوير الخدمات',
+          description: 'وصف',
+          startDate: DateTime(2026, 12, 1),
+          dueDate: i % 3 == 0 ? DateTime(2099, 1, 1) : DateTime(2026, 1, 1),
+          status: ProjectStatus.onTrack,
+          priority: PriorityLevel.medium,
+          progressPercent: (i * 7) % 100,
+          managerUids: ['u${i % 200}'],
+          executorUids: ['u${(i + 1) % 200}'],
+        ),
+    ];
+}
+
 /// هل يرسم هذا العنصر شيئاً مرئياً بذاته؟
 bool _paints(Widget w) {
   if (w is Text) return (w.data ?? '').trim().isNotEmpty;
@@ -257,6 +326,139 @@ void main() {
 
     expect(tail, lessThan(80),
         reason: 'ذيلٌ فارغ قدره $tail بكسل بعد آخر محتوى مرسوم');
+  });
+
+  testWidgets('اللوحة ببيانات بحجم الوزارة لا تترك فراغاً', (tester) async {
+    const size = Size(390, 8000);
+    await tester.binding.setSurfaceSize(size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final store = _ministryStore()
+      ..setDashboardWidgetsForTest([
+        ...DashboardWidgetConfig.kpiDefaults(),
+        const DashboardWidgetConfig(id: 'w1', type: DashboardWidgetType.pendingApprovalsList),
+        const DashboardWidgetConfig(id: 'w2', type: DashboardWidgetType.deptBarChart),
+        const DashboardWidgetConfig(id: 'w3', type: DashboardWidgetType.recentUpdatesList),
+        const DashboardWidgetConfig(id: 'w4', type: DashboardWidgetType.departmentRankingList),
+        const DashboardWidgetConfig(id: 'w5', type: DashboardWidgetType.statusPieChart),
+        const DashboardWidgetConfig(id: 'w6', type: DashboardWidgetType.projectsTable),
+        const DashboardWidgetConfig(id: 'w7', type: DashboardWidgetType.topProjectsList),
+        const DashboardWidgetConfig(id: 'w8', type: DashboardWidgetType.topUsersChart),
+        DashboardWidgetConfig(
+          id: 'w9',
+          type: DashboardWidgetType.custom,
+          custom: const CustomWidgetSpec(
+            title: 'المشاريع المهمة',
+            source: CustomWidgetSource.projects,
+            groupBy: 'status',
+            display: CustomWidgetDisplay.bar,
+          ),
+        ),
+      ]);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.theme,
+      home: ChangeNotifierProvider<AppStore>.value(
+        value: store,
+        child: const Directionality(
+          textDirection: TextDirection.rtl,
+          child: Scaffold(body: DashboardScreen()),
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+
+    final scroller = find.byType(SingleChildScrollView).first;
+    final content = tester.renderObject<RenderBox>(
+      find.descendant(of: scroller, matching: find.byType(Column)).first,
+    );
+    final top = content.localToGlobal(Offset.zero).dy;
+    final bottom = content.localToGlobal(Offset(0, content.size.height)).dy;
+    var painted = top;
+    String lastPainted = '—';
+    for (final element in tester.allElements) {
+      final object = element.renderObject;
+      if (object is! RenderBox || !object.hasSize || !object.attached) continue;
+      if (!_paints(element.widget) || _inHorizontalScroll(element)) continue;
+      final b = object.localToGlobal(Offset(0, object.size.height)).dy;
+      if (b > painted) {
+        painted = b;
+        final w = element.widget;
+        lastPainted = w is Text ? '«${w.data}»' : w.runtimeType.toString();
+      }
+    }
+    // ignore: avoid_print
+    print('DIAG وزارة :: ارتفاع ${bottom - top} · آخر رسم ${painted - top} '
+        '($lastPainted) · ذيل ${bottom - painted}');
+    expect(bottom - painted, lessThan(80),
+        reason: 'ذيلٌ فارغ قدره ${bottom - painted} بكسل ببيانات بحجم الوزارة');
+  });
+
+  testWidgets('لا بطاقة في اللوحة أطول من شاشتين ببيانات الوزارة', (tester) async {
+    // ــ لماذا سقفٌ على ارتفاع **البطاقة** لا على ذيل الصفحة؟ ــ
+    //
+    // لأن ذيل الصفحة كان ٧٤ بكسل في كل قياس — سليماً — بينما كانت بطاقة
+    // «ترتيب الإدارات» وحدها **٦٢٥٧ بكسل**: تعرض كل إدارة بلا سقف، وبوزارة
+    // فيها أربعون إدارة صارت ثماني شاشات هاتف لبطاقة واحدة، في صفحة طولها
+    // عشرة آلاف بكسل. فالحارس الذي ينظر إلى الذيل وحده يمرّ على هذا صامتاً.
+    //
+    // وهذا هو الفارق الذي أعمى ثلاث جولات من الإصلاح: القياس كان بثلاثين
+    // مشروعاً وإدارة واحدة، والمستخدم على بيانات وزارة.
+    const size = Size(390, 40000);
+    await tester.binding.setSurfaceSize(size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final store = _ministryStore()
+      ..setDashboardWidgetsForTest([
+        ...DashboardWidgetConfig.kpiDefaults(),
+        const DashboardWidgetConfig(id: 'w1', type: DashboardWidgetType.pendingApprovalsList),
+        const DashboardWidgetConfig(id: 'w2', type: DashboardWidgetType.deptBarChart),
+        const DashboardWidgetConfig(id: 'w3', type: DashboardWidgetType.recentUpdatesList),
+        const DashboardWidgetConfig(id: 'w4', type: DashboardWidgetType.departmentRankingList),
+        const DashboardWidgetConfig(id: 'w5', type: DashboardWidgetType.statusPieChart),
+        const DashboardWidgetConfig(id: 'w6', type: DashboardWidgetType.projectsTable),
+        const DashboardWidgetConfig(id: 'w7', type: DashboardWidgetType.topProjectsList),
+        const DashboardWidgetConfig(id: 'w8', type: DashboardWidgetType.topUsersChart),
+      ]);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.theme,
+      home: ChangeNotifierProvider<AppStore>.value(
+        value: store,
+        child: const Directionality(
+          textDirection: TextDirection.rtl,
+          child: Scaffold(body: DashboardScreen()),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    final tall = <String>[];
+    for (final cardElement in find.byType(Card).evaluate()) {
+      final box = cardElement.renderObject;
+      if (box is! RenderBox || !box.hasSize || !box.attached) continue;
+      if (box.size.height <= 900) continue;
+      // اسم البطاقة = أول نصّ فيها، وهو عنوانها.
+      var title = '؟';
+      var found = false;
+      void visit(Element e) {
+        if (found) return;
+        final w = e.widget;
+        if (w is Text && (w.data ?? '').trim().isNotEmpty) {
+          title = w.data!;
+          found = true;
+          return;
+        }
+        e.visitChildren(visit);
+      }
+
+      cardElement.visitChildren(visit);
+      tall.add('«$title» بارتفاع ${box.size.height.toStringAsFixed(0)}');
+    }
+
+    expect(tall, isEmpty,
+        reason: 'بطاقات أطول من شاشتين على الهاتف:\n${tall.join('\n')}');
   });
 
   testWidgets('لوحة بلا ودجات تقول ذلك ولا تترك صفحة بيضاء', (tester) async {

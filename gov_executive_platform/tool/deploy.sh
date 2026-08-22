@@ -29,6 +29,18 @@ FORCE=""
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
 
+# ــــ معرّف المشروع يُقرأ من الملف ويُمرَّر صراحةً في كل أمر ــــ
+#
+# ولا يُترك لحالة `firebase use` المحفوظة خارج المستودع: تلك حالةٌ في جهاز
+# المستخدم لا يراها أحد ولا يضبطها المستودع. وقد كلّفتنا جولة: كان
+# `.firebaserc` يحمل المفتاح `dafault` (خطأ إملائي)، فسجّلت الأداة
+# «dafault» **اسماً لمشروع**، وبقيت مسجَّلة بعد تصحيح الملف — فصار النشر
+# يطلب مشروعاً اسمه `dafault` لا وجود له، بخطأ 403 لا يذكر السبب.
+#
+# و`sed` لا `python3`: هذا سكربت نشر، ولا يجوز أن يتوقّف على مفسّر قد لا
+# يكون مثبَّتاً على جهاز من ينشر.
+PROJECT="$(sed -n 's/.*"default"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .firebaserc 2>/dev/null | head -1)"
+
 say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 die() {
   printf '\n══════════════════════════════════════════════════════════════\n'
@@ -38,6 +50,12 @@ die() {
   printf '══════════════════════════════════════════════════════════════\n\n'
   exit 1
 }
+
+if [ -z "$PROJECT" ]; then
+  die "تعذّر قراءة معرّف مشروع Firebase من .firebaserc" \
+      "يجب أن يحوي الملف مفتاحاً اسمه default هكذا:" \
+      '  { "projects": { "default": "<معرّف-المشروع>" } }'
+fi
 
 # ــــ ١) هل ما سننشره هو آخر شيفرة فعلاً؟ ــــ
 say "١/٧  التحقّق من أن شيفرتك محدَّثة…"
@@ -87,7 +105,7 @@ say "٢/٧  بناء نسخة الويب…"
 # وفشلت القواعد، لبقي المستخدمون على واجهة جديدة ببيانات محجوبة — وهو أسوأ
 # ما يمكن أن يظهر لهم.
 say "٣/٧  نشر قواعد قاعدة البيانات (هي التي تقرّر من يرى ماذا)…"
-firebase deploy --only firestore:rules
+firebase deploy --project "$PROJECT" --only firestore:rules
 
 # ــــ ٤) قواعد التخزين ــــ
 #
@@ -106,7 +124,7 @@ storage_not_enabled() {
 
 say "٤/٧  نشر قواعد التخزين (مرفقات التحديثات اليومية)…"
 STORAGE_RESULT="skipped"
-STORAGE_OUT="$(firebase deploy --only storage 2>&1)" && STORAGE_OK=1 || STORAGE_OK=0
+STORAGE_OUT="$(firebase deploy --project "$PROJECT" --only storage 2>&1)" && STORAGE_OK=1 || STORAGE_OK=0
 printf '%s\n' "$STORAGE_OUT"
 
 if [ "$STORAGE_OK" = "1" ]; then
@@ -134,11 +152,11 @@ fi
 
 # ــــ ٥) الدوال ــــ
 say "٥/٧  نشر الدوال (الاعتماد وختم الصلاحيات)…"
-firebase deploy --only functions
+firebase deploy --project "$PROJECT" --only functions
 
 # ــــ ٦) الموقع ــــ
 say "٦/٧  نشر الموقع…"
-firebase deploy --only hosting
+firebase deploy --project "$PROJECT" --only hosting
 
 # ــــ ٧) التحقّق: هل يخدم الموقع فعلاً ما بنيناه؟ ــــ
 #
@@ -149,10 +167,9 @@ firebase deploy --only hosting
 #
 # فالسكربت يسأل الموقع بنفسه الآن. وإخفاق الاتصال ليس إخفاق نشر — يُقال ذلك
 # ولا يُفشَل النشر عليه.
-PROJECT="$(python3 -c 'import json;print(json.load(open(".firebaserc"))["projects"]["default"])' 2>/dev/null || echo '')"
 LIVE_RESULT="unknown"
 LIVE_COMMIT=""
-if [ -n "$PROJECT" ]; then
+if true; then
   say "٧/٧  التحقّق من أن الموقع يخدم هذا الالتزام…"
   LIVE_JSON="$(curl -fsS --max-time 25 -H 'Cache-Control: no-cache' \
       "https://${PROJECT}.web.app/build.json" 2>/dev/null || echo '')"
@@ -160,7 +177,7 @@ if [ -n "$PROJECT" ]; then
     echo "⚠ تعذّر الوصول إلى الموقع للتحقّق — قد يكون حجباً في شبكتك."
     echo "  النشر تمّ، والتحقّق وحده لم يقع."
   else
-    LIVE_COMMIT="$(printf '%s' "$LIVE_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || echo '')"
+    LIVE_COMMIT="$(printf '%s' "$LIVE_JSON" | sed -n 's/.*"commit"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
     if [ "$LIVE_COMMIT" = "$COMMIT" ]; then
       echo "✔ الموقع يخدم الالتزام $COMMIT."
       LIVE_RESULT="ok"

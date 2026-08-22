@@ -38,6 +38,21 @@ class ClosureTrail {
   final String reworkByName;
   final DateTime? reworkAt;
 
+  /// ردُّ المُسنَد إليه البندَ **لعدم الاختصاص** — من ردَّه ولماذا ومتى.
+  ///
+  /// ــــ ولماذا يُحفظ ولا يُمحى الإسناد وكفى؟ ــــ
+  ///
+  /// لأن البند يعود إلى مدير الإدارة بلا مُسنَدٍ إليه، فلو لم يُحفظ السبب
+  /// لَوجده «غير مُسنَد» بلا أن يعرف أنه عُرض على أحدٍ وردَّه — فيُسنده إليه
+  /// من جديد. والسببُ هو ما يمنع الدورة أن تُعاد.
+  ///
+  /// ويُمحى عند الإسناد التالي: بندٌ يحمل «ردَّه فلان» وهو مُسنَدٌ لغيره
+  /// ويعمل عليه يكذب على قارئه.
+  final String declinedByUid;
+  final String declinedByName;
+  final String declinedReason;
+  final DateTime? declinedAt;
+
   const ClosureTrail({
     this.approverUid = '',
     this.approverName = '',
@@ -51,6 +66,10 @@ class ClosureTrail {
     this.reworkReason = '',
     this.reworkByName = '',
     this.reworkAt,
+    this.declinedByUid = '',
+    this.declinedByName = '',
+    this.declinedReason = '',
+    this.declinedAt,
   });
 
   static const ClosureTrail none = ClosureTrail();
@@ -63,6 +82,9 @@ class ClosureTrail {
   /// ومسؤول النظام يُفحص عند المستدعي لا هنا: هذا الصنف يصف **المستند** ولا
   /// يعرف أدوار المنصة.
   bool isApprover(String? uid) => uid != null && uid.isNotEmpty && uid == approverUid;
+
+  /// هل رُدَّ هذا البند لعدم الاختصاص وينتظر إسناداً جديداً؟
+  bool get isDeclined => declinedAt != null;
 
   ClosureTrail copyWith({
     String? approverUid,
@@ -77,7 +99,12 @@ class ClosureTrail {
     String? reworkReason,
     String? reworkByName,
     DateTime? reworkAt,
+    String? declinedByUid,
+    String? declinedByName,
+    String? declinedReason,
+    DateTime? declinedAt,
     bool clearApproval = false,
+    bool clearDecline = false,
   }) =>
       ClosureTrail(
         approverUid: approverUid ?? this.approverUid,
@@ -94,6 +121,11 @@ class ClosureTrail {
         reworkReason: reworkReason ?? this.reworkReason,
         reworkByName: reworkByName ?? this.reworkByName,
         reworkAt: reworkAt ?? this.reworkAt,
+        // الإسناد الجديد يمسح الردّ: راجع [declinedReason].
+        declinedByUid: clearDecline ? '' : (declinedByUid ?? this.declinedByUid),
+        declinedByName: clearDecline ? '' : (declinedByName ?? this.declinedByName),
+        declinedReason: clearDecline ? '' : (declinedReason ?? this.declinedReason),
+        declinedAt: clearDecline ? null : (declinedAt ?? this.declinedAt),
       );
 
   /// خريطة تُكتب تحت مفتاح `closure`.
@@ -122,6 +154,12 @@ class ClosureTrail {
       map['reworkByName'] = reworkByName;
       if (reworkAt != null) map['reworkAt'] = Timestamp.fromDate(reworkAt!);
     }
+    if (declinedAt != null) {
+      map['declinedByUid'] = declinedByUid;
+      map['declinedByName'] = declinedByName;
+      map['declinedReason'] = declinedReason;
+      map['declinedAt'] = Timestamp.fromDate(declinedAt!);
+    }
     return map;
   }
 
@@ -142,6 +180,10 @@ class ClosureTrail {
       reworkReason: str('reworkReason'),
       reworkByName: str('reworkByName'),
       reworkAt: at('reworkAt'),
+      declinedByUid: str('declinedByUid'),
+      declinedByName: str('declinedByName'),
+      declinedReason: str('declinedReason'),
+      declinedAt: at('declinedAt'),
     );
   }
 }

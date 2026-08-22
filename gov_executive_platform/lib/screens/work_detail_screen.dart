@@ -115,6 +115,41 @@ class WorkDetailScreen extends StatelessWidget {
                   // «المُسنَد إليّ» تُبنى على حساب المستخدم لا على اسمه
                   // المكتوب. فعملٌ يحمل اسماً بلا حساب يبدو مُسنَداً هنا ولا
                   // يظهر لصاحبه في صفحته أبداً — ولا شيء يقول لماذا. فيُقال.
+                  // ــ رُدَّ لعدم الاختصاص ــ
+                  //
+                  // بلا هذا يجد مدير الإدارة عملاً «غير مُسنَد» ولا يعرف أنه
+                  // عُرض على أحدٍ وردَّه — فيُسنده إليه من جديد وتدور الدورة.
+                  if (work.closure.isDeclined && work.assigneeUid.isEmpty) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.info.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.info.withValues(alpha: 0.4)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'رُدَّ لعدم الاختصاص — ${work.closure.declinedByName}'
+                            '${work.closure.declinedAt == null ? '' : ' · ${Formatters.shortDate(work.closure.declinedAt!)}'}',
+                            style: const TextStyle(
+                                fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(work.closure.declinedReason,
+                              style: const TextStyle(fontSize: 12, height: 1.7)),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'وهو الآن بلا مُسنَدٍ إليه — أسنِده لمن يختصّ من «تعديل بيانات العمل».',
+                            style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   if (work.assigneeUid.isEmpty && work.assigneeName.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     Container(
@@ -142,11 +177,34 @@ class WorkDetailScreen extends StatelessWidget {
                       //
                       // اللفظ مقصود: من ينفّذ **يُفيد** بالإتمام ولا يُغلق.
                       // والإغلاق زرٌّ آخر عند طرفٍ آخر.
+                      // ــ «جارٍ العمل» ــ
+                      //
+                      // كان تحريك الحالة يمرّ بنموذج تعديل العمل (وهو لمدير
+                      // الإدارة) أو بالتحديث اليومي. فالموظف الذي بدأ فعلاً
+                      // لا يملك أن يقول ذلك، ويبقى عملُه «لم تبدأ» في كل
+                      // شاشة وفي التقرير اليومي — فيُقرأ إهمالاً وهو يُنجَز.
+                      if (store.canStartWork(work))
+                        FilledButton.icon(
+                          onPressed: () => _start(context, store, work),
+                          icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                          label: const Text('جارٍ العمل'),
+                        ),
                       if (store.canClaimWorkCompletion(work) && !work.isAwaitingApproval)
                         FilledButton.icon(
                           onPressed: () => _claim(context, store, work),
                           icon: const Icon(Icons.done_all_rounded, size: 18),
                           label: Text(work.closure.requiresApproval ? 'تم الإنجاز' : 'إغلاق العمل'),
+                        ),
+                      // ــ «لا يخصّني» ــ
+                      //
+                      // للمُسنَد إليه وحده، ولا يظهر لمن يشرف: مدير الإدارة
+                      // يُعيد الإسناد من النموذج، ولا معنى لأن «يعتذر» عن
+                      // عملٍ لم يُسنَد إليه.
+                      if (store.canDeclineWork(work))
+                        OutlinedButton.icon(
+                          onPressed: () => _decline(context, store, work),
+                          icon: const Icon(Icons.person_off_outlined, size: 18),
+                          label: const Text('لا يخصّني (عدم اختصاص)'),
                         ),
                       if (work.isAwaitingApproval && store.canApproveWorkClosure(work)) ...[
                         FilledButton.icon(
@@ -606,4 +664,80 @@ void openWorkDetail(BuildContext context, WorkItem work) {
       body: WorkDetailScreen(workId: work.id),
     ),
   ));
+}
+
+/// «جارٍ العمل» — إعلانُ البدء بضغطة.
+Future<void> _start(BuildContext context, AppStore store, WorkItem work) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await store.startWork(work);
+    messenger.showSnackBar(const SnackBar(
+      content: Text('حُدِّثت الحالة إلى «قيد التنفيذ».'),
+    ));
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text(describeWriteFailure(e))));
+  }
+}
+
+/// «لا يخصّني» — ردُّ المُسنَد إليه البندَ لعدم الاختصاص.
+///
+/// ــــ ولماذا يُشترط سببٌ مكتوب؟ ــــ
+///
+/// لأن البند يعود إلى مدير الإدارة **بلا مُسنَدٍ إليه**. فلولا السبب لَوجده
+/// «غير مُسنَد» بلا أن يعرف أنه عُرض على أحدٍ وردَّه — فيُسنده إليه من جديد،
+/// وتدور الدورة. والسببُ هو ما يكسرها.
+Future<void> _decline(BuildContext context, AppStore store, WorkItem work) async {
+  final ctrl = TextEditingController();
+  final reason = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('ردّ العمل لعدم الاختصاص'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ما سيقع يُقال قبل الضغط لا بعده.
+            const Text(
+              'يُرفع اسمك عن هذا العمل، ويبقى في إدارتك مفتوحاً فيراه مديرها '
+              'ويُسنده لمن يختصّ. ولا يُلغى ولا يعود لمن طلبه.',
+              style: TextStyle(fontSize: 12.5, height: 1.8, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              maxLines: 3,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'لماذا لا يخصّك؟ ومن يخصّه إن كنت تعرف…',
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+          child: const Text('ردّ لعدم الاختصاص'),
+        ),
+      ],
+    ),
+  );
+  if (!context.mounted) return;
+  final messenger = ScaffoldMessenger.of(context);
+  if (reason == null) return;
+  if (reason.isEmpty) {
+    messenger.showSnackBar(const SnackBar(content: Text('سبب عدم الاختصاص مطلوب.')));
+    return;
+  }
+  try {
+    await store.declineWork(work, reason);
+    messenger.showSnackBar(const SnackBar(
+      content: Text('رُدَّ العمل لعدم الاختصاص، وعاد إلى إدارتك بلا مُسنَدٍ إليه.'),
+    ));
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text(describeWriteFailure(e))));
+  }
 }

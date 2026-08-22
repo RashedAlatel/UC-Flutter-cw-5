@@ -338,6 +338,48 @@ want_in "$STORE" "وإن رُدَّت الكتابة المباشرة يُعاد
   "if (e.code != 'permission-denied') rethrow;"
 echo ""
 
+# ــــ ردّ البند لعدم الاختصاص ــــ
+#
+# هذا **ثقبٌ فُتح عمداً** في قاعدةٍ كانت تمنع المُسنَد إليه أن يمسّ الإسناد.
+# وخطرُه أن يتّسع بتعديلٍ لاحق فيصير: «المُسنَد إليه يعدّل الإسناد» — أي
+# يُحوّل بندَه إلى زميلٍ باسمه، أو يُفرّغ إسناد غيره.
+#
+# فالحارس هنا يحرس **ضيق** الاستثناء لا وجودَه: شرطاه معاً — التفريغ لا
+# التحويل، والختمُ باسم الرادّ نفسه — وسقوطُ أيّهما يفتح ما وُصف أعلاه.
+WORKS_SCREEN="lib/screens/works_list_screen.dart"
+echo "ردّ البند لعدم الاختصاص استثناءٌ ضيّق:"
+want_in "$RULES" "الاستثناء معرَّفٌ باسمه" "function isSelfDecline()"
+want_in "$RULES" "ويُفرَّغ الإسناد ولا يُحوَّل" \
+  "request.resource.data.get('assigneeUid', '') == ''"
+want_in "$RULES" "ويُختم باسم الرادّ نفسه فلا يردّ أحدٌ عن غيره" \
+  "== request.auth.uid"
+echo ""
+
+echo "والعميل يردّ كما تصف القاعدة:"
+want_in "$STORE" "الأفعال لمن على مكتبه البند لا لمن يشرف عليه" \
+  "bool isAssignedToMe(WorkItem work) =>"
+want_in "$STORE" "وردُّ العمل يُفرّغ الإسناد" "'assigneeUid': '',"
+want_in "$STORE" "ويختم سجلّ الردّ باسم الرادّ" "declinedByUid: currentUser?.id ?? '',"
+want_in "$STORE" "ولا يُقبل ردٌّ بلا سبب" "throw ArgumentError('سبب عدم الاختصاص مطلوب');"
+# ومهام المشاريع نظيرُ الأعمال: زرٌّ يظهر في شاشة ويغيب في أختها يُقرأ عطلاً.
+want_in "$STORE" "ومهام المشاريع لها النظير نفسه" "Future<void> declineTask(ProjectTask task, String reason)"
+want_in "$STORE" "وبدءُ العمل بضغطة لا بنموذج تعديلٍ لا يملكه الموظف" \
+  "Future<void> startWork(WorkItem work)"
+echo ""
+
+# ــــ العمل الموجَّه لإدارةٍ أخرى ــــ
+#
+# كانت الشاشة تعرض إدارات المستخدم وحدها، فتعذّر توجيه عملٍ لإدارةٍ أخرى
+# أصلاً. وفتحُ القائمة وحده لا يكفي: بلا مُسنَدٍ إليه لا يظهر البند في
+# «المُسنَد إليّ» لأحد، ولا يعلم أحدٌ في تلك الإدارة أنه وصلها — فيُدفن.
+echo "العمل الموجَّه لإدارةٍ أخرى يصل فعلاً:"
+want_in "$WORKS_SCREEN" "والقائمة كل الإدارات لا إداراتي" "final departments = store.departments;"
+want_in "$WORKS_SCREEN" "ويلزمه اسم منفّذ" "if (crossDept && _assigneeUid.isEmpty) {"
+want_in "$STORE" "والإنشاء خارج إدارتي يمرّ بطلبٍ لا بردٍّ من القاعدة" \
+  "bool canCreateWorkIn(String? departmentId)"
+want_in "$WORKS_SCREEN" "والشاشة تقرأ الحكم من مكانٍ واحد" "store.canCreateWorkIn("
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

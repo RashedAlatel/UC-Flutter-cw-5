@@ -568,6 +568,69 @@ class AppStore extends ChangeNotifier {
   /// من يدير أعمال إدارته.
   bool canClaimWorkCompletion(WorkItem work) => canEditWork(work) && !work.isDone;
 
+  /// هل هذا البند **مُسنَدٌ إليّ أنا**؟
+  ///
+  /// وهذا أضيق من `canEditWork`: مدير الإدارة يحرّر أعمال إدارته كلها، ولا
+  /// معنى لأن يقول عن عملٍ لغيره «جارٍ العمل» أو «لا يخصّني». هذه الأفعال
+  /// لمن على مكتبه البند لا لمن يشرف عليه.
+  bool isAssignedToMe(WorkItem work) =>
+      work.assigneeUid.isNotEmpty && work.assigneeUid == currentUser?.id;
+
+  /// هل يستطيع المُسنَد إليه أن يعلن بدء العمل؟
+  bool canStartWork(WorkItem work) =>
+      isAssignedToMe(work) && work.status == TaskStatus.todo;
+
+  /// «جارٍ العمل» — إعلانُ البدء بضغطة.
+  ///
+  /// كان تحريك الحالة يمرّ بنموذج تعديل العمل (وهو لمدير الإدارة) أو
+  /// بالتحديث اليومي. فالموظف الذي بدأ فعلاً لا يملك أن يقول ذلك، ويبقى
+  /// عملُه «لم تبدأ» في كل شاشة وفي التقرير اليومي — فيُقرأ إهمالاً.
+  Future<void> startWork(WorkItem work) async {
+    await _db.collection('works').doc(work.id).update({
+      'status': TaskStatus.inProgress.name,
+    });
+    await _log('بدء العمل', 'بدأ ${currentUser?.name} العمل على "${work.title}"');
+  }
+
+  /// هل يستطيع ردَّ البند لعدم الاختصاص؟
+  ///
+  /// ما لم يُعلن إتمامه بعد: من أفاد بالإتمام ثم قال «لا يخصّني» يناقض نفسه،
+  /// والطريق حينها ردُّ المعتمِد له لا ردُّه هو.
+  bool canDeclineWork(WorkItem work) =>
+      isAssignedToMe(work) && !work.isDone && !work.isAwaitingApproval;
+
+  /// «عدم اختصاص»: يردّ المُسنَد إليه البندَ بسببٍ يكتبه.
+  ///
+  /// ــــ إلى أين يعود، ولماذا؟ ــــ
+  ///
+  /// يُرفع اسمُ المُسنَد إليه ويبقى البند **في إدارته المنفّذة مفتوحاً**،
+  /// فيراه مديرها ويُسنده لمن يختصّ. وذلك بقرار صريح: من طلب العمل قد يكون
+  /// من إدارة أخرى، وهو لا يعرف توزيع الاختصاصات داخل إدارةٍ ليست إدارته —
+  /// فردُّه إليه يجعله يُخمّن اسماً ثانياً كما خمّن الأول.
+  ///
+  /// والحالة تعود إلى «لم تبدأ»: بندٌ بلا مُسنَدٍ إليه ليس «جارياً».
+  Future<void> declineWork(WorkItem work, String reason) async {
+    final text = reason.trim();
+    if (text.isEmpty) throw ArgumentError('سبب عدم الاختصاص مطلوب');
+    final trail = work.closure.copyWith(
+      declinedByUid: currentUser?.id ?? '',
+      declinedByName: currentUser?.name ?? '',
+      declinedReason: text,
+      declinedAt: DateTime.now(),
+    );
+    await _db.collection('works').doc(work.id).update({
+      'assigneeUid': '',
+      'assigneeName': '',
+      'status': TaskStatus.todo.name,
+      'closure': trail.toMap(),
+    });
+    await _log(
+      'ردّ عمل لعدم الاختصاص',
+      'ردّ ${currentUser?.name} العمل "${work.title}" لعدم الاختصاص: $text — '
+          'وعاد إلى إدارته بلا مُسنَدٍ إليه',
+    );
+  }
+
   /// «تم الإنجاز»: تنتقل الحالة إلى **بانتظار الاعتماد** متى وُجد معتمِد،
   /// وإلى «منجَزة» مباشرةً حين لا معتمِد له (كما كانت المنصة).
   Future<void> claimWorkCompletion(WorkItem work) async {
@@ -1919,6 +1982,23 @@ class AppStore extends ChangeNotifier {
     return scopeFor(RolePermission.manageProjects).covers(departmentId);
   }
 
+  /// هل يستطيع إنشاء **عمل** في هذه الإدارة مباشرةً؟
+  ///
+  /// ــــ ولماذا دالّةٌ مستقلّة عن [canCreateIn]؟ ــــ
+  ///
+  /// لأن تلك تقرأ نطاق «إدارة المشاريع»، وقاعدة إنشاء العمل تقرأ `mw` ضمن
+  /// إدارات المستخدم. وكانت الشاشة تستعملها للأعمال أيضاً — ولم يظهر ذلك
+  /// لأن الإدارة المختارة كانت دائماً إدارة المستخدم نفسه.
+  ///
+  /// وهذه تطابق القاعدة حرفاً:
+  /// `isAdmin() || (perm('mw') && isMyDeptAny(dept))`. فمن اختار إدارةً
+  /// أخرى يمرّ بطلبٍ يعتمده مديرها بدل أن يُردّ برسالة صلاحيات.
+  bool canCreateWorkIn(String? departmentId) {
+    if (isAdmin) return true;
+    if (!canManageWorks) return false;
+    return departmentId != null && myDepartmentIds.contains(departmentId);
+  }
+
   /// هل يستطيع البتّ في طلب إضافة مشروع لهذه الإدارة؟
   bool canApproveProjectIn(String? departmentId) {
     if (isAdmin) return true;
@@ -2990,6 +3070,54 @@ class AppStore extends ChangeNotifier {
     if (!task.closure.requiresApproval) return false;
     if (isAdmin) return true;
     return task.closure.isApprover(currentUser?.id);
+  }
+
+  /// نظائرُ أفعال المُسنَد إليه على **مهام المشاريع**.
+  ///
+  /// نُسخت المعاني لا الشيفرة: النموذجان مستقلان ومجموعتاهما مستقلتان،
+  /// و`ClosureTrail` هو المشترك بينهما — وهو حيث يُحفظ سجلّ الردّ.
+  /// والمعنى واحد بقرار صريح: الموظف لا يفرّق بين «عمل» و«مهمة مشروع»،
+  /// وزرٌّ يظهر في شاشة ويغيب في أختها يُقرأ عطلاً.
+  bool isTaskAssignedToMe(ProjectTask task) =>
+      task.assigneeUid.isNotEmpty && task.assigneeUid == currentUser?.id;
+
+  bool canStartTask(ProjectTask task) =>
+      isTaskAssignedToMe(task) && task.status == TaskStatus.todo;
+
+  Future<void> startTask(ProjectTask task) async {
+    await _db.collection('tasks').doc(task.id).update({
+      'status': TaskStatus.inProgress.name,
+      'lastUpdated': Timestamp.fromDate(DateTime.now()),
+    });
+    await _log('بدء مهمة', 'بدأ ${currentUser?.name} العمل على المهمة "${task.title}"');
+  }
+
+  bool canDeclineTask(ProjectTask task) =>
+      isTaskAssignedToMe(task) && !task.isDone && !task.isAwaitingApproval;
+
+  /// «عدم اختصاص» لمهمة مشروع — تعود إلى المشروع بلا مُسنَدٍ إليه.
+  ///
+  /// ويراها مدير المشروع في لوحته فيُسندها لمن يختصّ، ومعها السبب.
+  Future<void> declineTask(ProjectTask task, String reason) async {
+    final text = reason.trim();
+    if (text.isEmpty) throw ArgumentError('سبب عدم الاختصاص مطلوب');
+    final trail = task.closure.copyWith(
+      declinedByUid: currentUser?.id ?? '',
+      declinedByName: currentUser?.name ?? '',
+      declinedReason: text,
+      declinedAt: DateTime.now(),
+    );
+    await _db.collection('tasks').doc(task.id).update({
+      'assigneeUid': '',
+      'assigneeName': '',
+      'status': TaskStatus.todo.name,
+      'lastUpdated': Timestamp.fromDate(DateTime.now()),
+      'closure': trail.toMap(),
+    });
+    await _log(
+      'ردّ مهمة لعدم الاختصاص',
+      'ردّ ${currentUser?.name} المهمة "${task.title}" لعدم الاختصاص: $text',
+    );
   }
 
   Future<void> updateTaskProgress(ProjectTask task, double progress) async {

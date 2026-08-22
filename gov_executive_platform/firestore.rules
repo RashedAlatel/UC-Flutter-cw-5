@@ -209,6 +209,21 @@ service cloud.firestore {
       return request.resource.data.get('assigneeUid', '') == resource.data.get('assigneeUid', '');
     }
 
+    // ــــ ردُّ المُسنَد إليه لعدم الاختصاص ــــ
+    //
+    // الموظف يُرفَع اسمُه عن البند بنفسه، ويبقى البند في إدارته مفتوحاً
+    // فيُسنده مديرها لمن يختصّ. وهذا استثناءٌ **ضيّق** من قاعدةٍ عامة تمنع
+    // المُسنَد إليه أن يمسّ الإسناد:
+    //
+    //   • يُفرَّغ الحقل ولا يُملأ بغيره — فلا يُحوِّل أحدٌ بندَه إلى زميله،
+    //   • وباسمه هو مختوماً في سجلّ الردّ — فلا يُفرَّغ إسنادُ غيره،
+    //   • والسببُ يُكتب معه، وهو ما يمنع أن يُعاد إسناده إليه من جديد.
+    function isSelfDecline() {
+      return request.resource.data.get('assigneeUid', '') == ''
+          && request.resource.data.get('closure', {}).get('declinedByUid', '')
+             == request.auth.uid;
+    }
+
     // ــــ دورة الإغلاق على مرحلتين ــــ
     //
     // كان الطرف المنفِّذ يكتب `done` بنفسه، فيُقفل المطلوب بلا أن يعلم من
@@ -356,8 +371,14 @@ service cloud.firestore {
       // إسناد مهمته ولا ينقلها إلى مشروع آخر.
       allow update: if (canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                         || (resource.data.get('assigneeUid', '') == request.auth.uid
-                            && request.resource.data.diff(resource.data).affectedKeys()
-                                 .hasOnly(['status', 'progressPercent', 'closure', 'lastUpdated'])))
+                            && (request.resource.data.diff(resource.data).affectedKeys()
+                                   .hasOnly(['status', 'progressPercent', 'closure', 'lastUpdated'])
+                                // وردُّها لعدم الاختصاص يمسّ الإسناد كذلك،
+                                // ولا يُقبل إلا تفريغاً باسم صاحبه.
+                                || (isSelfDecline()
+                                    && request.resource.data.diff(resource.data).affectedKeys()
+                                         .hasOnly(['status', 'assigneeUid', 'assigneeName',
+                                                   'closure', 'lastUpdated'])))))
                     && !request.resource.data.diff(resource.data).affectedKeys()
                           .hasAny(['projectId', 'departmentId', 'managerUid'])
                     && closureRespected();
@@ -476,7 +497,9 @@ service cloud.firestore {
                     || (perm('mw') && (canViewAll() || isMyDeptAny(deptOf(resource.data))))
                     || (resource.data.get('assigneeUid', '') == request.auth.uid
                         && !request.resource.data.diff(resource.data).affectedKeys()
-                              .hasAny(['departmentId', 'assigneeUid', 'createdByUid'])))
+                              .hasAny(['departmentId', 'createdByUid'])
+                        // الإسناد لا يمسّه المُسنَد إليه إلا ليرفع اسمه هو.
+                        && (assigneeUnchanged() || isSelfDecline())))
                     && (assigneeUnchanged()
                         || mayAssign(request.resource.data.get('assigneeUid', '')))
                     // ولا يُغلقه إلا معتمِده — راجع closureRespected أعلاه.

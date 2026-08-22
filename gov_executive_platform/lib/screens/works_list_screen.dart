@@ -455,6 +455,18 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
       setState(() => _error = 'الرجاء اختيار الإدارة');
       return;
     }
+    // العمل الموجَّه لإدارةٍ أخرى يلزمه اسمُ منفّذ.
+    //
+    // وليس تشدّداً: بلا مُسنَدٍ إليه لا يظهر العمل في «المُسنَد إليّ» لأحد،
+    // ولا يعلم أحدٌ في تلك الإدارة أنه وصلها. أما داخل إدارتك فمديرها يراه
+    // ويُسنده، فيبقى الحقل اختيارياً هناك.
+    final crossDept = _departmentId != store.currentUser?.departmentId;
+    if (crossDept && _assigneeUid.isEmpty) {
+      setState(() => _error =
+          'العمل الموجَّه لإدارة أخرى يلزمه اسم المسؤول عن التنفيذ — '
+          'وإلا لم يظهر لأحد فيها.');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -466,7 +478,11 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
 
       // من لا يملك الإنشاء المباشر في هذه الإدارة يقدّم **طلباً** يعتمده
       // مدير الإدارة — نفس النموذج، ومخرجٌ مختلف.
-      if (widget.editing == null && !store.canCreateIn(_departmentId) && !store.canManageWorks) {
+      // `canCreateWorkIn` لا `canCreateIn && !canManageWorks`: الأولى تقرأ
+      // نطاق **المشاريع**، والثانية تسأل «هل أملك إدارة الأعمال أصلاً؟» بلا
+      // نظرٍ إلى الإدارة المختارة. فمديرُ إدارةٍ يوجّه عملاً لإدارةٍ أخرى كان
+      // يسلك مسار الكتابة المباشرة فيردّه الخادم.
+      if (widget.editing == null && !store.canCreateWorkIn(_departmentId)) {
         requested = true;
         await store.submitWorkRequest(
           departmentId: _departmentId,
@@ -545,11 +561,26 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
     // ومن يعتمده هو من يحرّكهما.
     final canManage = store.canManageWorks;
     final isRequest = widget.editing == null &&
-        !canManage &&
-        !store.canCreateIn(_departmentId.isEmpty ? store.currentUser?.departmentId : _departmentId);
+        !store.canCreateWorkIn(
+            _departmentId.isEmpty ? store.currentUser?.departmentId : _departmentId);
     final canEdit = canManage || widget.editing == null;
     final canSetProgress = canManage || !isRequest;
-    final departments = store.visibleDepartments;
+    // ــــ كل الإدارات، لا التي «أراها» ــــ
+    //
+    // كانت `store.visibleDepartments`، وهي تُرجع إدارة الموظف وحدها. فكان
+    // **طلبُ عملٍ من إدارة أخرى مستحيلاً** — وهي حاجةٌ أساسية في وزارة،
+    // ومبنيٌّ لها في المنصة دورةُ إغلاقٍ من مرحلتين لا تُبلَغ أصلاً.
+    //
+    // والخلط كان بين سؤالين: «أيّ إدارةٍ أقرأ بياناتها؟» — وذلك مقيَّد بحق،
+    // و«أيّ إدارةٍ أوجّه إليها طلباً؟» — وذلك لا يُقيَّد: أسماء الإدارات
+    // تُقرأ علناً حتى قبل تسجيل الدخول (تُعرض في شاشة التسجيل).
+    final departments = store.departments;
+    final myDept = store.currentUser?.departmentId;
+    // العمل لإدارةٍ غير إدارتي: يلزم أن أسمّي من ينفّذه.
+    //
+    // فداخل إدارتي يعرف مديرها من يُسنِده، وخارجها لا أحد يعرف أنه وصل: عملٌ
+    // بلا مُسنَدٍ إليه لا يظهر في «المُسنَد إليّ» لأحد، فيقع في فراغ.
+    final crossDepartment = _departmentId.isNotEmpty && _departmentId != myDept;
     // المسؤولون المتاحون للإسناد — بالقاعدة الموحّدة لا بشرطٍ محلي.
     //
     // كان الشرط «معتمَد + في الإدارة» وحده، فكان الموظف يفتح النموذج فيجد
@@ -622,7 +653,17 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
               DropdownButtonFormField<String>(
                 initialValue: candidates.any((u) => u.id == _assigneeUid) ? _assigneeUid : null,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'المسؤول عن التنفيذ'),
+                decoration: InputDecoration(
+                  // اللزوم يُقال **قبل** الضغط لا بعده: نجمةٌ ونصٌّ مساعد
+                  // أهون من رسالة خطأ تُقرأ بعد ملء النموذج كله.
+                  labelText: crossDepartment
+                      ? 'المسؤول عن التنفيذ *'
+                      : 'المسؤول عن التنفيذ',
+                  helperText: crossDepartment
+                      ? 'مطلوب — العمل لإدارة أخرى، فبلا اسمٍ لا يظهر لأحد فيها.'
+                      : null,
+                  helperMaxLines: 2,
+                ),
                 items: candidates.map((u) => DropdownMenuItem<String>(value: u.id, child: Text(_userLabel(u)))).toList(),
                 onChanged: canEdit ? (v) => setState(() => _assigneeUid = v ?? '') : null,
               ),

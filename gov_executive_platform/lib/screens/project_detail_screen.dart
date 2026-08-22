@@ -1090,6 +1090,23 @@ class _TaskCard extends StatelessWidget {
                     _showReworkDialog(context);
                   },
                 ),
+              // ــ «لا يخصّني» للمُسنَد إليه وحده ــ
+              //
+              // نظيرُ ما في صفحة العمل، والمعنى واحد بقرار صريح: الموظف لا
+              // يفرّق بين «عمل» و«مهمة مشروع»، وزرٌّ يظهر في شاشة ويغيب في
+              // أختها يُقرأ عطلاً لا تصميماً.
+              //
+              // وتُعرض **قبل** قائمة الحالات: هي قرارٌ يخرج المهمة من يده،
+              // لا نقلاً بين حالاتها.
+              if (context.read<AppStore>().canDeclineTask(task))
+                ListTile(
+                  leading: const Icon(Icons.person_off_outlined),
+                  title: const Text('لا تخصّني (عدم اختصاص)'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showDeclineDialog(context);
+                  },
+                ),
               ...TaskStatus.values.map((s) => ListTile(
                     leading: Icon(s == task.status ? Icons.radio_button_checked : Icons.radio_button_unchecked),
                     title: Text('نقل إلى: ${s.label}'),
@@ -1102,6 +1119,67 @@ class _TaskCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  /// ردُّ المهمة لعدم الاختصاص — يرفع المُسنَد إليه اسمه عنها بسببٍ مكتوب.
+  ///
+  /// والسببُ مشروط لا مستحبّ: المهمة تعود إلى المشروع **بلا مُسنَدٍ إليه**،
+  /// فلولاه لَوجدها مدير المشروع «غير مُسنَدة» بلا أن يعرف أنها عُرضت على
+  /// أحدٍ وردَّها — فيُسندها إليه من جديد، وتدور الدورة.
+  void _showDeclineDialog(BuildContext context) {
+    final ctrl = TextEditingController();
+    final store = context.read<AppStore>();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ردّ المهمة لعدم الاختصاص'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'يُرفع اسمك عن هذه المهمة وتبقى في المشروع مفتوحة، فيراها مدير '
+                'المشروع ويُسندها لمن يختصّ.',
+                style: TextStyle(fontSize: 12.5, height: 1.8, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                maxLines: 3,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'لماذا لا تخصّك؟ ومن يخصّها إن كنت تعرف…',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          FilledButton(
+            onPressed: () async {
+              final reason = ctrl.text.trim();
+              final messenger = ScaffoldMessenger.of(ctx);
+              if (reason.isEmpty) {
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('سبب عدم الاختصاص مطلوب.')),
+                );
+                return;
+              }
+              Navigator.pop(ctx);
+              try {
+                await store.declineTask(task, reason);
+              } catch (e) {
+                messenger.showSnackBar(SnackBar(content: Text(describeWriteFailure(e))));
+              }
+            },
+            child: const Text('ردّ لعدم الاختصاص'),
+          ),
+        ],
+      ),
     );
   }
 

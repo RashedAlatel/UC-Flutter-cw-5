@@ -207,8 +207,19 @@ class _ScopedGrantEditor extends StatefulWidget {
   State<_ScopedGrantEditor> createState() => _ScopedGrantEditorState();
 }
 
+/// وضع محرِّر النطاق — **صريح لا مشتقّ من القيمة**.
+///
+/// وهذا هو أصل العطل: «إدارات محدَّدة ولم تُختر إدارة بعد» و«مغلقة» لهما
+/// **القيمة نفسها** (`GrantScope.isEmpty`)، ومعنيان مختلفان تماماً. وكان
+/// الوضع يُشتقّ من القيمة، فما إن يُختار «إدارات محدَّدة» حتى يعود الزرّ إلى
+/// «مغلقة» ولا تظهر مربعات الإدارات — أي أن الخيار لا يعمل إطلاقاً.
+enum _ScopeMode { closed, specific, all }
+
 class _ScopedGrantEditorState extends State<_ScopedGrantEditor> {
   late GrantScope _scope = widget.user.scopeOf(widget.permission);
+  late _ScopeMode _mode = _scope.allDepartments
+      ? _ScopeMode.all
+      : (_scope.departmentIds.isEmpty ? _ScopeMode.closed : _ScopeMode.specific);
   bool _busy = false;
   String? _error;
 
@@ -248,16 +259,17 @@ class _ScopedGrantEditorState extends State<_ScopedGrantEditor> {
               ButtonSegment(value: 1, label: Text('إدارات محدَّدة')),
               ButtonSegment(value: 2, label: Text('كل الإدارات')),
             ],
-            selected: {_scope.isEmpty ? 0 : (_scope.allDepartments ? 2 : 1)},
+            selected: {_mode.index},
             onSelectionChanged: !widget.enabled || _busy
                 ? null
                 : (s) {
-                    final choice = s.first;
-                    if (choice == 0) {
+                    final choice = _ScopeMode.values[s.first];
+                    setState(() => _mode = choice);
+                    if (choice == _ScopeMode.closed) {
                       _save(GrantScope.none);
                       return;
                     }
-                    if (choice == 2) {
+                    if (choice == _ScopeMode.all) {
                       _save(GrantScope.all);
                       return;
                     }
@@ -266,8 +278,16 @@ class _ScopedGrantEditorState extends State<_ScopedGrantEditor> {
                     setState(() => _scope = const GrantScope(departmentIds: []));
                   },
           ),
-          if (!_scope.allDepartments && !(_scope.isEmpty && _scope.departmentIds.isEmpty)) ...[
+          if (_mode == _ScopeMode.specific) ...[
             const SizedBox(height: 6),
+            if (_scope.departmentIds.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'اختر إدارة واحدة على الأقل — المنحة لا تسري قبل ذلك.',
+                  style: TextStyle(fontSize: 11, color: AppColors.warning, fontWeight: FontWeight.w700),
+                ),
+              ),
             ...departments.map((d) => CheckboxListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/app_user.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
 import '../widgets/executors_field.dart';
@@ -27,7 +28,8 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
   PriorityLevel _priority = PriorityLevel.medium;
   DateTime _startDate = DateTime.now();
   DateTime _dueDate = DateTime.now().add(const Duration(days: 60));
-  String? _managerUid;
+  final Set<String> _managerUids = {};
+  final Set<String> _executorUids = {};
   late String? _selectedDepartmentId = widget.departmentId;
   String? _sectionId;
   bool _busy = false;
@@ -76,7 +78,8 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
         dueDate: _dueDate,
         priority: _priority,
         executorNames: _executorNames,
-        managerUid: _managerUid,
+        managerUids: _managerUids.toList(),
+        executorUids: _executorUids.toList(),
       );
     } else {
       await store.submitProjectRequest(
@@ -87,6 +90,8 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
         dueDate: _dueDate,
         priority: _priority,
         executorNames: _executorNames,
+        managerUids: _managerUids.toList(),
+        executorUids: _executorUids.toList(),
         sectionId: _sectionId,
       );
     }
@@ -106,7 +111,21 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
     final store = context.watch<AppStore>();
     final departmentId = _selectedDepartmentId;
     final isAdmin = store.canCreateIn(departmentId);
-    final officers = store.users.where((u) => u.role == UserRole.projectOfficer).toList();
+    // ــــ من يُسنَد إلى المشروع ــــ
+    //
+    // كانت القائمة `users.where(role == projectOfficer)` — فالموظف صاحب
+    // صلاحية الإنشاء **لا يجد اسمه فيها** ولو أراد تسجيل نفسه، وهو ما
+    // اشتُكي منه. المعيار الآن الانتماء للإدارة لا الدور.
+    final candidates = store.users
+        .where((u) =>
+            u.status == UserStatus.approved &&
+            (departmentId == null ||
+                departmentId.isEmpty ||
+                u.departmentId == departmentId ||
+                u.departmentIds.contains(departmentId)))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    final me = store.currentUser;
     return AlertDialog(
       title: Text(isAdmin ? 'إضافة مشروع جديد' : 'طلب إضافة مشروع جديد'),
       content: SizedBox(
@@ -145,16 +164,55 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
                 ),
                 if (store.sectionsOf(departmentId).isNotEmpty) const SizedBox(height: 12),
               ],
-              if (isAdmin) ...[
-                DropdownButtonFormField<String?>(
-                  initialValue: _managerUid,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'مدير المشروع (اختياري، يمكن تعيينه لاحقاً)'),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('بدون تعيين الآن')),
-                    ...officers.map((u) => DropdownMenuItem(value: u.id, child: Text(u.name))),
-                  ],
-                  onChanged: (v) => setState(() => _managerUid = v),
+              // ــــ العضوية: تُختار هنا وتُكتب مع المشروع ــــ
+              //
+              // وتظهر لمن يُنشئ ولمن يطلب معاً: الطلب يحمل العضوية في حمولته،
+              // فيخرج المشروع المُعتمَد وعليه أعضاؤه ويظهر لهم في «المُسنَد
+              // إليّ» فوراً. وكان يخرج بلا عضو واحد فلا يجده أحد.
+              if (me != null) ...[
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: OutlinedButton.icon(
+                    onPressed: () => setState(() {
+                      final mine = _managerUids.contains(me.id) && _executorUids.contains(me.id);
+                      if (mine) {
+                        _managerUids.remove(me.id);
+                        _executorUids.remove(me.id);
+                      } else {
+                        _managerUids.add(me.id);
+                        _executorUids.add(me.id);
+                      }
+                    }),
+                    icon: Icon(
+                      _managerUids.contains(me.id) && _executorUids.contains(me.id)
+                          ? Icons.person_remove_outlined
+                          : Icons.person_add_alt_1_outlined,
+                      size: 16,
+                    ),
+                    label: Text(
+                      _managerUids.contains(me.id) && _executorUids.contains(me.id)
+                          ? 'أزلني من المشروع'
+                          : 'أضفني مديراً ومنفّذاً',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              if (candidates.isNotEmpty) ...[
+                _MemberPicker(
+                  label: 'مديرو المشروع',
+                  hint: 'من يقود المشروع ويكتب تحديثاته اليومية',
+                  candidates: candidates,
+                  selected: _managerUids,
+                  onChanged: (v) => setState(() {}),
+                ),
+                const SizedBox(height: 10),
+                _MemberPicker(
+                  label: 'المنفّذون (حسابات)',
+                  hint: 'أعضاء المنصة المسجَّلون على المشروع — غير الأسماء المكتوبة أعلاه',
+                  candidates: candidates,
+                  selected: _executorUids,
+                  onChanged: (v) => setState(() {}),
                 ),
                 const SizedBox(height: 12),
               ],
@@ -200,6 +258,71 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
           child: _busy
               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : Text(isAdmin ? 'إضافة المشروع' : 'إرسال الطلب'),
+        ),
+      ],
+    );
+  }
+}
+
+/// اختيار أعضاء من حسابات الإدارة.
+///
+/// قائمة مربّعات لا قائمة منسدلة: العضوية متعددة، والمنسدلة تعطي واحداً.
+/// وهي محدودة الارتفاع وتُمرَّر داخلها — إدارة فيها ثلاثون موظفاً تجعل
+/// الحوار أطول من الشاشة وتُخفي زرّ الحفظ.
+class _MemberPicker extends StatelessWidget {
+  final String label;
+  final String hint;
+  final List<AppUser> candidates;
+  final Set<String> selected;
+  final ValueChanged<Set<String>> onChanged;
+
+  const _MemberPicker({
+    required this.label,
+    required this.hint,
+    required this.candidates,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
+        Text(hint, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, height: 1.6)),
+        const SizedBox(height: 6),
+        Container(
+          constraints: const BoxConstraints(maxHeight: 150),
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.border),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                for (final u in candidates)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                    visualDensity: VisualDensity.compact,
+                    value: selected.contains(u.id),
+                    title: Text(u.name,
+                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    onChanged: (v) {
+                      if (v == true) {
+                        selected.add(u.id);
+                      } else {
+                        selected.remove(u.id);
+                      }
+                      onChanged(selected);
+                    },
+                  ),
+              ],
+            ),
+          ),
         ),
       ],
     );

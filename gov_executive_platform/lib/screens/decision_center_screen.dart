@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/app_user.dart';
 import '../models/approval_request.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
@@ -216,6 +217,20 @@ class _RequestCardState extends State<_RequestCard> {
                     ),
                   ),
                   const SizedBox(width: 10),
+                  // «عدّل ثم اعتمد» لمسؤول النظام وحده وعلى نوعين اثنين.
+                  // والحراسة على الخادم لا هنا: `approveRequest` ترفض
+                  // `payloadOverride` من غيره ومن غير هذين النوعين.
+                  if (store.isAdmin &&
+                      (r.type == ApprovalType.projectCreate || r.type == ApprovalType.workCreate)) ...[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _busy ? null : () => _editThenApprove(context, r),
+                        icon: const Icon(Icons.edit_outlined, size: 16),
+                        label: const Text('عدّل ثم اعتمد'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: _busy ? null : () => _resolve(context, approve: true),
@@ -233,6 +248,24 @@ class _RequestCardState extends State<_RequestCard> {
         ),
       ),
     );
+  }
+
+  Future<void> _editThenApprove(BuildContext context, ApprovalRequest r) async {
+    final override = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _EditRequestDialog(request: r),
+    );
+    if (override == null || !context.mounted) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final error = await context.read<AppStore>().approveRequest(r, payloadOverride: override);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = error;
+    });
   }
 
   void _resolve(BuildContext context, {required bool approve}) {
@@ -398,6 +431,242 @@ class _NotifyPreviewPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// تعديل حمولة طلبٍ قبل اعتماده — لمسؤول النظام وحده.
+///
+/// وهي حاجة عملية: يصل الطلب باسم صحيح ومنفّذ خاطئ، أو بموعد لا يناسب خطة
+/// الإدارة. وكان البديل رفضَه وطلبَ إعادة تقديمه — دورةٌ كاملة لتصحيح حقل.
+///
+/// والحراسة **على الخادم**: `approveRequest` ترفض `payloadOverride` من غير
+/// مسؤول النظام ومن غير `projectCreate` و`workCreate`. وإخفاء الزرّ هنا
+/// ترتيبٌ للواجهة لا حراسة.
+class _EditRequestDialog extends StatefulWidget {
+  final ApprovalRequest request;
+  const _EditRequestDialog({required this.request});
+
+  @override
+  State<_EditRequestDialog> createState() => _EditRequestDialogState();
+}
+
+class _EditRequestDialogState extends State<_EditRequestDialog> {
+  late final Map<String, dynamic> _payload = Map<String, dynamic>.from(widget.request.payload);
+  late final bool _isProject = widget.request.type == ApprovalType.projectCreate;
+
+  late final _nameCtrl = TextEditingController(
+      text: (_isProject ? _payload['name'] : _payload['title'])?.toString() ?? '');
+  late final _descCtrl = TextEditingController(text: _payload['description']?.toString() ?? '');
+  late DateTime _dueDate =
+      DateTime.tryParse(_payload['dueDate']?.toString() ?? '') ?? DateTime.now().add(const Duration(days: 30));
+  late PriorityLevel _priority = PriorityLevel.fromName(_payload['priority']?.toString() ?? 'medium');
+  late final Set<String> _managerUids = _uidSet(_payload['managerUids']);
+  late final Set<String> _executorUids = _uidSet(_payload['executorUids']);
+  late String _assigneeUid = _payload['assigneeUid']?.toString() ?? '';
+
+  static Set<String> _uidSet(Object? raw) =>
+      raw is List ? raw.map((e) => e.toString()).where((e) => e.isNotEmpty).toSet() : <String>{};
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
+  /// الحقول **المتغيّرة وحدها** تُرسل.
+  ///
+  /// إرسال الحمولة كاملة يجعل كل اعتماد يبدو تعديلاً في سجل التدقيق، فيضيع
+  /// التمييز بين «اعتُمد كما طُلب» و«اعتُمد بعد تعديل» — وهو التمييز الذي
+  /// من أجله كُتب هذا كلّه.
+  Map<String, dynamic> _diff() {
+    final out = <String, dynamic>{};
+    void put(String key, Object? value) {
+      final before = _payload[key];
+      final same = before is List && value is List
+          ? before.map((e) => e.toString()).toList().toString() == value.toString()
+          : before == value;
+      if (!same) out[key] = value;
+    }
+
+    put(_isProject ? 'name' : 'title', _nameCtrl.text.trim());
+    put('description', _descCtrl.text.trim());
+    put('dueDate', _dueDate.toIso8601String());
+    put('priority', _priority.name);
+    if (_isProject) {
+      put('managerUids', _managerUids.toList());
+      put('executorUids', _executorUids.toList());
+    } else {
+      put('assigneeUid', _assigneeUid);
+    }
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final deptId = widget.request.departmentId ?? '';
+    final candidates = store.users
+        .where((u) =>
+            u.status == UserStatus.approved &&
+            (deptId.isEmpty || u.departmentId == deptId || u.departmentIds.contains(deptId)))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
+    return AlertDialog(
+      title: Text(_isProject ? 'تعديل طلب المشروع' : 'تعديل طلب العمل'),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'ما تعدّله هنا هو ما سيُنفَّذ عند الاعتماد، ويُسجَّل في سجل التدقيق '
+                'بوصفه اعتماداً بعد تعديل.',
+                style: TextStyle(fontSize: 12, height: 1.8, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _nameCtrl,
+                decoration: InputDecoration(labelText: _isProject ? 'اسم المشروع' : 'اسم العمل'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _descCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(labelText: 'الوصف'),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<PriorityLevel>(
+                initialValue: _priority,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'الأولوية'),
+                items: PriorityLevel.values
+                    .map((p) => DropdownMenuItem(value: p, child: Text(p.label)))
+                    .toList(),
+                onChanged: (v) => setState(() => _priority = v ?? _priority),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: Text('الاستحقاق: ${Formatters.shortDate(_dueDate)}',
+                      style: const TextStyle(fontSize: 12.5))),
+                  TextButton.icon(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _dueDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) setState(() => _dueDate = picked);
+                    },
+                    icon: const Icon(Icons.event_outlined, size: 16),
+                    label: const Text('تغيير'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_isProject) ...[
+                _UidPicker(
+                  label: 'مديرو المشروع',
+                  candidates: candidates,
+                  selected: _managerUids,
+                  onChanged: () => setState(() {}),
+                ),
+                const SizedBox(height: 10),
+                _UidPicker(
+                  label: 'المنفّذون (حسابات)',
+                  candidates: candidates,
+                  selected: _executorUids,
+                  onChanged: () => setState(() {}),
+                ),
+              ] else
+                DropdownButtonFormField<String>(
+                  initialValue: candidates.any((u) => u.id == _assigneeUid) ? _assigneeUid : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'المسؤول عن التنفيذ'),
+                  items: candidates
+                      .map((u) => DropdownMenuItem(value: u.id, child: Text(u.name)))
+                      .toList(),
+                  onChanged: (v) => setState(() => _assigneeUid = v ?? ''),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+        ElevatedButton(
+          onPressed: () {
+            final diff = _diff();
+            // بلا تغيير: يُعاد كما هو فيُعتمد اعتماداً عادياً لا «بعد تعديل».
+            Navigator.pop(context, diff.isEmpty ? <String, dynamic>{} : diff);
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+          child: const Text('اعتمد بالتعديل'),
+        ),
+      ],
+    );
+  }
+}
+
+class _UidPicker extends StatelessWidget {
+  final String label;
+  final List<AppUser> candidates;
+  final Set<String> selected;
+  final VoidCallback onChanged;
+
+  const _UidPicker({
+    required this.label,
+    required this.candidates,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
+        const SizedBox(height: 6),
+        Container(
+          constraints: const BoxConstraints(maxHeight: 140),
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.border),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                for (final u in candidates)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                    visualDensity: VisualDensity.compact,
+                    value: selected.contains(u.id),
+                    title: Text(u.name,
+                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    onChanged: (v) {
+                      if (v == true) {
+                        selected.add(u.id);
+                      } else {
+                        selected.remove(u.id);
+                      }
+                      onChanged();
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

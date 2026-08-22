@@ -42,8 +42,25 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
   }
 
   Future<void> _submit() async {
-    if (_achievementsCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الرجاء إدخال ملخص الإنجازات')));
+    // ملخص الإنجازات لم يعد إلزامياً بقرار من مسؤول النظام: يومٌ بلا إنجاز
+    // يُذكر واقعةٌ عادية، وإجبار الموظف على كتابة شيء يُنتج نصّاً بلا معنى
+    // يملأ السجل ولا يُقرأ.
+    //
+    // والشرط الباقي أن يقول التحديث **شيئاً**: بلا إنجاز ولا مهمة منجزة ولا
+    // خطر ولا عائق ولا قرار ولا ملاحظة ولا تغيّر في النسبة، فهو مستند فارغ
+    // يُثقل السجل ويُوهم بمتابعة لم تقع.
+    final saysSomething = _achievementsCtrl.text.trim().isNotEmpty ||
+        _notesCtrl.text.trim().isNotEmpty ||
+        _completedTasks.isNotEmpty ||
+        _newRisks.isNotEmpty ||
+        _blockers.isNotEmpty ||
+        _decisions.isNotEmpty ||
+        _attachments.isNotEmpty ||
+        _progress != widget.project.progressPercent;
+    if (!saysSomething) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('التحديث فارغ. اكتب إنجازاً أو ملاحظة، أو حرّك نسبة الإنجاز.'),
+      ));
       return;
     }
     setState(() => _busy = true);
@@ -142,7 +159,7 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('الإنجازات', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                    const Text('الإنجازات (اختياري)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _achievementsCtrl,

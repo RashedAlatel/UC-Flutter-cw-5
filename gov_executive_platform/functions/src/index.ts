@@ -55,7 +55,7 @@ async function logAudit(userName: string, action: string, details: string): Prom
 // الثلاث (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي)؛ تلك تبقى محصورة
 // بـ systemAdmin عبر requireAdmin وقواعد Firestore معاً.
 const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap", "sfb", "mfb",
-  "mpr", "apr"] as const;
+  "mpr", "apr", "dsh", "dpg"] as const;
 
 /**
  * صلاحيتان **لا تُمنحان لدور قط**، بل لفرد بعينه ومعهما نطاق إدارات.
@@ -113,9 +113,11 @@ const CONFIGURABLE_ROLES = ["executiveViewer", "departmentManager", "projectOffi
 
 /** الإعداد المبدئي إن لم يُنشأ مستند settings/rolePermissions بعد — مطابق لسلوك المنصة السابق. */
 const DEFAULT_ROLE_PERMS: Record<string, string[]> = {
-  executiveViewer: ["vad", "mr", "agd"],
-  departmentManager: ["mw"],
-  projectOfficer: [],
+  // "dsh"/"dpg": مدخلا لوحة القيادة وصفحة الإدارة. مفتوحان لكل دور إلا
+  // «موظف». وهما ترتيب واجهة لا حراسة بيانات — القواعد لم تتغيّر.
+  executiveViewer: ["vad", "mr", "agd", "dsh", "dpg"],
+  departmentManager: ["mw", "dsh", "dpg"],
+  projectOfficer: ["dsh", "dpg"],
   employee: [],
 };
 
@@ -217,8 +219,20 @@ async function loadCustomRolePerms(role: string, customRoleId?: string | null): 
   const doc = await db().collection("settings").doc("rolePermissions").get();
   const data = doc.exists ? doc.data() ?? {} : {};
   const granted: string[] = Array.isArray(data[role]) ? data[role] : DEFAULT_ROLE_PERMS[role] ?? [];
+
+  // ــــ مفتاح لم يعرفه المستند لا يُقرأ «ممنوعاً» ــــ
+  //
+  // مستند settings/rolePermissions مكتوبٌ فعلاً في المنصة الحيّة والمخزَّن
+  // يُقدَّم على المبدئي. فأي صلاحية تُضاف بعد كتابته تكون غائبة عنه، وتُقرأ
+  // منعاً — فيفقد كل مستخدم قائم ميزةً لم يقرّر أحد منعها. وقد وقع هذا مع
+  // `sfb` وعولج باستثناء خاص؛ وهذا يعالج الصنف كله.
+  //
+  // والحقل يكتبه العميل عند كل حفظ (RolePermissionsConfig.knownKeysField).
+  const known: string[] = Array.isArray(data._knownKeys) ? data._knownKeys.map((k: unknown) => String(k)) : [];
+  const unknownDefaults = (DEFAULT_ROLE_PERMS[role] ?? []).filter((key) => !known.includes(key));
+
   const perms = basePerms();
-  for (const key of granted) {
+  for (const key of [...granted, ...unknownDefaults]) {
     if (key in perms) perms[key] = true;
   }
   return perms;
@@ -273,6 +287,24 @@ function tokenScopeCovers(
   // نطاق غائب ليس «الكل»: علَمٌ بلا نطاق لا يمنح شيئاً.
   if (!Array.isArray(scope) || !departmentId) return false;
   return scope.map((d) => String(d)).includes(departmentId);
+}
+
+/**
+ * يقرأ قائمة معرّفات حسابات من حمولة طلبٍ كتبها العميل.
+ *
+ * **الحمولة لا يُوثَق بها** — كما في `requestedRole` في طلب التسجيل: مستند
+ * الطلب يكتبه العميل، فتُنقّى القيم هنا حقلاً حقلاً بدل تمريرها كما وردت.
+ * والتكرار يُزال: عضوٌ مكرَّر في القائمة يجعل عدّ الأعضاء كاذباً.
+ */
+function uidList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const uid = item.trim();
+    if (uid && !out.includes(uid)) out.push(uid);
+  }
+  return out;
 }
 
 /** رسالة موجَّهة لمستلم بعينه — لكلٍّ عنوانه ونصّه. */
@@ -408,7 +440,11 @@ function checkApprovalPermission(
 
 export const approveRequest = onCall({secrets: notificationSecrets}, async (request) => {
   const auth = requireAuth(request);
-  const {requestId, note} = (request.data ?? {}) as {requestId?: string; note?: string};
+  const {requestId, note, payloadOverride} = (request.data ?? {}) as {
+    requestId?: string;
+    note?: string;
+    payloadOverride?: Record<string, unknown>;
+  };
   if (!requestId) throw new HttpsError("invalid-argument", "معرف الطلب مطلوب");
 
   const ref = db().collection("approvalRequests").doc(requestId);
@@ -419,7 +455,24 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
 
   checkApprovalPermission(data.type, auth, (data.departmentId as string | null) ?? null);
 
-  const payload = (data.payload ?? {}) as Record<string, unknown>;
+  const stored = (data.payload ?? {}) as Record<string, unknown>;
+
+  // ــــ تعديل الطلب قبل اعتماده: لمسؤول النظام وحده ــــ
+  //
+  // والفحص هنا لا في الواجهة. ولمَ لا يُعطى لصاحب `apr`؟ لأن تاريخ
+  // الاستحقاق من الحمولة، فتعديله من داخل الطلب يصير باباً جانبياً حول
+  // بوابة «تعديل المواعيد النهائية» المحصورة بمسؤول النظام وحده. وصاحب
+  // `apr` يعتمد الطلب كما قُدّم أو يرفضه.
+  const isAdminCaller = auth.token.role === "systemAdmin";
+  if (payloadOverride && !isAdminCaller) {
+    throw new HttpsError("permission-denied", "تعديل الطلب قبل اعتماده لمسؤول النظام وحده");
+  }
+  // التعديل يقتصر على `projectCreate` و`workCreate`: حمولة طلب التسجيل
+  // تحمل هوية حساب، وتعديلها اعتمادٌ لشخص غير الذي طلب.
+  if (payloadOverride && data.type !== "projectCreate" && data.type !== "workCreate") {
+    throw new HttpsError("failed-precondition", "هذا النوع من الطلبات لا يُعدَّل قبل اعتماده");
+  }
+  const payload: Record<string, unknown> = payloadOverride ? {...stored, ...payloadOverride} : stored;
 
   switch (data.type) {
     case "registration": {
@@ -519,6 +572,18 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       break;
     }
     case "projectCreate": {
+      // ــــ العضوية تُكتب، ولا تُترك فارغة ــــ
+      //
+      // كان يُكتب `managerUid: null` بلا `managerUids` ولا `executorUids`
+      // إطلاقاً، فيخرج المشروع المُعتمَد **بلا عضو واحد**. و«المُسنَد إليّ»
+      // مبنيّة على العضوية، فلا تجد شيئاً — ولا لمقدّم الطلب نفسه الذي
+      // سجّل نفسه منفّذاً عند تقديمه.
+      //
+      // والاتساق شرطٌ لا تجميل: قاعدة `projects` في firestore.rules تشترط
+      // أن يكون `managerUid` عضواً في `managerUids`، فكتابة أحدهما دون
+      // الآخر تترك مستنداً لا تقبله القاعدة عند أول تعديل عليه.
+      const managerUids = uidList(payload.managerUids);
+      const executorUids = uidList(payload.executorUids);
       await db().collection("projects").doc().set({
         departmentId: payload.departmentId,
         name: payload.name,
@@ -531,7 +596,11 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         delayDays: 0,
         executorNames: payload.executorNames ?? [],
         createdByUid: data.requestedByUid,
-        managerUid: null,
+        managerUids,
+        executorUids,
+        managerUid: managerUids.length ? managerUids[0] : null,
+        // تاريخ الإضافة الحقيقي — لا تاريخ البدء. وبه يعمل ترتيب «الأحدث».
+        createdAt: now(),
         // القسم داخل الإدارة كما اختاره مقدّم الطلب (null = تحت الإدارة مباشرةً).
         sectionId: payload.sectionId ?? null,
       });
@@ -587,8 +656,21 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       throw new HttpsError("invalid-argument", "نوع طلب غير معروف");
   }
 
-  await ref.update({status: "approved", resolutionNote: note ?? null, resolvedDate: now()});
-  await logAudit(auth.token.name ?? "مسؤول النظام", "اعتماد طلب", `تم اعتماد طلب: "${data.title}"`);
+  // الحمولة المعدَّلة تُحفظ على الطلب: ما اعتُمد غير ما طُلب، ومن قدّم الطلب
+  // له حقّ أن يرى ما صار إليه — ولا يُترك المستند يقول غير ما نُفّذ.
+  await ref.update({
+    status: "approved",
+    resolutionNote: note ?? null,
+    resolvedDate: now(),
+    ...(payloadOverride ? {payload, editedByApprover: true} : {}),
+  });
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "اعتماد طلب",
+    payloadOverride ?
+      `تم اعتماد طلب بعد تعديله: "${data.title}" (الحقول المعدَّلة: ${Object.keys(payloadOverride).join("، ")})` :
+      `تم اعتماد طلب: "${data.title}"`,
+  );
 
   if (data.requestedByUid) {
     await notifyUser(

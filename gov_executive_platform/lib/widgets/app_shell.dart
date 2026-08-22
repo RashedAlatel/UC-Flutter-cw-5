@@ -53,10 +53,17 @@ class _AppShellState extends State<AppShell> {
     // كبقية الأدوار، ومشاريعه المُسنَدة تظهر له مثبّتةً في أول القائمة
     // فلا يفقد الوصول المباشر إليها.
     final entries = <_NavEntry>[
-      const _NavEntry(label: 'لوحة القيادة', icon: Icons.dashboard_rounded, page: DashboardScreen()),
+      // لوحة القيادة بمفتاح: مغلقة لدور «موظف» افتراضياً، ومسؤول النظام
+      // يفتحها لدور أو لفرد. ومسؤول النظام نفسه لا يُفحص — صلاحياته كاملة
+      // عبر isAdmin لا عبر أعلام.
+      if (store.hasPermission(RolePermission.viewDashboard))
+        const _NavEntry(label: 'لوحة القيادة', icon: Icons.dashboard_rounded, page: DashboardScreen()),
     ];
 
-    if (store.canViewAllDepartments) {
+    if (!store.hasPermission(RolePermission.viewDepartmentPage)) {
+      // بلا مدخل إدارة إطلاقاً — ويبقى «المشاريع» و«الأعمال» و«المُسنَد إليّ»
+      // فلا تخلو شاشته.
+    } else if (store.canViewAllDepartments) {
       entries.add(const _NavEntry(
         label: 'الإدارات',
         icon: Icons.account_balance_rounded,

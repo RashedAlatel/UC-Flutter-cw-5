@@ -1450,6 +1450,12 @@ class AppStore extends ChangeNotifier {
           return r.approveGeneralDecisions;
         case RolePermission.selfAssignProjects:
           return r.selfAssignProjects;
+        // مدخلا لوحة القيادة وصفحة الإدارة مفتوحان لحامل الدور المخصص:
+        // الأدوار المخصصة تُصنع لمن يتابع المنصة، وحجبهما عنه انحسارٌ لم
+        // يطلبه أحد. ومسؤول النظام يسحبهما من فرد بعينه بالاستثناء الفردي.
+        case RolePermission.viewDashboard:
+        case RolePermission.viewDepartmentPage:
+          return true;
         case RolePermission.manageWorks:
         case RolePermission.deleteRecords:
         case RolePermission.sendNotifications:
@@ -2360,6 +2366,8 @@ class AppStore extends ChangeNotifier {
     required DateTime dueDate,
     required PriorityLevel priority,
     List<String> executorNames = const [],
+    List<String> managerUids = const [],
+    List<String> executorUids = const [],
     String? sectionId,
   }) async {
     final now = DateTime.now();
@@ -2383,6 +2391,11 @@ class AppStore extends ChangeNotifier {
             'dueDate': dueDate.toIso8601String(),
             'priority': priority.name,
             'executorNames': executorNames,
+            // العضوية تُحمل مع الطلب لا تُترك للاعتماد — وهذا ما كان ناقصاً:
+            // المشروع المُعتمَد كان يخرج بلا عضو واحد، فلا يظهر في «المُسنَد
+            // إليّ» ولا لمن قدّم الطلب وسجّل نفسه منفّذاً فيه.
+            'managerUids': managerUids,
+            'executorUids': executorUids,
             // القسم يُحمل مع الطلب لا يُترك للاعتماد: بدونه يخرج المشروع
             // المُعتمَد بلا قسم فيضطر مدير الإدارة لإسناده يدوياً بعد كل موافقة.
             'sectionId': sectionId,
@@ -2401,7 +2414,8 @@ class AppStore extends ChangeNotifier {
     required DateTime dueDate,
     required PriorityLevel priority,
     List<String> executorNames = const [],
-    String? managerUid,
+    List<String> managerUids = const [],
+    List<String> executorUids = const [],
     String? sectionId,
   }) async {
     final ref = _db.collection('projects').doc();
@@ -2417,8 +2431,10 @@ class AppStore extends ChangeNotifier {
       progressPercent: 0,
       executorNames: executorNames,
       createdByUid: currentUser?.id ?? '',
-      managerUids: managerUid == null || managerUid.isEmpty ? const [] : [managerUid],
+      managerUids: managerUids,
+      executorUids: executorUids,
       sectionId: sectionId,
+      createdAt: DateTime.now(),
     ).toMap());
     await _log('إضافة مشروع', 'أضاف ${currentUser?.name} مشروعاً جديداً "$name" مباشرة');
   }
@@ -2587,9 +2603,22 @@ class AppStore extends ChangeNotifier {
     await _log('طلب تعديل موعد', 'قدّم ${currentUser?.name} طلب تعديل الموعد النهائي لمشروع "${project.name}"');
   }
 
-  Future<String?> approveRequest(ApprovalRequest request, {String? note}) async {
+  /// يعتمد طلباً، ويمكن لمسؤول النظام تعديل حمولته قبل الاعتماد.
+  ///
+  /// [payloadOverride] حقولٌ تُدمج فوق حمولة الطلب. والحراسة عليها **على
+  /// الخادم**: الدالة الخلفية ترفضها من غير مسؤول النظام ومن غير نوعَي
+  /// `projectCreate` و`workCreate`. فإخفاء الزرّ هنا ترتيبٌ للواجهة لا حراسة.
+  Future<String?> approveRequest(
+    ApprovalRequest request, {
+    String? note,
+    Map<String, dynamic>? payloadOverride,
+  }) async {
     try {
-      await _functions.httpsCallable('approveRequest').call({'requestId': request.id, 'note': note});
+      await _functions.httpsCallable('approveRequest').call({
+        'requestId': request.id,
+        'note': note,
+        if (payloadOverride != null && payloadOverride.isNotEmpty) 'payloadOverride': payloadOverride,
+      });
       return null;
     } on FirebaseFunctionsException catch (e) {
       return e.message ?? 'تعذر اعتماد الطلب';

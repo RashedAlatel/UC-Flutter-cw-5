@@ -428,6 +428,17 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
           ),
           const SizedBox(height: 20),
           Text('${projects.length} مشروع', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w700)),
+          // مشاريع الوزارة المستوردة لا تحمل تاريخ إضافة، فتُرتَّب بتاريخ
+          // بدئها. ويُقال ذلك بدل إيهام دقّةٍ لا وجود لها — من يرتّب
+          // بالأحدث يحقّ له أن يعرف أن بعض الصف مرتَّب بمقياس آخر.
+          if (_sort == ProjectSort.newest && projects.any((p) => p.createdAt == null)) ...[
+            const SizedBox(height: 6),
+            Text(
+              '${projects.where((p) => p.createdAt == null).length} مشروعاً لا يحمل تاريخ إضافة '
+              '(مستورد من ملفات الوزارة) — رُتّب بتاريخ بدئه.',
+              style: AppText.micro.copyWith(color: AppColors.textSecondary, height: 1.7),
+            ),
+          ],
           const SizedBox(height: 10),
           // «لا توجد مشاريع مطابقة» جوابٌ خاطئ حين لا يكون للحساب إدارة أصلاً:
           // نطاق المستخدم عندها **فارغ بنيوياً** لا مُصفّى، فيبحث عن عطل ليس

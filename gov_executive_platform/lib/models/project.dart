@@ -35,6 +35,16 @@ class Project {
   /// null يعني مشروعاً تحت الإدارة مباشرةً بلا قسم.
   final String? sectionId;
 
+  /// تاريخ **إضافة** المشروع إلى المنصة — لا تاريخ بدئه.
+  ///
+  /// والفرق جوهري لترتيب «الأحدث»: مشروعٌ خُطّط بدؤه العام الماضي وأُضيف
+  /// اليوم هو الأحدث إضافةً وأقدمها بدءاً.
+  ///
+  /// null لمشاريع الوزارة المستوردة وكل ما كُتب قبل هذا الحقل. ولا يُختلق لها
+  /// تاريخ: `DateTime.now()` عند القراءة يجعل كل مشروع قديم «مُضافاً الآن»
+  /// ويتصدّر الترتيب كذباً. تُرتَّب بتاريخ بدئها ويُقال ذلك في الشاشة.
+  final DateTime? createdAt;
+
   /// تصنيفات عرضية يسِم بها مسؤول النظام المشروع — راجع [ProjectCategory].
   ///
   /// قائمة لا حقلاً مفرداً: التصنيف يقطع الهيكل التنظيمي، فمشروع واحد قد
@@ -58,6 +68,7 @@ class Project {
     this.executorUids = const [],
     this.sectionId,
     this.categoryIds = const [],
+    this.createdAt,
   });
 
   /// أول مديري المشروع — للتوافق مع المواضع التي تتعامل مع مدير واحد.
@@ -157,6 +168,7 @@ class Project {
       executorUids: executorUids ?? this.executorUids,
       sectionId: clearSection ? null : (sectionId ?? this.sectionId),
       categoryIds: categoryIds ?? this.categoryIds,
+      createdAt: createdAt,
     );
   }
 
@@ -179,6 +191,7 @@ class Project {
         'managerUid': managerUids.isEmpty ? null : managerUids.first,
         'sectionId': sectionId,
         'categoryIds': categoryIds,
+        if (createdAt != null) 'createdAt': Timestamp.fromDate(createdAt!),
       };
 
   factory Project.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) =>
@@ -215,6 +228,7 @@ class Project {
       sectionId: (json['sectionId'] as String?)?.isEmpty ?? true ? null : json['sectionId'] as String?,
       // المستندات المكتوبة قبل التصنيفات — وهي كل مشاريع الوزارة المستوردة —
       // تفتقد الحقل، فتُقرأ بقائمة فارغة بلا ترحيل ولا انهيار.
+      createdAt: (json['createdAt'] as Timestamp?)?.toDate(),
       categoryIds: (json['categoryIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)

@@ -26,6 +26,7 @@ cd "$(dirname "$0")/.."
 # محلياً جولاتٍ كاملة بلا أن يصيح شيء — وهذا ما يمنع تكراره.
 ./tool/test/firebase_sdk_modules_test.sh
 ./tool/test/storage_message_test.sh
+./tool/test/approval_gates_test.sh
 
 # استضافة حزم Firebase محلياً حتى لا تُجلب من www.gstatic.com عند كل فتح.
 # السكربت يتخطّى نفسه إن كانت الملفات موجودة، ولا يُفشل البناء إن تعذّر

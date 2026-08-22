@@ -15,6 +15,15 @@ import 'enums.dart';
 /// النظام، ولا مفتاح لهما في هذه القائمة ولن يكون.
 enum RolePermission {
   viewAllDepartments('vad', 'عرض كل الإدارات', 'الاطلاع على مشاريع كل الإدارات لا إدارته فقط'),
+  // ــــ مفتاحا صفحتَي الموظف ــــ
+  //
+  // مغلقان لدور «موظف» بقرار من مسؤول النظام: شاشته تبدأ من عمله لا من
+  // لوحة المنصة. ومفتوحان لبقية الأدوار فلا يتغيّر شيء على من كان يراهما.
+  //
+  // وهما **ترتيبٌ لا أمان**: قواعد Firestore هي التي تحكم ما يُقرأ ولم
+  // تتغيّر. فمن أُخفيت عنه لوحة القيادة لم يُمنع من بيانات كان يراها.
+  viewDashboard('dsh', 'عرض لوحة القيادة', 'ظهور مدخل لوحة القيادة في قائمة التنقّل'),
+  viewDepartmentPage('dpg', 'عرض صفحة الإدارة', 'ظهور مدخل «إدارتي» أو «الإدارات» في قائمة التنقّل'),
   manageReports('mr', 'إدارة التقارير', 'توليد التقارير وتحرير التعليقات التنفيذية عليها'),
   manageDashboard('md', 'تخصيص لوحة القيادة', 'إضافة وحذف وترتيب ودجات لوحة القيادة'),
   approveGeneralDecisions('agd', 'اعتماد القرارات العامة', 'اعتماد أو رفض القرارات التنفيذية العامة'),
@@ -142,9 +151,11 @@ class RolePermissionsConfig {
   /// الإعداد المبدئي المعقول قبل أن يخصّصه مسؤول النظام — يطابق سلوك المنصة
   /// قبل إضافة هذه الشاشة، حتى لا يتغيّر شيء على المستخدمين الحاليين فجأة.
   factory RolePermissionsConfig.defaults() => const RolePermissionsConfig({
-        'executiveViewer': {'vad', 'mr', 'agd'},
-        'departmentManager': {'mw'},
-        'projectOfficer': <String>{},
+        // 'dsh' و'dpg' مفتوحان لكل دور إلا «موظف» — فلا ينحسر شيء عمّن كان
+        // يراه، ويبدأ الموظف من عمله.
+        'executiveViewer': {'vad', 'mr', 'agd', 'dsh', 'dpg'},
+        'departmentManager': {'mw', 'dsh', 'dpg'},
+        'projectOfficer': {'dsh', 'dpg'},
         'employee': <String>{},
       });
 
@@ -162,16 +173,39 @@ class RolePermissionsConfig {
     return RolePermissionsConfig(next);
   }
 
+  /// مفاتيح الصلاحيات التي كان هذا المستند **يعرفها** حين كُتب.
+  ///
+  /// ولولاها لكانت كل صلاحية جديدة انحساراً صامتاً: المستند مكتوبٌ فعلاً في
+  /// المنصة الحيّة، والمخزَّن يُقدَّم على المبدئي، ومفتاحٌ لم يُكتب فيه قط
+  /// يُقرأ «ممنوعاً» — فيفقد كل مستخدم قائم ميزةً لم يقرّر أحد منعها.
+  ///
+  /// وقد وقع هذا فعلاً مع `sfb` وعولج باستثناء خاص. وهذا الحقل يعالج
+  /// **الصنف كله** بدل استثناء لكل مفتاح جديد.
+  static const String knownKeysField = '_knownKeys';
+
   Map<String, dynamic> toMap() => {
         for (final e in byRole.entries) e.key: e.value.toList()..sort(),
+        knownKeysField: RolePermission.values.map((p) => p.key).toList()..sort(),
       };
 
   factory RolePermissionsConfig.fromMap(Map<String, dynamic>? map) {
     if (map == null || map.isEmpty) return RolePermissionsConfig.defaults();
+
+    final knownRaw = map[knownKeysField];
+    final known = knownRaw is List ? knownRaw.map((e) => e.toString()).toSet() : <String>{};
+    final defaults = RolePermissionsConfig.defaults();
+
     final parsed = <String, Set<String>>{};
     for (final role in UserRole.configurable) {
       final raw = map[role.name];
-      parsed[role.name] = raw is List ? raw.map((e) => e.toString()).toSet() : <String>{};
+      final stored = raw is List ? raw.map((e) => e.toString()).toSet() : <String>{};
+      // ما كان المستند يعرفه يُؤخذ منه كما هو — بما في ذلك ما مُنع صراحةً.
+      // وما لم يكن يعرفه يُؤخذ من المبدئي، فالغياب هنا جهلٌ لا منع.
+      final unknownDefaults = defaults.byRole[role.name]
+              ?.where((key) => !known.contains(key))
+              .toSet() ??
+          <String>{};
+      parsed[role.name] = {...stored, ...unknownDefaults};
     }
     return RolePermissionsConfig(parsed);
   }

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/app_user.dart';
 import '../models/enums.dart';
+import '../models/work_sort.dart';
 import '../models/work_item.dart';
 import '../theme/app_theme.dart';
 import '../widgets/command_band.dart';
@@ -31,6 +32,7 @@ class _WorksListScreenState extends State<WorksListScreen> {
   String? _departmentFilter;
   String? _assigneeFilter;
   TaskStatus? _statusFilter;
+  WorkSort _sort = WorkSort.newest;
   bool _showLog = false;
 
   @override
@@ -52,6 +54,7 @@ class _WorksListScreenState extends State<WorksListScreen> {
       if (q.isEmpty) return true;
       return w.title.toLowerCase().contains(q) || w.assigneeName.toLowerCase().contains(q);
     }).toList();
+    works = sortWorks(works, _sort);
 
     final overdue = all.where((w) => w.delayDays > 0).length;
     final assigneeOptions = <String, String>{
@@ -184,6 +187,18 @@ class _WorksListScreenState extends State<WorksListScreen> {
                     onChanged: (v) => setState(() => _statusFilter = v),
                   ),
                 ),
+              SizedBox(
+                width: 200,
+                child: DropdownButtonFormField<WorkSort>(
+                  initialValue: _sort,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'الترتيب', isDense: true),
+                  items: WorkSort.values
+                      .map((v) => DropdownMenuItem(value: v, child: Text(v.label)))
+                      .toList(),
+                  onChanged: (v) => setState(() => _sort = v ?? _sort),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -468,7 +483,23 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
+
+    // ــــ من يفتح النموذج يملؤه ــــ
+    //
+    // كانت كل الحقول مشروطة بـ`canManageWorks`، بينما الزرّ يظهر لصاحب
+    // `canRequestNewWork` أيضاً وفي `_submit` مسارٌ كامل لطلب الاعتماد.
+    // فالطالب يفتح النموذج ولا يستطيع كتابة حرف، ومسار الطلب كلّه شيفرة
+    // ميتة لا تُبلَغ أبداً — وهو ما اشتُكي منه: «لا يمكن إدخال بيانات».
+    //
+    // فالتحرير الآن لمن يُنشئ **أو** يطلب. ويبقى مقفلاً على الطالب ما لا
+    // يملك تقريره: الحالة ونسبة الإنجاز — يبدأ العمل من «قيد الانتظار» و٠٪،
+    // ومن يعتمده هو من يحرّكهما.
     final canManage = store.canManageWorks;
+    final isRequest = widget.editing == null &&
+        !canManage &&
+        !store.canCreateIn(_departmentId.isEmpty ? store.currentUser?.departmentId : _departmentId);
+    final canEdit = canManage || widget.editing == null;
+    final canSetProgress = canManage || !isRequest;
     final departments = store.visibleDepartments;
     // المسؤولون المتاحون للإسناد: حسابات الإدارة المختارة.
     final candidates = store.users
@@ -486,15 +517,39 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (isRequest) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.warning.withValues(alpha: 0.45)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.gavel_rounded, size: 16, color: AppColors.textPrimary),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'هذا طلب إضافة عمل يعتمده مدير الإدارة. الحالة ونسبة الإنجاز يحدّدهما عند الاعتماد.',
+                          style: TextStyle(fontSize: 12, height: 1.6, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               TextField(
                 controller: _titleCtrl,
-                enabled: canManage,
+                enabled: canEdit,
                 decoration: const InputDecoration(labelText: 'اسم العمل'),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _descCtrl,
-                enabled: canManage,
+                enabled: canEdit,
                 maxLines: 2,
                 decoration: const InputDecoration(labelText: 'وصف مختصر (اختياري)'),
               ),
@@ -504,7 +559,7 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'الإدارة'),
                 items: departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
-                onChanged: canManage
+                onChanged: canEdit
                     ? (v) => setState(() {
                           _departmentId = v ?? '';
                           _assigneeUid = '';
@@ -517,7 +572,7 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'المسؤول عن التنفيذ'),
                 items: candidates.map((u) => DropdownMenuItem<String>(value: u.id, child: Text(_userLabel(u)))).toList(),
-                onChanged: canManage ? (v) => setState(() => _assigneeUid = v ?? '') : null,
+                onChanged: canEdit ? (v) => setState(() => _assigneeUid = v ?? '') : null,
               ),
               const SizedBox(height: 12),
               Row(
@@ -528,7 +583,7 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
                       isExpanded: true,
                       decoration: const InputDecoration(labelText: 'الحالة'),
                       items: TaskStatus.values.map((s) => DropdownMenuItem(value: s, child: Text(s.label))).toList(),
-                      onChanged: (v) => setState(() => _status = v ?? _status),
+                      onChanged: canSetProgress ? (v) => setState(() => _status = v ?? _status) : null,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -538,7 +593,7 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
                       isExpanded: true,
                       decoration: const InputDecoration(labelText: 'الأولوية'),
                       items: PriorityLevel.values.map((p) => DropdownMenuItem(value: p, child: Text(p.label))).toList(),
-                      onChanged: canManage ? (v) => setState(() => _priority = v ?? _priority) : null,
+                      onChanged: canEdit ? (v) => setState(() => _priority = v ?? _priority) : null,
                     ),
                   ),
                 ],
@@ -551,7 +606,7 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
                 max: 100,
                 divisions: 20,
                 label: '${_progress.toStringAsFixed(0)}٪',
-                onChanged: (v) => setState(() => _progress = v),
+                onChanged: canSetProgress ? (v) => setState(() => _progress = v) : null,
               ),
               const SizedBox(height: 4),
               Row(
@@ -560,7 +615,7 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
                     child: Text('الموعد: ${Formatters.shortDate(_dueDate)}', style: const TextStyle(fontSize: 12.5)),
                   ),
                   TextButton.icon(
-                    onPressed: canManage
+                    onPressed: canEdit
                         ? () async {
                             final picked = await showDatePicker(
                               context: context,
@@ -580,7 +635,7 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
                 contentPadding: EdgeInsets.zero,
                 dense: true,
                 value: _recurring,
-                onChanged: canManage ? (v) => setState(() => _recurring = v) : null,
+                onChanged: canEdit ? (v) => setState(() => _recurring = v) : null,
                 title: const Text('عمل دوري متكرر', style: TextStyle(fontSize: 13)),
               ),
               if (_error != null) ...[

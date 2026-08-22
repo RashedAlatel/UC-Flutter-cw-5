@@ -119,3 +119,46 @@ describe("ولا يُكتب من العميل", () => {
     await assertFails(setDoc(doc(db, `dailyReports/${DAY}`), {recipientCount: 0}));
   });
 });
+
+// ــــ مستند الإعدادات لا يُقرأ من زائرٍ بلا حساب ــــ
+//
+// قاعدة `settings/{id}` قراءتها **عامة** عمداً: ألوان الهوية تُقرأ على شاشة
+// الدخول قبل الدخول. ولولا استثناءٌ صريح لَصار `settings/dailyReport` —
+// وفيه قائمة معرّفات من يصله بريد التقرير — مقروءاً لأي أحد على الإنترنت.
+describe("إعدادات التقرير ليست من المقروء عاماً", () => {
+  async function seedSettings() {
+    await env.clearFirestore();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "settings/theme"), {primary: "#0E4D3C"});
+      await setDoc(doc(db, "settings/dailyReport"), {
+        enabled: true, emailRecipientUids: [ME],
+      });
+    });
+  }
+
+  test("زائرٌ بلا تسجيل دخول يقرأ الألوان", async () => {
+    await seedSettings();
+    const db = env.unauthenticatedContext().firestore();
+    await assertSucceeds(getDoc(doc(db, "settings/theme")));
+  });
+
+  test("ولا يقرأ إعدادات التقرير", async () => {
+    await seedSettings();
+    const db = env.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(db, "settings/dailyReport")));
+  });
+
+  test("ولا يقرؤها موظفٌ معتمَد", async () => {
+    await seedSettings();
+    const db = env.authenticatedContext(ME, claims({role: "employee"})).firestore();
+    await assertFails(getDoc(doc(db, "settings/dailyReport")));
+  });
+
+  test("ومسؤول النظام يقرؤها ويكتبها", async () => {
+    await seedSettings();
+    const db = env.authenticatedContext("u-admin", claims({role: "systemAdmin"})).firestore();
+    await assertSucceeds(getDoc(doc(db, "settings/dailyReport")));
+    await assertSucceeds(setDoc(doc(db, "settings/dailyReport"), {emailRecipientUids: []}));
+  });
+});

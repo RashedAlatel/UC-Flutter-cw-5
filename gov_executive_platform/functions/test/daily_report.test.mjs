@@ -18,6 +18,7 @@ import {
   reportSubject,
   renderReportHtml,
   linkFor,
+  emailTargets,
 } from "../lib/daily_report.js";
 
 const TODAY = new Date(2026, 7, 22); // ٢٢ أغسطس ٢٠٢٦
@@ -434,6 +435,41 @@ describe("النطاق: لكل مستلم تقريره", () => {
     });
     const r = build(snap({items: [it]}), scope);
     assert.equal(section(r, "awaitingApproval").rows.length, 1);
+  });
+});
+
+// قائمةُ سماحٍ لا قائمةَ استثناء — راجع `emailTargets`.
+//
+// والفرق ليس أسلوبياً: قائمة الاستثناء تنكسر بصمت كلّما وُظّف موظف جديد،
+// فيخرج البريد لمن لم يُقصد ولا يُعلم بذلك إلا منه. وهذه مغلقةٌ بطبعها.
+describe("حصر البريد بمستلمين بأعيانهم", () => {
+  const reportFor = (uid) => ({...build(snap()), recipientUid: uid});
+  const all = [reportFor("u-admin"), reportFor("u-head"), reportFor("u-pm")];
+
+  test("قائمةٌ فارغة ⇒ البريد للجميع (السلوك المبدئي)", () => {
+    assert.equal(emailTargets(all, []).length, 3);
+  });
+
+  test("وفيها واحد ⇒ هو وحده مهما كثر المستلمون", () => {
+    const out = emailTargets(all, ["u-admin"]);
+    assert.deepEqual(out.map((r) => r.recipientUid), ["u-admin"]);
+  });
+
+  test("وفيها اثنان ⇒ هما وحدهما", () => {
+    const out = emailTargets(all, ["u-head", "u-pm"]);
+    assert.deepEqual(out.map((r) => r.recipientUid), ["u-head", "u-pm"]);
+  });
+
+  // من أُدرج في القائمة وليس من المستوى الإشرافي لا يُولَّد له تقرير أصلاً.
+  // فلا رسالة له، ولا انهيار — البريد صورةُ التقرير، فبلا تقريرٍ لا رسالة.
+  test("ومعرّفٌ لا تقرير له ⇒ لا رسالة ولا انهيار", () => {
+    assert.deepEqual(emailTargets(all, ["u-nobody"]), []);
+  });
+
+  test("ولا يُغيَّر التوليد نفسه — الحصر على البريد وحده", () => {
+    // القائمة الأصلية تبقى كما هي: من له مدخل التقرير يقرؤه على الشاشة.
+    emailTargets(all, ["u-admin"]);
+    assert.equal(all.length, 3);
   });
 });
 

@@ -5,6 +5,7 @@ import '../data/app_store.dart';
 import '../models/daily_report.dart';
 import '../theme/app_theme.dart';
 import '../widgets/command_band.dart';
+import 'daily_report_settings_dialog.dart';
 import 'project_detail_screen.dart';
 import 'work_detail_screen.dart';
 
@@ -100,6 +101,15 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
                 icon: Icons.chevron_left_rounded,
                 onPressed: () => _shiftDay(1),
               ),
+              if (store.isAdmin)
+                BandButton(
+                  label: 'الإعدادات',
+                  icon: Icons.tune_rounded,
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (_) => const DailyReportSettingsDialog(),
+                  ),
+                ),
               if (store.isAdmin)
                 BandButton(
                   label: _generating ? 'جارٍ التوليد…' : 'ولّد الآن',

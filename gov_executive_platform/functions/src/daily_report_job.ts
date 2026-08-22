@@ -27,6 +27,7 @@ import {
   Snapshot,
   UpdateRec,
   buildReport,
+  emailTargets,
   renderReportHtml,
   reportSubject,
 } from "./daily_report";
@@ -86,8 +87,16 @@ export interface ReportSettings {
   baseUrl: string;
   /** مستلمون إضافيون بأعيانهم، فوق من يستحقّه بدوره. */
   extraRecipientUids: string[];
-  /** مستبعَدون بأعيانهم. */
+  /** مستبعَدون بأعيانهم — لا يُولَّد لهم تقرير أصلاً. */
   excludedUids: string[];
+  /**
+   * قائمةُ سماحٍ للبريد وحده.
+   *
+   * فارغةً: البريد لكل من وُلِّد له تقرير. وغير فارغة: **لمن فيها وحدهم**.
+   * ولا تمسّ التوليد: من له مدخل «التقرير اليومي» يبقى يقرؤه على الشاشة
+   * سواءٌ وصله بريدٌ أم لا — وهو قرارٌ صريح من مسؤول النظام.
+   */
+  emailRecipientUids: string[];
   thresholds: ReportThresholds;
 }
 
@@ -103,6 +112,7 @@ export function readSettings(
     baseUrl: str(r.baseUrl) || `https://${projectId}.web.app`,
     extraRecipientUids: strList(r.extraRecipientUids),
     excludedUids: strList(r.excludedUids),
+    emailRecipientUids: strList(r.emailRecipientUids),
     thresholds: {
       // العتبتان الأوليان تُقرآن من `settings/alertRules` القائمة إن لم
       // تُضبطا هنا، فلا يكون للمنصة عتبتا «قريب الاستحقاق» مختلفتان.
@@ -437,10 +447,14 @@ export async function runDailyReport(
 
   let emailsSent = 0;
   const emailErrors: string[] = [];
+  // قائمةُ السماح تُطبَّق هنا وحدها: التوليد يقع للجميع، والبريد وحده
+  // يُحصَر. فمن له مدخل «التقرير اليومي» يبقى يقرؤه على الشاشة سواءٌ وصله
+  // بريدٌ أم لا.
+  const targets = emailTargets(reports, settings.emailRecipientUids);
   // التوليد اليدوي للتجربة لا يرسل بريداً إلا بطلبٍ صريح — وإلا صار كلُّ
   // ضغطٍ على «ولّد الآن» نسخةً ثانية في صناديق البريد كلها.
   if (settings.emailEnabled && options.forceEmailOff !== true) {
-    for (const report of reports) {
+    for (const report of targets) {
       const to = emailOf.get(report.recipientUid) ?? "";
       if (!to) continue;
       try {
@@ -461,7 +475,12 @@ export async function runDailyReport(
   await db().collection("auditLog").add({
     userName: "المنصة (تقرير آلي)",
     action: "التقرير التنفيذي اليومي",
+    // ولا يُسكت عن الحصر: لولا ذكرُه لَمرّ يومٌ يُظنّ فيه أن البريد وصل
+    // الجميع وهو محصورٌ بواحد — والسجل هو الموضع الوحيد الذي يُكشف فيه ذلك.
     details: `وُلِّد تقرير ${dateKey} لـ${reports.length} مستلماً، وأُرسل منه ${emailsSent} بريداً` +
+      (settings.emailRecipientUids.length > 0 ?
+        ` (البريد محصورٌ بـ${settings.emailRecipientUids.length} مستلماً بقرار مسؤول النظام)` :
+        "") +
       (emailErrors.length ? ` — وأخفق ${emailErrors.length}` : "") +
       ` (${trigger})`,
     timestamp: admin.firestore.Timestamp.now(),

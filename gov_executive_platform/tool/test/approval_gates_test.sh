@@ -287,6 +287,26 @@ reject_in "$SRC" "ولا أثر لها في الدوال الخلفية" "Passwo
 want_in "$STORE" "والحساب الموقوف يُقال له إنه موقوف" "case 'user-disabled':"
 echo ""
 
+# ــــ حصر بريد التقرير ــــ
+#
+# أخطر ما في الحصر أن **يُقرأ ولا يُطبَّق**: حقلٌ يُكتب في الإعدادات، وحلقةُ
+# إرسالٍ تمرّ على القائمة الكاملة رغمه. فتظهر الشاشة «محصورٌ بك وحدك» ويخرج
+# البريد إلى الجميع — وهذا أسوأ من غياب الحصر، لأنه يُطَمئن.
+DR="functions/src/daily_report.ts"
+echo "حصر بريد التقرير يُطبَّق لا يُقرأ ويُهمَل:"
+want_in "$DR" "دالّة الحصر موجودة" "export function emailTargets"
+want_in "$DR" "وقائمةٌ فارغة تعني الجميع" "if (allowlist.length === 0) return reports;"
+want_in "$JOB" "والحلقة تمرّ على المحصور لا على الكل" "for (const report of targets) {"
+want_in "$JOB" "والقائمة تُقرأ من الإعدادات" "emailRecipientUids: strList(r.emailRecipientUids)"
+want_in "$JOB" "والحصر يُذكر في سجل التدقيق" "البريد محصورٌ بـ"
+echo ""
+
+echo "وإعدادات التقرير ليست من المقروء عاماً:"
+# `settings/{id}` قراءتها عامة لأجل ألوان الهوية على شاشة الدخول. ومستند
+# التقرير يحمل معرّفات مستخدمين، فيُستثنى — وإلا قرأه أي أحد على الإنترنت.
+want_in "$RULES" "الاستثناء قائم" "allow read: if id != 'dailyReport' || isAdmin();"
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

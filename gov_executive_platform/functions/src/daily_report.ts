@@ -879,6 +879,32 @@ export function renderReportHtml(report: DailyReport, baseUrl: string): string {
     </div>`;
 }
 
+/**
+ * من يصله البريد فعلاً من بين من وُلِّد لهم تقرير.
+ *
+ * ــــ قائمةُ سماحٍ لا قائمةَ استثناء ــــ
+ *
+ * كان في الإعدادات `excludedUids` — ولحصر البريد بشخصٍ واحد عبره يلزم أن
+ * يُدرج فيه **كل** موظفي الوزارة، وأن يُضاف إليه كلُّ من يُعيَّن لاحقاً.
+ * فحصرٌ ينكسر بصمت كلّما وُظّف أحد، ولا يصيح شيء: البريد يخرج لمن لم يُقصد
+ * ولا يُعلم بذلك إلا منه.
+ *
+ * فهذه تعمل بالعكس، وهي **مغلقةٌ بطبعها**:
+ * - فارغةً: البريد لكل من وُلِّد له تقرير (السلوك المبدئي).
+ * - غير فارغة: البريد **لمن فيها وحدهم**.
+ *
+ * ومن كان في القائمة ولا تقريرَ له لا يُرسل إليه شيء ولا ينهار شيء: البريد
+ * صورةُ التقرير، فبلا تقريرٍ لا رسالة.
+ */
+export function emailTargets(
+  reports: DailyReport[],
+  allowlist: readonly string[],
+): DailyReport[] {
+  if (allowlist.length === 0) return reports;
+  const allowed = new Set(allowlist);
+  return reports.filter((r) => allowed.has(r.recipientUid));
+}
+
 /** موضوع الرسالة — يحمل الخلاصة، فيُقرأ من قائمة البريد بلا فتح. */
 export function reportSubject(report: DailyReport): string {
   if (report.criticalCount > 0) {

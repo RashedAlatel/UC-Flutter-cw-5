@@ -15,6 +15,7 @@ import '../models/approval_request.dart';
 import '../models/audit_log_entry.dart';
 import '../models/blocker.dart';
 import '../models/daily_report.dart';
+import '../models/daily_report_settings.dart';
 import '../models/daily_update.dart';
 import '../models/custom_role.dart';
 import '../models/closure_trail.dart';
@@ -2108,6 +2109,35 @@ class AppStore extends ChangeNotifier {
         .get();
     if (!doc.exists) return null;
     return DailyReport.fromDoc(doc);
+  }
+
+  /// يقرأ إعدادات التقرير — لمسؤول النظام وحده (القاعدة تحصرها به).
+  Future<DailyReportSettings> loadDailyReportSettings() async {
+    final doc = await _db.collection('settings').doc('dailyReport').get();
+    return DailyReportSettings.fromMap(doc.data());
+  }
+
+  /// يحفظ إعدادات التقرير.
+  ///
+  /// و`merge: true` مقصود: المستند يحمل حقولاً لا تضبطها الشاشة (عنوان
+  /// المنصة، والمستلمون الإضافيون، والمستبعدون). واستبدالُه كاملاً يمحوها
+  /// بصمت عند أول حفظ.
+  Future<String?> saveDailyReportSettings(DailyReportSettings settings) async {
+    try {
+      await _db
+          .collection('settings')
+          .doc('dailyReport')
+          .set(settings.toMap(), SetOptions(merge: true));
+      await _log(
+        'إعدادات التقرير التنفيذي اليومي',
+        'التوليد: ${settings.enabled ? 'يعمل' : 'متوقّف'} · '
+            'البريد: ${settings.emailEnabled ? 'يعمل' : 'متوقّف'} · '
+            '${settings.emailRecipientUids.isEmpty ? 'يصل كل من له تقرير' : 'محصورٌ بـ${settings.emailRecipientUids.length} مستلماً'}',
+      );
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
   }
 
   /// يولّد تقرير اليوم فوراً — لمسؤول النظام وحده.

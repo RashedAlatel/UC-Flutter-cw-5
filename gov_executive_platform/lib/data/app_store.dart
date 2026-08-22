@@ -23,6 +23,7 @@ import '../models/department_section.dart';
 import '../models/enums.dart';
 import '../models/feedback_item.dart';
 import '../models/project.dart';
+import '../models/project_category.dart';
 import '../models/project_task.dart';
 import '../models/report.dart';
 import '../models/role_permissions.dart';
@@ -648,6 +649,42 @@ class AppStore extends ChangeNotifier {
 
   bool isFocused(String projectId) => focusedProjectIds.contains(projectId);
 
+  /// تصنيفات المشاريع التي وضعها مسؤول النظام — راجع [ProjectCategory].
+  List<ProjectCategory> categories = const [];
+
+  ProjectCategory? categoryById(String id) =>
+      categories.where((c) => c.id == id).firstOrNull;
+
+  /// تصنيفات مشروعٍ بعينه، بترتيب القائمة المعرَّفة لا بترتيب ما كُتب على
+  /// المشروع — فيرى المستخدم الوسوم بالترتيب نفسه في كل بطاقة.
+  ///
+  /// ومعرّفٌ لتصنيف محذوف يسقط بصمت: التصنيف يُحذف من الإعدادات وقد تبقى
+  /// معرّفاته على مشاريع، وعرضُ وسمٍ بلا اسم أسوأ من عدم عرضه.
+  List<ProjectCategory> categoriesOf(Project project) =>
+      categories.where((c) => project.categoryIds.contains(c.id)).toList();
+
+  /// يحفظ قائمة التصنيفات. الكتابة محصورة بمسؤول النظام في قواعد Firestore
+  /// (`settings/{id}`)، والفحص هنا لمنع محاولةٍ تفشل على الخادم بلا رسالة.
+  Future<String?> saveCategories(List<ProjectCategory> items) async {
+    if (!isAdmin) return 'إدارة التصنيفات لمسؤول النظام وحده';
+    try {
+      await _db.collection('settings').doc('projectCategories').set({
+        'items': items.map((c) => c.toMap()).toList(),
+      });
+      await _log('تصنيفات المشاريع', 'حُدّثت قائمة التصنيفات (${items.length} تصنيفاً)');
+      return null;
+    } catch (e) {
+      return 'تعذّر حفظ التصنيفات: $e';
+    }
+  }
+
+  /// يضبط تصنيفات مشروع. `categoryIds` ليس من الحقول المحميّة في قاعدة تحديث
+  /// المشاريع، فيسِم مديرُ الإدارة مشاريعَ إدارته كما يعدّل تقدّمها.
+  Future<void> setProjectCategories(Project project, List<String> ids) async {
+    await _db.collection('projects').doc(project.id).update({'categoryIds': ids});
+    await _log('تصنيفات المشاريع', 'حُدّثت تصنيفات المشروع "${project.name}"');
+  }
+
   /// المشاريع المميّزة ضمن نطاق رؤية المستخدم الحالي فقط (تُرشَّح تلقائياً
   /// فلا يرى مستخدم مشروعاً مميّزاً خارج صلاحيته).
   List<Project> get focusedProjects {
@@ -1226,6 +1263,13 @@ class AppStore extends ChangeNotifier {
       focusedProjectIds = ids == null ? [] : ids.map((e) => e.toString()).toList();
       notifyListeners();
     });
+    _listen('settings/projectCategories', _db.collection('settings').doc('projectCategories').snapshots(), (doc) {
+      final items = doc.data()?['items'] as List?;
+      categories = items == null
+          ? const []
+          : items.map(ProjectCategory.fromMap).whereType<ProjectCategory>().toList();
+      notifyListeners();
+    });
 
     if (canViewAuditLog) {
       _listen('auditLog', _db.collection('auditLog').orderBy('timestamp', descending: true).limit(300).snapshots(), (snap) {
@@ -1636,6 +1680,10 @@ class AppStore extends ChangeNotifier {
         return (isManager && myDepartmentIds.contains(r.departmentId)) || canCreateIn(r.departmentId);
       case ApprovalType.registration:
       case ApprovalType.deadlineChange:
+      // إرسال البريد بوابةٌ ثالثة من هذا الصنف: لا يبتّ فيها إلا مسؤول
+      // النظام، وقد مرّ في `isAdmin` أعلاه. و`ntf` تُجيز **كتابة** الطلب لا
+      // البتّ فيه، فلا تُذكر هنا.
+      case ApprovalType.notifySend:
         return false;
     }
   }
@@ -2649,22 +2697,65 @@ class AppStore extends ChangeNotifier {
   }
 
   /// إرسال إشعار (بريد و/أو واتساب) لمستخدم واحد أو أكثر دفعة واحدة.
-  Future<String?> sendUserNotification({
-    required List<AppUser> users,
+  /// يُسلّم البريد إن كان المنفّذ مسؤول النظام، وإلا يرفع به **طلب اعتماد**.
+  ///
+  /// المسار واحد لكل مواضع الإرسال في المنصة (نموذج المراسلة، وتنبيه المشاريع
+  /// المتأخرة)، فلا يبقى موضعٌ ينسى البوابة. والبوابة نفسها ليست هنا بل على
+  /// الخادم: `sendUserNotification` تشترط `systemAdmin`، و`approveRequest`
+  /// تشترطه كذلك لنوع `notifySend`. فما هنا اختيار المسار وعرضُه للمستخدم،
+  /// لا الحراسة.
+  ///
+  /// [messages] رسالة مخصَّصة لكل مستلم — لأن تنبيه المتأخرات يسرد لكل مسؤول
+  /// مشاريعَه هو، لا نصّاً واحداً للجميع.
+  ///
+  /// يُعيد `queued: true` إن صار الأمر طلباً ينتظر الاعتماد، و`error` عند الفشل.
+  Future<({String? error, bool queued})> sendOrRequestNotification({
+    required List<({AppUser user, String subject, String body})> messages,
     required NotifyChannel channel,
-    required String subject,
-    required String message,
+    required String requestTitle,
+    required String requestDescription,
   }) async {
+    if (messages.isEmpty) {
+      return (error: 'لا يوجد مستلمون', queued: false);
+    }
+    final payloadMessages = messages
+        .map((m) => {'uid': m.user.id, 'subject': m.subject, 'body': m.body})
+        .toList();
+
+    if (isAdmin) {
+      try {
+        await _functions.httpsCallable('sendUserNotification').call({
+          'channel': channel.name,
+          'messages': payloadMessages,
+        });
+        return (error: null, queued: false);
+      } on FirebaseFunctionsException catch (e) {
+        return (error: e.message ?? 'تعذر إرسال الإشعار', queued: false);
+      }
+    }
+
     try {
-      await _functions.httpsCallable('sendUserNotification').call({
-        'uids': users.map((u) => u.id).toList(),
-        'channel': channel.name,
-        'subject': subject,
-        'message': message,
-      });
-      return null;
-    } on FirebaseFunctionsException catch (e) {
-      return e.message ?? 'تعذر إرسال الإشعار';
+      final now = DateTime.now();
+      await _db.collection('approvalRequests').add(ApprovalRequest(
+            id: '',
+            type: ApprovalType.notifySend,
+            status: DecisionStatus.pending,
+            title: requestTitle,
+            description: requestDescription,
+            priority: PriorityLevel.medium,
+            delayImpactDays: 0,
+            departmentId: currentUser?.departmentId,
+            requestedByUid: currentUser?.id ?? '',
+            requestedByName: currentUser?.name ?? '',
+            requestedDate: now,
+            // الحمولة هي ما تُنفّذه الدالة الخلفية، وهي ما يُعرض لمسؤول
+            // النظام في بطاقة الطلب — فلا يعتمد نصّاً لم يقرأه.
+            payload: {'channel': channel.name, 'messages': payloadMessages},
+          ).toMap());
+      await _log('إرسال إشعار', 'طلب ${currentUser?.name ?? ''} إرسال بريد إلى ${messages.length} مستخدم(ين)');
+      return (error: null, queued: true);
+    } catch (e) {
+      return (error: 'تعذر رفع طلب الإرسال: $e', queued: false);
     }
   }
 

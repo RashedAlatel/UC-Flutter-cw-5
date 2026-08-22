@@ -84,7 +84,7 @@ void main() {
   });
 
   group('من يبتّ في الطلبات', () {
-    test('البوابتان الباقيتان لمسؤول النظام وحده', () {
+    test('البوابات الباقية لمسؤول النظام وحده', () {
       final store = AppStore()
         ..currentUser = _user(grants: {
           'mpr': GrantScope.all,
@@ -94,6 +94,23 @@ void main() {
           reason: 'تسجيل الأعضاء لم يُطلب فتحه ولا مفتاح له');
       expect(store.canApprove(_request(ApprovalType.deadlineChange)), isFalse,
           reason: 'تعديل المواعيد النهائية كذلك');
+      // البوابة الثالثة: أُضيفت بقرار صريح من مسؤول النظام — كل بريد يخرج
+      // باسم المنصة يمرّ بموافقته. وأوسعُ منحتين في المنصة مجتمعتين لا
+      // تفتحانها، وهذا ما يُقاس هنا.
+      expect(store.canApprove(_request(ApprovalType.notifySend)), isFalse,
+          reason: 'إرسال البريد بوابة لا يفتحها مفتاح مفوَّض');
+    });
+
+    test('ولا صلاحية «إرسال الإشعارات» نفسها تفتح بوابة البريد', () {
+      // `ntf` تُجيز **كتابة** الطلب لا البتّ فيه. ولولا هذا التمييز لعاد
+      // مدير الإدارة يرسل بلا رقابة من باب آخر — وهو العطل الذي أُغلق.
+      final store = AppStore()
+        ..currentUser = _user(role: UserRole.departmentManager, dept: _mine, depts: [_mine])
+        ..rolePermissions = RolePermissionsConfig({
+          'departmentManager': {RolePermission.sendNotifications.key},
+        });
+      expect(store.canSendNotifications, isTrue, reason: 'يكتب الطلب');
+      expect(store.canApprove(_request(ApprovalType.notifySend)), isFalse, reason: 'ولا يبتّ فيه');
     });
 
     test('اعتماد إضافة المشاريع بمنحة داخل نطاقها', () {

@@ -2,6 +2,25 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'enums.dart';
 
+/// معاينة بريدٍ ينتظر الاعتماد — تُقرأ من حمولة الطلب لا من وصفه.
+class NotifyPreview {
+  final List<String> recipientUids;
+  final NotifyChannel channel;
+  final String sampleSubject;
+  final String sampleBody;
+
+  /// هل تختلف نصوص الرسائل بين المستلمين؟ (تنبيه المتأخرات يخصّص لكلٍّ مشاريعه.)
+  final bool varied;
+
+  const NotifyPreview({
+    required this.recipientUids,
+    required this.channel,
+    required this.sampleSubject,
+    required this.sampleBody,
+    required this.varied,
+  });
+}
+
 /// طلب موافقة موحّد يمر عبر مركز القرارات التنفيذية.
 /// يغطي: تسجيل عضو جديد، إضافة مشروع، تعديل موعد نهائي، وقرارات تنفيذية عامة.
 /// لا يُنفَّذ أي تغيير فعلي على البيانات إلا بعد اعتماد الطلب عبر دالة خلفية (Cloud Function).
@@ -80,6 +99,48 @@ class ApprovalRequest {
       resolutionNote: json['resolutionNote'] as String?,
       resolvedDate: (json['resolvedDate'] as Timestamp?)?.toDate(),
       payload: Map<String, dynamic>.from(json['payload'] as Map? ?? {}),
+    );
+  }
+
+  /// ما سيُرسل فعلاً عند اعتماد طلب [ApprovalType.notifySend]، من **الحمولة**.
+  ///
+  /// للسبب نفسه المشروح في [grantedRoleLabel]: العنوان والوصف نصّان يكتبهما
+  /// الطالب، والحمولة هي ما تُنفّذه الدالة الخلفية. ولا يجوز أن يعتمد مسؤول
+  /// النظام بريداً يخرج باسم الوزارة دون أن يقرأ نصّه هو لا وصفَه.
+  ///
+  /// يعيد null لغير هذا النوع أو لحمولة لا رسائل صالحة فيها — وحينها لا يُعرض
+  /// شيء، ولا تُخترع معاينة من عدم.
+  NotifyPreview? get notifyPreview {
+    if (type != ApprovalType.notifySend) return null;
+    final raw = payload['messages'];
+    if (raw is! List || raw.isEmpty) return null;
+
+    final uids = <String>[];
+    final bodies = <String>{};
+    final subjects = <String>{};
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final uid = (item['uid'] as String?)?.trim() ?? '';
+      final body = (item['body'] as String?)?.trim() ?? '';
+      if (uid.isEmpty || body.isEmpty) continue;
+      uids.add(uid);
+      bodies.add(body);
+      subjects.add((item['subject'] as String?)?.trim() ?? '');
+    }
+    if (uids.isEmpty) return null;
+
+    final channelName = payload['channel'] as String? ?? NotifyChannel.email.name;
+    return NotifyPreview(
+      recipientUids: uids,
+      channel: NotifyChannel.values.firstWhere(
+        (c) => c.name == channelName,
+        orElse: () => NotifyChannel.email,
+      ),
+      sampleSubject: subjects.isEmpty ? '' : subjects.first,
+      sampleBody: bodies.first,
+      // تنبيه المشاريع المتأخرة يسرد لكل مسؤول مشاريعَه هو، فالنصوص تختلف.
+      // وعرضُ نصٍّ واحد حينها يوهم أن الجميع يتلقّى ما يُعرض.
+      varied: bodies.length > 1,
     );
   }
 

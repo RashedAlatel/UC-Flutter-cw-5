@@ -34,45 +34,16 @@ function requireAdmin(request: CallableRequest) {
   return auth;
 }
 
-/**
- * يتحقق أن المتصل يملك صلاحية مراسلة **هؤلاء المستلمين تحديداً**، لا مجرد
- * صلاحية الإرسال. النطاق يُفحص على الخادم بقراءة مستندات المستلمين، لا
- * بالاعتماد على ما يرسله العميل الذي قد يكون منتحلاً.
- *
- * - مسؤول النظام: أي مستلم.
- * - يملك ntf مع vad (يرى كل الإدارات): أي مستلم.
- * - مدير إدارة يملك ntf: مستلمون داخل إداراته.
- * - أي دور آخر يملك ntf: مستلمون داخل إدارته نفسها.
- */
-async function requireNotifyAccess(request: CallableRequest, targetUids: string[]) {
-  const auth = requireAuth(request);
-  const role = auth.token.role as string | undefined;
-  if (role === "systemAdmin") return auth;
-
-  const perms = auth.token.perms as Record<string, boolean> | undefined;
-  if (perms?.ntf !== true) {
-    throw new HttpsError("permission-denied", "لا تملك صلاحية إرسال الإشعارات");
-  }
-  if (perms.vad === true) return auth;
-
-  const myDepts: string[] = role === "departmentManager" ?
-    ((auth.token.departmentIds as string[] | undefined) ?? []) :
-    [(auth.token.departmentId as string | undefined) ?? ""].filter(Boolean);
-
-  if (!myDepts.length) {
-    throw new HttpsError("permission-denied", "لا توجد إدارة مرتبطة بحسابك لتحديد نطاق المراسلة");
-  }
-
-  const docs = await Promise.all(targetUids.map((uid) => db().collection("users").doc(uid).get()));
-  const outside = docs.filter((d) => {
-    const dept = (d.data()?.departmentId as string | undefined) ?? "";
-    return !myDepts.includes(dept);
-  });
-  if (outside.length) {
-    throw new HttpsError("permission-denied", "بعض المستلمين خارج نطاق إدارتك");
-  }
-  return auth;
-}
+// كانت هنا `requireNotifyAccess`: تسمح لصاحب `ntf` بالإرسال **فوراً** ضمن
+// نطاق إدارته. وحُذفت لا لأنها كانت مكسورة، بل لأن مسؤول النظام قرّر أن أي
+// بريد يخرج باسم المنصة يمرّ بموافقته. فصار الإرسال المباشر له وحده
+// (`requireAdmin`)، ومن دونه يمرّ بطلب `notifySend` كسائر بوابات الاعتماد.
+//
+// و`ntf` لم تفقد معناها: هي الآن **من يحقّ له كتابة الطلب**، لا من ينفّذه.
+// وتُفحص في الواجهة عند فتح النموذج. ولا تُفحص هنا عمداً: مستند الطلب لا
+// يُنفِّذ شيئاً بنفسه، والتنفيذ كله يمرّ بـ`approveRequest` وهي محصورة
+// بمسؤول النظام. فأسوأ ما يصنعه من كتب طلباً بلا `ntf` أن يرى مسؤولُ النظام
+// طلباً يرفضه.
 
 async function logAudit(userName: string, action: string, details: string): Promise<void> {
   await db().collection("auditLog").add({userName, action, details, timestamp: now()});
@@ -304,6 +275,85 @@ function tokenScopeCovers(
   return scope.map((d) => String(d)).includes(departmentId);
 }
 
+/** رسالة موجَّهة لمستلم بعينه — لكلٍّ عنوانه ونصّه. */
+interface OutgoingMessage {
+  uid: string;
+  subject: string;
+  body: string;
+}
+
+/**
+ * يُسلّم رسائل مخصَّصة لمستلميها، ويرمي عند أول إخفاق فعلي.
+ *
+ * تعريف **واحد** يستعمله مساران: إرسال مسؤول النظام المباشر
+ * (`sendUserNotification`)، واعتماد طلب `notifySend`. ولولا ذلك لافترقا:
+ * أحدهما يُبلّغ بفشل البريد والآخر يبتلعه، فيقول مركز القرار «اعتُمد» بينما
+ * لم تصل رسالة واحدة.
+ *
+ * والرسائل مخصَّصة لا نصّاً واحداً للجميع، لأن تنبيه المشاريع المتأخرة يسرد
+ * لكل مسؤول مشاريعَه هو.
+ */
+async function deliverMessages(messages: OutgoingMessage[], channel: string | undefined): Promise<number> {
+  const channels = {
+    email: channel === "email" || channel === "both",
+    whatsapp: channel === "whatsapp" || channel === "both",
+  };
+  // قناة مجهولة كانت تمرّ بنجاح صامت: `notifyUser` تُستدعى بقناتين مطفأتين
+  // فلا تُرسل شيئاً، ومُرشِّح الإخفاقات أدناه لا يجد ما يشتكي منه — فيُقال
+  // للمستخدم «تم الإرسال» ولم يُرسَل شيء. تُرفض صراحةً.
+  if (!channels.email && !channels.whatsapp) {
+    throw new HttpsError("invalid-argument", "قناة الإرسال غير محددة");
+  }
+  if (!messages.length) throw new HttpsError("invalid-argument", "لا يوجد مستلمون");
+
+  const results = await Promise.all(
+    messages.map(async (m) => ({
+      uid: m.uid,
+      result: await notifyUser(m.uid, m.subject || "إشعار من المنصة التنفيذية الحكومية", m.body, channels),
+    })),
+  );
+
+  // لا نُخفي فشل الإرسال الفعلي (بيانات بريد خاطئة، رقم واتساب غير صالح...):
+  // نُبلّغ به صراحة بدل رسالة "تم الإرسال" الخادعة التي كانت تظهر سابقاً حتى
+  // عندما لا تصل الرسالة فعلياً.
+  const failures = results.filter(
+    ({result}) => (channels.email && !result.emailSent) || (channels.whatsapp && !result.whatsappSent),
+  );
+  if (failures.length) {
+    const detail = failures
+      .map(({uid: t, result}) => `${t}: ${[result.emailError, result.whatsappError].filter(Boolean).join(" / ")}`)
+      .join("، ");
+    throw new HttpsError("internal", `فشل الإرسال لبعض المستخدمين: ${detail}`);
+  }
+
+  return messages.length;
+}
+
+/**
+ * يقرأ رسائل طلب `notifySend` من حمولته.
+ *
+ * **الحمولة لا يُوثَق بها** — كما في طلب التسجيل: مستند الطلب يكتبه العميل،
+ * فتُنقّى هنا حقلاً حقلاً بدل تمريرها كما وردت. ومسؤول النظام يقرأ النصّ في
+ * بطاقة الطلب قبل الاعتماد، فالحدّ الأدنى أن يكون ما قرأه هو ما يُرسَل.
+ */
+function messagesFromPayload(payload: Record<string, unknown>): OutgoingMessage[] {
+  const raw = Array.isArray(payload.messages) ? payload.messages : [];
+  const messages: OutgoingMessage[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const m = item as Record<string, unknown>;
+    const uid = typeof m.uid === "string" ? m.uid.trim() : "";
+    const body = typeof m.body === "string" ? m.body.trim() : "";
+    if (!uid || !body) continue;
+    messages.push({
+      uid,
+      subject: typeof m.subject === "string" ? m.subject.trim() : "",
+      body,
+    });
+  }
+  return messages;
+}
+
 /**
  * من يبتّ في كل نوع من الطلبات.
  *
@@ -344,7 +394,10 @@ function checkApprovalPermission(
         tokenScopeCovers(auth, "mpr", departmentId);
       break;
     }
-    // registration و deadlineChange: مسؤول النظام وحده، بلا استثناء.
+    // registration و deadlineChange و notifySend: مسؤول النظام وحده، بلا
+    // استثناء. و`notifySend` أُلحقت بهنّ بقرار صريح منه: كل بريد يخرج باسم
+    // المنصة يمرّ بموافقته. ولا يفتحها مفتاح مفوَّض — لا `ntf` ولا غيرها —
+    // وإلا لعاد الإرسال بلا رقابة من باب آخر.
     default:
       allowed = isAdmin;
   }
@@ -508,6 +561,23 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         .collection("projects")
         .doc(payload.projectId as string)
         .update({dueDate: admin.firestore.Timestamp.fromDate(new Date(payload.newDueDate as string))});
+      break;
+    }
+    case "notifySend": {
+      const messages = messagesFromPayload(payload);
+      if (!messages.length) {
+        throw new HttpsError("failed-precondition", "لا توجد رسائل صالحة في هذا الطلب");
+      }
+      // الإرسال **قبل** ختم الطلب بـ«معتمَد» أدناه: لو أخفق البريد فعلياً
+      // رمت `deliverMessages` وبقي الطلب معلّقاً كما هو، فيُعاد اعتماده بعد
+      // معالجة السبب. ولو خُتم أولاً لصار في السجل بريد «معتمَد» لم يصل،
+      // ولا سبيل لإعادة إرساله لأن الطلب لم يعد معلّقاً.
+      await deliverMessages(messages, payload.channel as string | undefined);
+      await logAudit(
+        auth.token.name ?? "مسؤول النظام",
+        "إرسال إشعار",
+        `اعتُمد وأُرسل بريد إلى ${messages.length} مستخدم(ين) بطلب من ${data.requestedByName ?? "مستخدم"}`,
+      );
       break;
     }
     case "decision":
@@ -739,49 +809,45 @@ export const refreshRolePermissions = onCall(async (request) => {
 });
 
 export const sendUserNotification = onCall({secrets: notificationSecrets}, async (request) => {
-  const {uids, uid, channel, subject, message} = (request.data ?? {}) as {
+  const {uids, uid, channel, subject, message, messages} = (request.data ?? {}) as {
     uids?: string[];
     uid?: string;
     channel?: string;
     subject?: string;
     message?: string;
-  };
-  const targets = uids && uids.length ? uids : uid ? [uid] : [];
-  if (!targets.length || !message) throw new HttpsError("invalid-argument", "بيانات ناقصة");
-  const auth = await requireNotifyAccess(request, targets);
-
-  const channels = {
-    email: channel === "email" || channel === "both",
-    whatsapp: channel === "whatsapp" || channel === "both",
+    messages?: unknown;
   };
 
-  const results = await Promise.all(
-    targets.map(async (t) => ({
-      uid: t,
-      result: await notifyUser(t, subject || "إشعار من المنصة التنفيذية الحكومية", message, channels),
-    })),
-  );
+  // شكلان مقبولان، وشكل **واحد** داخلي:
+  //   `messages` — رسالة مخصَّصة لكل مستلم (تنبيه المتأخرات يسرد لكلٍّ مشاريعه).
+  //   `uids`/`uid` مع `message` — نصّ واحد للجميع (نموذج المراسلة العادي).
+  // والثاني يُحوَّل إلى الأول فوراً، فلا يوجد مساران للتسليم يفترقان.
+  const outgoing = Array.isArray(messages) ?
+    messagesFromPayload({messages}) :
+    (() => {
+      const targets = uids && uids.length ? uids : uid ? [uid] : [];
+      if (!targets.length || !message) return [];
+      return targets.map((t) => ({uid: t, subject: subject ?? "", body: message}));
+    })();
+  if (!outgoing.length) throw new HttpsError("invalid-argument", "بيانات ناقصة");
+
+  // ــــ الإرسال المباشر لمسؤول النظام وحده ــــ
+  //
+  // كان هنا `requireNotifyAccess` فيرسل صاحب `ntf` فوراً. وهذا السطر هو
+  // البوابة نفسها لا زينةً حولها: تبديلُ نموذج الواجهة وحده يترك هذه الدالة
+  // مفتوحة، ونسخةٌ قديمة من التطبيق مخزَّنة في متصفح المستخدم تكفي لاستدعائها
+  // مباشرةً وتخطّي الاعتماد كله. فمن دون مسؤول النظام يمرّ بطلب `notifySend`.
+  const auth = requireAdmin(request);
+
+  const sent = await deliverMessages(outgoing, channel);
 
   await logAudit(
-    auth.token.name ?? "مستخدم",
+    auth.token.name ?? "مسؤول النظام",
     "إرسال إشعار",
-    `أُرسل إشعار (${channel}) إلى ${targets.length} مستخدم(ين)`,
+    `أُرسل إشعار (${channel}) إلى ${sent} مستخدم(ين)`,
   );
 
-  // لا نُخفي فشل الإرسال الفعلي (بيانات بريد خاطئة، رقم واتساب غير صالح...):
-  // نُبلّغ به صراحة بدل رسالة "تم الإرسال" الخادعة التي كانت تظهر سابقاً حتى
-  // عندما لا تصل الرسالة فعلياً.
-  const failures = results.filter(
-    ({result}) => (channels.email && !result.emailSent) || (channels.whatsapp && !result.whatsappSent),
-  );
-  if (failures.length) {
-    const detail = failures
-      .map(({uid: t, result}) => `${t}: ${[result.emailError, result.whatsappError].filter(Boolean).join(" / ")}`)
-      .join("، ");
-    throw new HttpsError("internal", `فشل الإرسال لبعض المستخدمين: ${detail}`);
-  }
-
-  return {ok: true, sent: targets.length};
+  return {ok: true, sent};
 });
 
 /**

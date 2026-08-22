@@ -42,7 +42,7 @@ class _DecisionCenterScreenState extends State<DecisionCenterScreen> {
         children: [
           const CommandBand(
             title: 'مركز القرارات التنفيذية',
-            subtitle: 'كل طلبات تسجيل الأعضاء وإضافة المشاريع وتعديل المواعيد النهائية والقرارات التنفيذية تمر من هنا، مرتبة حسب الأولوية وتأثير التأخير.',
+            subtitle: 'كل طلبات تسجيل الأعضاء وإضافة المشاريع وتعديل المواعيد النهائية وإرسال البريد والقرارات التنفيذية تمر من هنا، مرتبة حسب الأولوية وتأثير التأخير.',
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
@@ -173,6 +173,10 @@ class _RequestCardState extends State<_RequestCard> {
                   ],
                 ),
               ),
+            ],
+            if (r.notifyPreview != null) ...[
+              const SizedBox(height: 12),
+              _NotifyPreviewPanel(preview: r.notifyPreview!, store: store),
             ],
             const SizedBox(height: 12),
             Wrap(
@@ -316,6 +320,84 @@ class _InfoChip extends StatelessWidget {
         const SizedBox(width: 5),
         Text(text, style: TextStyle(fontSize: 11.5, color: c, fontWeight: FontWeight.w600)),
       ],
+    );
+  }
+}
+
+/// معاينة البريد الذي سيخرج عند الاعتماد.
+///
+/// عنوانُ الطلب ووصفُه نصّان يكتبهما الطالب، والحمولة هي ما تُرسله الدالة
+/// الخلفية. فلو اكتفى مسؤول النظام بالعنوان لاعتمد بريداً يخرج باسم الوزارة
+/// دون أن يقرأ حرفاً منه. وهذه اللوحة تعرض ما سيُرسل: قناتَه ومستلميه ونصَّه.
+class _NotifyPreviewPanel extends StatelessWidget {
+  final NotifyPreview preview;
+  final AppStore store;
+  const _NotifyPreviewPanel({required this.preview, required this.store});
+
+  @override
+  Widget build(BuildContext context) {
+    // الأسماء لا المعرّفات: «u-4f2c» لا يُقرأ، ومسؤول النظام يقرّر بناءً على
+    // من يصله البريد. ومعرّف بلا حساب يُعرض كما هو لا يُخفى.
+    final names = preview.recipientUids
+        .map((uid) => store.users.where((u) => u.id == uid).map((u) => u.name).firstOrNull ?? uid)
+        .toList();
+    final shown = names.take(6).toList();
+    final rest = names.length - shown.length;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // بلا const: `AppColors.primary` لون هوية قابل للتغيير من
+              // «إعدادات المظهر»، فليس ثابتاً وقت الترجمة.
+              Icon(Icons.mark_email_read_outlined, size: 16, color: AppColors.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'سيُرسل عند الموافقة عبر ${preview.channel.label} إلى ${names.length} مستلم(ين)',
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            rest > 0 ? '${shown.join('، ')} و$rest غيرهم' : shown.join('، '),
+            style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.7),
+          ),
+          if (preview.sampleSubject.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text('العنوان: ${preview.sampleSubject}',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+          ],
+          const SizedBox(height: 8),
+          // نصوص مختلفة بين المستلمين (تنبيه المتأخرات يسرد لكلٍّ مشاريعه):
+          // يُقال ذلك صراحةً، وإلا ظنّ القارئ أن ما يراه يصل الجميع.
+          if (preview.varied)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 6),
+              child: Text(
+                'نصّ كل مستلم مخصَّص له. وهذا نموذج من الرسائل:',
+                style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary, fontWeight: FontWeight.w700),
+              ),
+            ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
+            child: Text(preview.sampleBody, style: const TextStyle(fontSize: 12, height: 1.8)),
+          ),
+        ],
+      ),
     );
   }
 }

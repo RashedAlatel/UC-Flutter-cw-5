@@ -35,6 +35,13 @@ class Project {
   /// null يعني مشروعاً تحت الإدارة مباشرةً بلا قسم.
   final String? sectionId;
 
+  /// تصنيفات عرضية يسِم بها مسؤول النظام المشروع — راجع [ProjectCategory].
+  ///
+  /// قائمة لا حقلاً مفرداً: التصنيف يقطع الهيكل التنظيمي، فمشروع واحد قد
+  /// يكون «رقمنة» و«أولوية وزارية» معاً. وهذا يجعل «الترتيب حسب التصنيف»
+  /// **تجميعاً** لا فرزاً — فالمشروع يظهر تحت كل تصنيف يحمله.
+  final List<String> categoryIds;
+
   const Project({
     required this.id,
     required this.departmentId,
@@ -50,6 +57,7 @@ class Project {
     this.managerUids = const [],
     this.executorUids = const [],
     this.sectionId,
+    this.categoryIds = const [],
   });
 
   /// أول مديري المشروع — للتوافق مع المواضع التي تتعامل مع مدير واحد.
@@ -130,6 +138,7 @@ class Project {
     List<String>? managerUids,
     List<String>? executorUids,
     String? sectionId,
+    List<String>? categoryIds,
     bool clearSection = false,
   }) {
     return Project(
@@ -147,6 +156,7 @@ class Project {
       managerUids: managerUids ?? this.managerUids,
       executorUids: executorUids ?? this.executorUids,
       sectionId: clearSection ? null : (sectionId ?? this.sectionId),
+      categoryIds: categoryIds ?? this.categoryIds,
     );
   }
 
@@ -168,6 +178,7 @@ class Project {
         // وإلا صار باباً لإسناد المشروع لمن ليس فيه.
         'managerUid': managerUids.isEmpty ? null : managerUids.first,
         'sectionId': sectionId,
+        'categoryIds': categoryIds,
       };
 
   factory Project.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) =>
@@ -202,6 +213,13 @@ class Project {
       managerUids: _uidList(json['managerUids'], legacy: json['managerUid'] as String?),
       executorUids: _uidList(json['executorUids']),
       sectionId: (json['sectionId'] as String?)?.isEmpty ?? true ? null : json['sectionId'] as String?,
+      // المستندات المكتوبة قبل التصنيفات — وهي كل مشاريع الوزارة المستوردة —
+      // تفتقد الحقل، فتُقرأ بقائمة فارغة بلا ترحيل ولا انهيار.
+      categoryIds: (json['categoryIds'] as List?)
+              ?.map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toList() ??
+          const [],
     );
   }
 

@@ -202,6 +202,9 @@ enum ApprovalType {
   projectCreate, // إضافة مشروع جديد
   workCreate, // إضافة عمل تشغيلي جديد
   deadlineChange, // تعديل موعد نهائي لمشروع
+  // إرسال بريد/إشعار باسم المنصة. بوابة اعتماد كسابقتيها: كل بريد يخرج
+  // للمستخدمين يمرّ بمسؤول النظام، ولا يفتحه مفتاح مفوَّض.
+  notifySend,
   decision; // قرار تنفيذي عام مطلوب من القيادة
 
   String get label {
@@ -214,6 +217,8 @@ enum ApprovalType {
         return 'إضافة عمل جديد';
       case ApprovalType.deadlineChange:
         return 'تعديل موعد نهائي';
+      case ApprovalType.notifySend:
+        return 'إرسال بريد';
       case ApprovalType.decision:
         return 'قرار تنفيذي';
     }

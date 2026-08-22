@@ -72,24 +72,29 @@ class _NotifyDialogState extends State<NotifyDialog> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     final recipients = store.users.where((u) => _selectedUids.contains(u.id)).toList();
-    final error = await store.sendUserNotification(
-      users: recipients,
+    final subject =
+        _subjectCtrl.text.trim().isEmpty ? 'إشعار من المنصة التنفيذية' : _subjectCtrl.text.trim();
+    final body = _messageCtrl.text.trim();
+    final result = await store.sendOrRequestNotification(
+      messages: [for (final u in recipients) (user: u, subject: subject, body: body)],
       channel: _channel,
-      subject: _subjectCtrl.text.trim().isEmpty ? 'إشعار من المنصة التنفيذية' : _subjectCtrl.text.trim(),
-      message: _messageCtrl.text.trim(),
+      requestTitle: 'طلب إرسال بريد إلى ${recipients.length} مستخدم(ين)',
+      requestDescription: subject,
     );
     if (!mounted) return;
-    if (error != null) {
+    if (result.error != null) {
       setState(() {
         _busy = false;
-        _error = error;
+        _error = result.error;
       });
       return;
     }
     navigator.pop();
-    messenger.showSnackBar(
-      SnackBar(content: Text('تم إرسال الإشعار إلى ${recipients.length} مستخدم(ين) بنجاح')),
-    );
+    messenger.showSnackBar(SnackBar(
+      content: Text(result.queued
+          ? 'أُرسل الطلب إلى مسؤول النظام. لن يصل البريد قبل اعتماده.'
+          : 'تم إرسال الإشعار إلى ${recipients.length} مستخدم(ين) بنجاح'),
+    ));
   }
 
   @override
@@ -107,6 +112,32 @@ class _NotifyDialogState extends State<NotifyDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // القول قبل الضغط لا بعده: من لا يملك الاعتماد يجب أن يعرف أن
+              // ما يكتبه طلبٌ لا رسالة، وإلا انتظر وصولاً لا يقع.
+              if (!store.isAdmin) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.warning.withValues(alpha: 0.45)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.gavel_rounded, size: 16, color: AppColors.textPrimary),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'لن يُرسل هذا البريد قبل اعتماد مسؤول النظام. سيصله نصّك كما كتبته.',
+                          style: TextStyle(fontSize: 12, height: 1.6, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               if (ctx != null) ...[
                 Container(
                   width: double.infinity,
@@ -196,7 +227,7 @@ class _NotifyDialogState extends State<NotifyDialog> {
           onPressed: _busy ? null : _send,
           child: _busy
               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Text('إرسال'),
+              : Text(store.isAdmin ? 'إرسال' : 'إرسال للاعتماد'),
         ),
       ],
     );

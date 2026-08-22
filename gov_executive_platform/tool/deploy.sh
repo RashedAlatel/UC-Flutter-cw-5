@@ -40,7 +40,7 @@ die() {
 }
 
 # ــــ ١) هل ما سننشره هو آخر شيفرة فعلاً؟ ــــ
-say "١/٦  التحقّق من أن شيفرتك محدَّثة…"
+say "١/٧  التحقّق من أن شيفرتك محدَّثة…"
 
 BYPASSED=""
 
@@ -78,7 +78,7 @@ else
 fi
 
 # ــــ ٢) البناء ــــ
-say "٢/٦  بناء نسخة الويب…"
+say "٢/٧  بناء نسخة الويب…"
 ./tool/build_web.sh
 
 # ــــ ٣) القواعد أولاً ــــ
@@ -86,7 +86,7 @@ say "٢/٦  بناء نسخة الويب…"
 # قبل الموقع عمداً: القواعد هي التي تفتح البيانات. ولو نُشر الموقع أولاً
 # وفشلت القواعد، لبقي المستخدمون على واجهة جديدة ببيانات محجوبة — وهو أسوأ
 # ما يمكن أن يظهر لهم.
-say "٣/٦  نشر قواعد قاعدة البيانات (هي التي تقرّر من يرى ماذا)…"
+say "٣/٧  نشر قواعد قاعدة البيانات (هي التي تقرّر من يرى ماذا)…"
 firebase deploy --only firestore:rules
 
 # ــــ ٤) قواعد التخزين ــــ
@@ -104,7 +104,7 @@ storage_not_enabled() {
   printf '%s' "$1" | grep -qiE "has not been set up|storage bucket|no default bucket"
 }
 
-say "٤/٦  نشر قواعد التخزين (مرفقات التحديثات اليومية)…"
+say "٤/٧  نشر قواعد التخزين (مرفقات التحديثات اليومية)…"
 STORAGE_RESULT="skipped"
 STORAGE_OUT="$(firebase deploy --only storage 2>&1)" && STORAGE_OK=1 || STORAGE_OK=0
 printf '%s\n' "$STORAGE_OUT"
@@ -133,14 +133,53 @@ else
 fi
 
 # ــــ ٥) الدوال ــــ
-say "٥/٦  نشر الدوال (الاعتماد وختم الصلاحيات)…"
+say "٥/٧  نشر الدوال (الاعتماد وختم الصلاحيات)…"
 firebase deploy --only functions
 
 # ــــ ٦) الموقع ــــ
-say "٦/٦  نشر الموقع…"
+say "٦/٧  نشر الموقع…"
 firebase deploy --only hosting
 
+# ــــ ٧) التحقّق: هل يخدم الموقع فعلاً ما بنيناه؟ ــــ
+#
+# هذه الخطوة أُضيفت بعد جولة كاملة ضاعت: كان السكربت **يطلب** من المستخدم أن
+# يقارن الالتزام بنفسه بعد النشر، وهو طلبٌ يُنسى — فبقي يرى واجهةً أقدم من
+# الشيفرة بعشرات الالتزامات ويصف أعطالاً مُصلَحة أصلاً، ونحن نشخّص شيفرةً لا
+# أحد يراها.
+#
+# فالسكربت يسأل الموقع بنفسه الآن. وإخفاق الاتصال ليس إخفاق نشر — يُقال ذلك
+# ولا يُفشَل النشر عليه.
+PROJECT="$(python3 -c 'import json;print(json.load(open(".firebaserc"))["projects"]["default"])' 2>/dev/null || echo '')"
+LIVE_RESULT="unknown"
+LIVE_COMMIT=""
+if [ -n "$PROJECT" ]; then
+  say "٧/٧  التحقّق من أن الموقع يخدم هذا الالتزام…"
+  LIVE_JSON="$(curl -fsS --max-time 25 -H 'Cache-Control: no-cache' \
+      "https://${PROJECT}.web.app/build.json" 2>/dev/null || echo '')"
+  if [ -z "$LIVE_JSON" ]; then
+    echo "⚠ تعذّر الوصول إلى الموقع للتحقّق — قد يكون حجباً في شبكتك."
+    echo "  النشر تمّ، والتحقّق وحده لم يقع."
+  else
+    LIVE_COMMIT="$(printf '%s' "$LIVE_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || echo '')"
+    if [ "$LIVE_COMMIT" = "$COMMIT" ]; then
+      echo "✔ الموقع يخدم الالتزام $COMMIT."
+      LIVE_RESULT="ok"
+    else
+      LIVE_RESULT="mismatch"
+    fi
+  fi
+fi
+
 printf '\n══════════════════════════════════════════════════════════════\n'
+if [ "$LIVE_RESULT" = "mismatch" ]; then
+  printf '⛔ النشر تمّ، لكن الموقع ما زال يخدم التزاماً آخر.\n\n'
+  printf '   بنينا ونشرنا: %s\n' "$COMMIT"
+  printf '   والموقع يخدم: %s\n\n' "${LIVE_COMMIT:-غير معروف}"
+  printf '   لا تفتح المنصة قبل معالجة هذا — ستصف أعطالاً في شيفرة قديمة.\n'
+  printf '   جرّب: أعد تشغيل الأمر، وتأكّد أن مشروع Firebase هو %s.\n' "$PROJECT"
+  printf '══════════════════════════════════════════════════════════════\n\n'
+  exit 1
+fi
 printf '✔ اكتمل النشر بالكامل.\n\n'
 printf '   الالتزام المنشور: %s   (الفرع: %s)\n' "$COMMIT" "$BRANCH"
 # حصيلة التخزين في الملخّص: بغيرها يظن القارئ أن كل شيء نُشر، وقد تُخطّيت

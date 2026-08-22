@@ -114,8 +114,21 @@ enum TaskStatus {
   todo, // قائمة الانتظار
   inProgress, // قيد التنفيذ
   review, // قيد المراجعة
+  // ــــ بانتظار اعتماد الطالب ــــ
+  //
+  // كانت ضغطةٌ واحدة تُغلق العمل: يكتبها **الطرف المنفِّذ نفسه**، فيُقفل
+  // المطلوب بلا أن يعلم من طلبه. وهما إدارياً حالتان لا واحدة: «أفادت
+  // الإدارة بالإتمام» إفادةُ طرف، و«اعتمده الطالب وأغلقه» قرار.
+  //
+  // وموضعها بين «قيد المراجعة» و«منجزة» في التعداد لا يمسّ ما هو مخزَّن:
+  // الحالة تُكتب في Firestore بالاسم لا بالرقم.
+  awaitingApproval, // بانتظار اعتماد مدير المشروع
   done, // منجزة
   blocked; // معلقة
+
+  /// هل هذه الحالة إغلاقٌ فعلي؟ «بانتظار الاعتماد» ليست منها — وهذا هو
+  /// الفرق الذي طُلب أن تراه لوحة المدير التنفيذي.
+  bool get isClosed => this == TaskStatus.done;
 
   String get label {
     switch (this) {
@@ -125,6 +138,8 @@ enum TaskStatus {
         return 'قيد التنفيذ';
       case TaskStatus.review:
         return 'قيد المراجعة';
+      case TaskStatus.awaitingApproval:
+        return 'بانتظار الاعتماد';
       case TaskStatus.done:
         return 'منجزة';
       case TaskStatus.blocked:
@@ -246,6 +261,14 @@ enum DashboardWidgetType {
   kpiOpenRisks,
   kpiOpenBlockers,
   kpiPendingApprovals,
+  // ــــ الفرق بين «أفادت الإدارة» و«اعتمد الطالب وأغلق» ــــ
+  //
+  // مؤشران لا واحد، لأنهما حالتان مختلفتان إدارياً: الأول عملٌ قالت الإدارة
+  // المنفّذة إنه تمّ ولم يراجعه أحد بعد، والثاني عملٌ راجعه طالبه وأغلقه.
+  // وجمعُهما في رقم واحد يُخفي عن القيادة كم عملاً واقفٌ على مكتبٍ لا على
+  // تنفيذ.
+  kpiClaimedDone,
+  kpiClosedApproved,
   // الرسوم والقوائم
   deptBarChart,
   topUsersChart,
@@ -273,6 +296,10 @@ enum DashboardWidgetType {
         return 'مؤشر: العوائق النشطة';
       case DashboardWidgetType.kpiPendingApprovals:
         return 'مؤشر: طلبات بانتظار القيادة';
+      case DashboardWidgetType.kpiClaimedDone:
+        return 'مؤشر: أفادت الإدارات بإتمامه (بانتظار الاعتماد)';
+      case DashboardWidgetType.kpiClosedApproved:
+        return 'مؤشر: مُعتمَد ومغلَق';
       case DashboardWidgetType.deptBarChart:
         return 'رسم بياني: ترتيب الإدارات (أعمدة)';
       case DashboardWidgetType.topUsersChart:
@@ -310,6 +337,10 @@ enum DashboardWidgetType {
         return Icons.block_rounded;
       case DashboardWidgetType.kpiPendingApprovals:
         return Icons.gavel_rounded;
+      case DashboardWidgetType.kpiClaimedDone:
+        return Icons.how_to_reg_outlined;
+      case DashboardWidgetType.kpiClosedApproved:
+        return Icons.task_alt_rounded;
       case DashboardWidgetType.deptBarChart:
         return Icons.bar_chart_rounded;
       case DashboardWidgetType.topUsersChart:

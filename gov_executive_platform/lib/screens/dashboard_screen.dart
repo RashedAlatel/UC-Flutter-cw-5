@@ -443,6 +443,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
           color: AppColors.info,
           emphasize: store.pendingApprovalsCount > 0,
         );
+      // ــ الحالتان اللتان طُلب فصلُهما ــ
+      //
+      // الأولى **إفادة طرف**: قالت الإدارة المنفّذة إن المطلوب تمّ، ولا أحد
+      // راجعه بعد. والثانية **قرار**: راجعه طالبه واعتمده وأُغلق.
+      // وجمعُهما في رقم واحد يُخفي عن القيادة كم بنداً واقفٌ على مكتب.
+      case DashboardWidgetType.kpiClaimedDone:
+        final claimed = store.claimedDoneCount;
+        return (
+          title: 'أفادت الإدارات بإتمامه',
+          value: '$claimed',
+          icon: Icons.how_to_reg_outlined,
+          color: AppColors.warning,
+          emphasize: claimed > 0,
+        );
+      case DashboardWidgetType.kpiClosedApproved:
+        return (
+          title: 'مُعتمَد ومغلَق',
+          value: '${store.closedApprovedCount}',
+          icon: Icons.task_alt_rounded,
+          color: AppColors.success,
+          emphasize: false,
+        );
       default:
         // لا يُستدعى إلا لأنواع المؤشرات؛ مذكور ليكتمل التفريع.
         return (title: '', value: '', icon: Icons.help_outline, color: AppColors.textSecondary, emphasize: false);
@@ -494,6 +516,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case DashboardWidgetType.kpiOpenRisks:
       case DashboardWidgetType.kpiOpenBlockers:
       case DashboardWidgetType.kpiPendingApprovals:
+      case DashboardWidgetType.kpiClaimedDone:
+      case DashboardWidgetType.kpiClosedApproved:
         final kpi = _kpiData(config.type, store, filteredProjects);
         return KpiCard(title: kpi.title, value: kpi.value, icon: kpi.icon, color: kpi.color);
       case DashboardWidgetType.deptBarChart:

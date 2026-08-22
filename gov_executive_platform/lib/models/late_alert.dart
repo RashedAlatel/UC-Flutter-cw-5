@@ -17,11 +17,17 @@ typedef AlertMessage = ({AppUser user, String subject, String body, List<Project
 /// لأن هذا الملف يُختبر على جهاز Dart، و`Uri.base` هناك مجلّد العمل لا عنوان
 /// المنصة — فتخرج في نصّ الرسالة روابط `file:///` يقرؤها موظفٌ في الوزارة.
 /// فيُقرأ العنوان في الواجهة (حيث المتصفح) ويُمرَّر من هناك.
-String projectLink(String baseUrl, String projectId) {
+String projectLink(String baseUrl, String projectId) =>
+    _deepLink(baseUrl, 'project', projectId);
+
+/// ونظيرُه للعمل — يفتح صفحة العمل نفسها لا الصفحة الرئيسة.
+String workLink(String baseUrl, String workId) => _deepLink(baseUrl, 'work', workId);
+
+String _deepLink(String baseUrl, String key, String id) {
   final base = baseUrl.trim();
-  if (base.isEmpty || projectId.isEmpty) return '';
+  if (base.isEmpty || id.isEmpty) return '';
   final sep = base.contains('?') ? '&' : '?';
-  return '$base${sep}project=$projectId';
+  return '$base$sep$key=$id';
 }
 
 /// سطرُ مشروعٍ واحد في نصّ الرسالة — بكل ما طُلب: الاسم وتاريخ الاستحقاق

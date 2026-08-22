@@ -18,6 +18,7 @@ import '../screens/reports_screen.dart';
 import '../screens/role_permissions_screen.dart';
 import '../screens/roles_management_screen.dart';
 import '../screens/user_management_screen.dart';
+import '../screens/work_detail_screen.dart';
 import '../screens/works_list_screen.dart';
 import '../theme/app_theme.dart';
 import '../theme/brand.dart';
@@ -82,9 +83,30 @@ class _AppShellState extends State<AppShell> {
   /// شيئاً بعد، فلو حُكم عليه لحظتها لقيل «المشروع غير موجود» وهو موجود.
   bool _deepLinkDone = false;
 
-  /// يفتح المشروع الوارد في عنوان الصفحة — رابط بريد التنبيه.
+  /// يفتح المشروع أو العمل الوارد في عنوان الصفحة — رابط بريد التنبيه.
   void _openDeepLinkedProject(AppStore store) {
     if (_deepLinkDone) return;
+    // `?work=` نظير `?project=`: إخطارات دورة الإغلاق تشير إلى **عمل** لا
+    // مشروع، ورابطٌ يفتح الصفحة الرئيسة يترك المستخدم يبحث عمّا أُخطر به.
+    final workId = Uri.base.queryParameters['work'];
+    if (workId != null && workId.isNotEmpty) {
+      if (store.works.isEmpty) return;
+      _deepLinkDone = true;
+      final work = store.works.where((w) => w.id == workId).firstOrNull;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (work == null) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+              'العمل الذي يشير إليه الرابط غير متاح لك — قد يكون خارج نطاقك أو حُذف.',
+            ),
+          ));
+          return;
+        }
+        openWorkDetail(context, work);
+      });
+      return;
+    }
     final id = Uri.base.queryParameters['project'];
     if (id == null || id.isEmpty) {
       _deepLinkDone = true;

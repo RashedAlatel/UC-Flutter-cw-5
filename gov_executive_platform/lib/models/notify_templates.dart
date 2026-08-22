@@ -38,6 +38,46 @@ class NotifyContext {
       );
 }
 
+/// نصّ إخطار المعتمِد بأن الإدارة المنفّذة أفادت بإتمام المطلوب.
+///
+/// ــــ لماذا خارج [NotifyTemplate]؟ ــــ
+///
+/// لأن قوالب ذلك التعداد تُملأ من [NotifyContext] وحده وتُعرض في نافذة
+/// المراسلة ليحرّرها المرسِل. وهذا إخطارٌ **يولّده النظام** عن حدثٍ وقع،
+/// ويحمل أسماء أشخاص وتاريخ إفادة ورابطاً — لا يملؤه سياقُ كيانٍ وحده ولا
+/// يُحرَّر قبل الإرسال.
+({String subject, String body}) completionClaimNotice({
+  required String itemTitle,
+  required String claimedByName,
+  required DateTime claimedAt,
+  String link = '',
+}) =>
+    (
+      subject: 'بانتظار اعتمادكم — $itemTitle',
+      body: 'نفيدكم بأن الإدارة المنفّذة أفادت بإتمام المطلوب في "$itemTitle".\n\n'
+          'من أفاد بالإتمام: $claimedByName\n'
+          'تاريخ الإفادة: ${Formatters.date(claimedAt)}\n'
+          '${link.isEmpty ? '' : 'رابط مباشر: $link\n'}'
+          '\nولا يُغلق البند إلا باعتمادكم. نرجو مراجعة النتيجة ثم اختيار '
+          '«اعتماد الإنجاز» أو «إعادة للتنفيذ».',
+    );
+
+/// نصّ إخطار المنفّذ بأن ما أفاد بإتمامه أُعيد إليه، وبسببه.
+({String subject, String body}) reworkNotice({
+  required String itemTitle,
+  required String byName,
+  required String reason,
+  String link = '',
+}) =>
+    (
+      subject: 'أُعيد للتنفيذ — $itemTitle',
+      body: 'نفيدكم بأن "$itemTitle" أُعيد إلى التنفيذ بعد المراجعة.\n\n'
+          'أعاده: $byName\n'
+          'السبب: $reason\n'
+          '${link.isEmpty ? '' : 'رابط مباشر: $link\n'}'
+          '\nنأمل معالجة ما ذُكر ثم الإفادة بالإتمام من جديد.',
+    );
+
 /// قالب رسالة جاهز يُعبَّأ تلقائياً من [NotifyContext].
 enum NotifyTemplate {
   deadlineReminder('تذكير بالموعد النهائي'),

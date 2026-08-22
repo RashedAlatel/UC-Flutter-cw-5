@@ -29,6 +29,7 @@ class MyAssignmentsScreen extends StatelessWidget {
     final projects = store.myProjects;
     final works = store.myWorks;
     final openWorks = works.where((w) => !w.isDone).length;
+    final awaiting = store.worksAwaitingMyApproval;
 
     return SingleChildScrollView(
       child: Column(
@@ -44,6 +45,34 @@ class MyAssignmentsScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
           const DataAccessBanner(),
+          // ــــ إشعار الاعتماد: فوريٌّ وفي طريقه ــــ
+          //
+          // «يظهر إشعار لمدير المشروع بأن الإدارة أفادت بإتمام المطلوب» —
+          // وأصدقُ موضعٍ له صفحةُ ما هو عليه، لا لافتةٌ تُغلق ولا بريدٌ ينتظر
+          // اعتماداً. ويتصدّر القسمين لأنه **الشيء الوحيد هنا الذي يقف على
+          // المستخدم نفسه**: بقيةُ الصفحة عملٌ عليه أن ينفّذه، وهذا قرارٌ
+          // ينتظره غيره منه.
+          if (awaiting.isNotEmpty) ...[
+            _SectionTitle('بانتظار اعتمادك', count: awaiting.length),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.warning.withValues(alpha: 0.40)),
+              ),
+              child: const Text(
+                'أفادت الإدارات المنفّذة بإتمام هذه الأعمال. ولا تُغلق إلا بعد '
+                'مراجعتك — افتح العمل ثم «اعتماد الإنجاز» أو «إعادة للتنفيذ».',
+                style: TextStyle(fontSize: 12, height: 1.8, fontWeight: FontWeight.w700),
+              ),
+            ),
+            ...awaiting.map((w) => _WorkTile(work: w)),
+            const SizedBox(height: 26),
+          ],
           _SectionTitle('مشاريعي', count: projects.length),
           const SizedBox(height: 10),
           if (projects.isEmpty)

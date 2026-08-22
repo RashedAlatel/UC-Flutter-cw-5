@@ -71,6 +71,10 @@ class AppColors {
         return info;
       case 'review':
         return accent;
+      // «بانتظار الاعتماد» تحذيرٌ لا نجاح: العمل واقفٌ على مكتبٍ لا يتقدّم،
+      // ولونُ النجاح عليه يجعله يبدو منتهياً وهو ليس كذلك.
+      case 'awaitingApproval':
+        return warning;
       case 'blocked':
         return danger;
       case 'done':

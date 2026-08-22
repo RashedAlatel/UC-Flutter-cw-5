@@ -103,6 +103,40 @@ want_in "$REVIEW" "وأسماء المستلمين" 'messages.map((m) => m.user.
 want_in "$STORE" "والمسار المباشر يكتب في السجل أيضاً" 'await _log(auditAction ?? .إرسال إشعار., auditDetails);'
 echo ""
 
+RULES="firestore.rules"
+
+# ــــ دورة الإغلاق: ثلاثة أبواب لا باب واحد ــــ
+#
+# كان العمل يُغلق من ثلاثة مواضع مستقلة: قائمة الحالة في النموذج، وبلوغ ١٠٠٪
+# في التحديث اليومي، وسحبُ بطاقة كانبان. وإصلاحُ واحدٍ يترك الاثنين الآخرين
+# باباً مفتوحاً — ولا يصيح شيء، لأن كل موضعٍ منها صحيحٌ في نفسه.
+#
+# والقاعدة على الخادم تحرسها كلها، لكن الواجهة التي تَعِد بما يُرفض تُنتج
+# شكوى «الزرّ لا يعمل». فهذان الفحصان معاً: الحارس الحقيقي في الخادم،
+# وهذه تمنع أن يعود مسارٌ يَعِد بالإغلاق ثم يُردّ.
+echo "دورة الإغلاق على مرحلتين — المسارات الثلاثة:"
+want_in "$STORE" "الإفادة بالإتمام لا تُغلق متى وُجد معتمِد" \
+  "needsApproval ? TaskStatus.awaitingApproval.name : TaskStatus.done.name"
+want_in "$STORE" "وبلوغ ١٠٠٪ في التحديث اليومي كذلك" 'final closesNow = full && !needsApproval;'
+want_in "$STORE" "وسحبُ بطاقة كانبان كذلك" 'final gated = wantsClose &&'
+want_in "$STORE" "والاعتماد وحده يكتب تاريخ الإغلاق" "Future<void> approveWorkClosure"
+want_in "$STORE" "والردّ للتنفيذ يشترط سبباً" "throw ArgumentError('سبب الإعادة مطلوب')"
+echo ""
+
+echo "والخادم يرفض الإغلاق من غير معتمِده:"
+want_in "$RULES" "دالّة الحراسة موجودة" 'function closureRespected()'
+want_in "$RULES" "وتقرأ المعتمِد من المستند نفسه" "function approverOf(data)"
+# مرّتان: في الأعمال وفي مهام المشاريع. وواحدةٌ تعني أن أحد الكيانين بلا حارس.
+if [ "$(grep -c '&& closureRespected();' "$RULES")" = "2" ]; then
+  echo "  ✔ ومطبَّقة على الأعمال ومهام المشاريع معاً"
+  PASS=$((PASS + 1))
+else
+  echo "  ✗ ومطبَّقة على الأعمال ومهام المشاريع معاً"
+  echo "      المتوقَّع تطبيقان، والموجود: $(grep -c '&& closureRespected();' "$RULES")"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

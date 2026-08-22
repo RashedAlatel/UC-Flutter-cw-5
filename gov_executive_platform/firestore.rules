@@ -180,6 +180,23 @@ service cloud.firestore {
       return request.resource.data.get('assigneeUid', '') == resource.data.get('assigneeUid', '');
     }
 
+    // ــــ دورة الإغلاق على مرحلتين ــــ
+    //
+    // كان الطرف المنفِّذ يكتب `done` بنفسه، فيُقفل المطلوب بلا أن يعلم من
+    // طلبه. وصار الإغلاق قراراً لطالب العمل وحده: المنفّذ يُفيد بالإتمام
+    // (`awaitingApproval`)، والطالب يعتمد فيُغلق.
+    //
+    // ولا تحتاج هذه القاعدة قراءة مستندٍ آخر: المعتمِد مكتوبٌ على المستند
+    // نفسه. وبندٌ بلا معتمِد (وهو حال كل ما كُتب قبل اليوم) يُغلق مباشرةً
+    // كما كان — فلا تتعطّل بيانات الوزارة القائمة.
+    function approverOf(data) { return data.get('closure', {}).get('approverUid', ''); }
+    function closureRespected() {
+      return approverOf(resource.data) == ''
+          || request.resource.data.status != 'done'
+          || isAdmin()
+          || approverOf(resource.data) == request.auth.uid;
+    }
+
     // وصول آمن للحقلين على مستندات قد تكون قديمة (سابقة لإضافة managerUid)
     // وتفتقد الحقل أصلاً؛ الوصول المباشر بالنقطة يفشل في هذه الحالة.
     function deptOf(data) { return data.get('departmentId', null); }
@@ -282,9 +299,21 @@ service cloud.firestore {
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                         || isMemberOfRealProject(request.resource.data.projectId))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
-      allow update: if canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+      // ــ والمُسنَد إليه بحسابه يُحرّك مهمته ــ
+      //
+      // كانت القاعدة لا تعرف المُسنَد إليهم إطلاقاً (المهمة تحمل اسماً نصياً
+      // بلا حساب). فمن أُسنِدت إليه مهمةٌ لا يستطيع أن يضغط «تم الإنجاز»
+      // عليها أصلاً — والدورة الجديدة تقوم على أن يضغطها هو.
+      //
+      // والتوسيع أضيق ما يمكن: حقول الحالة والتقدّم والسجل وحدها، فلا يُعيد
+      // إسناد مهمته ولا ينقلها إلى مشروع آخر.
+      allow update: if (canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                        || (resource.data.get('assigneeUid', '') == request.auth.uid
+                            && request.resource.data.diff(resource.data).affectedKeys()
+                                 .hasOnly(['status', 'progressPercent', 'closure', 'lastUpdated'])))
                     && !request.resource.data.diff(resource.data).affectedKeys()
-                          .hasAny(['projectId', 'departmentId', 'managerUid']);
+                          .hasAny(['projectId', 'departmentId', 'managerUid'])
+                    && closureRespected();
       allow delete: if isAdmin();
     }
 
@@ -402,7 +431,9 @@ service cloud.firestore {
                         && !request.resource.data.diff(resource.data).affectedKeys()
                               .hasAny(['departmentId', 'assigneeUid', 'createdByUid'])))
                     && (assigneeUnchanged()
-                        || mayAssign(request.resource.data.get('assigneeUid', '')));
+                        || mayAssign(request.resource.data.get('assigneeUid', '')))
+                    // ولا يُغلقه إلا معتمِده — راجع closureRespected أعلاه.
+                    && closureRespected();
       allow delete: if isAdmin() || perm('del');
     }
 

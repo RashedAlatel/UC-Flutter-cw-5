@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/app_user.dart';
 import '../models/assignment_policy.dart';
+import '../models/closure_trail.dart';
 import '../models/enums.dart';
 import '../models/work_sort.dart';
 import '../models/work_item.dart';
@@ -119,8 +120,12 @@ class _WorksListScreenState extends State<WorksListScreen> {
               childAspectRatio: itemWidth / itemHeight,
               children: [
                 KpiCard(title: 'إجمالي الأعمال', value: '${all.length}', icon: Icons.checklist_rounded, color: AppColors.primary),
-                KpiCard(title: 'قيد التنفيذ', value: '${all.where((w) => !w.isDone).length}', icon: Icons.play_arrow_rounded, color: AppColors.info),
-                KpiCard(title: 'منجزة', value: '${all.where((w) => w.isDone).length}', icon: Icons.check_circle_outline_rounded, color: AppColors.success),
+                // «قيد التنفيذ» لم تعد تعني «كل ما ليس منجَزاً»: ما أُعلن
+                // إتمامه ينتظر مكتباً لا تنفيذاً، وعدُّه مع الجاري يُخفي
+                // بالضبط ما طُلب إظهاره.
+                KpiCard(title: 'قيد التنفيذ', value: '${all.where((w) => !w.isDone && !w.isAwaitingApproval).length}', icon: Icons.play_arrow_rounded, color: AppColors.info),
+                KpiCard(title: 'بانتظار الاعتماد', value: '${all.where((w) => w.isAwaitingApproval).length}', icon: Icons.how_to_reg_outlined, color: AppColors.warning),
+                KpiCard(title: 'منجزة ومغلقة', value: '${all.where((w) => w.isDone).length}', icon: Icons.check_circle_outline_rounded, color: AppColors.success),
                 KpiCard(title: 'متأخرة عن موعدها', value: '$overdue', icon: Icons.schedule_rounded, color: AppColors.danger),
               ],
             );
@@ -416,6 +421,23 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
   bool _busy = false;
   String? _error;
 
+  /// هل يمرّ هذا العمل بمرحلة اعتماد قبل إغلاقه؟
+  ///
+  /// يُملأ مبدئياً من `defaultApproverUid`: نعم حين يكون المُنشئ من خارج
+  /// الإدارة المنفّذة. ويبقى **ظاهراً وقابلاً للتعديل** — قاعدةٌ صامتة تُقرَّر
+  /// عن المستخدم بلا أن يراها تُفاجئه أول مرة يُغلق فيها عملاً فلا يُغلق.
+  bool? _requireApprovalOverride;
+
+  bool _requiresApproval(AppStore store) {
+    if (widget.editing != null) return widget.editing!.closure.requiresApproval;
+    return _requireApprovalOverride ??
+        defaultApproverUid(
+              creator: store.currentUser,
+              executingDepartmentId: _departmentId,
+            ) !=
+            null;
+  }
+
   @override
   void dispose() {
     _titleCtrl.dispose();
@@ -456,6 +478,7 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
           assigneeName: assigneeName,
         );
       } else if (widget.editing == null) {
+        final me = store.currentUser;
         await store.addWork(WorkItem(
           id: '',
           title: _titleCtrl.text.trim(),
@@ -469,8 +492,12 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
           dueDate: _dueDate,
           completedDate: _status == TaskStatus.done ? DateTime.now() : null,
           isRecurring: _recurring,
-          createdByUid: store.currentUser?.id ?? '',
+          createdByUid: me?.id ?? '',
           createdAt: DateTime.now(),
+          // المعتمِد هو **الطالب نفسه**: من طلب العمل هو من يراجع إتمامه.
+          closure: _requiresApproval(store) && me != null
+              ? ClosureTrail(approverUid: me.id, approverName: me.name)
+              : ClosureTrail.none,
         ));
       } else {
         await store.updateWork(widget.editing!.copyWith(
@@ -612,6 +639,30 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
                       fontSize: 11.5, height: 1.7, color: AppColors.textSecondary),
                 ),
               ],
+              // ــ مرحلة الاعتماد: تُقال ولا تُفترض ــ
+              //
+              // قاعدةٌ صامتة تقرّر عن المستخدم تُفاجئه أول مرة يضغط فيها «تم
+              // الإنجاز» فلا يُغلق العمل ولا يعرف لماذا. فيراها هنا مملوءةً
+              // مسبقاً، ويملك تعديلها.
+              if (widget.editing == null) ...[
+                const SizedBox(height: 6),
+                CheckboxListTile(
+                  value: _requiresApproval(store),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('يُغلق باعتمادي أنا',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                  subtitle: const Text(
+                    'الإدارة المنفّذة تُفيد بالإتمام، ولا يُغلق العمل إلا بعد مراجعتك. '
+                    'مفعّلٌ تلقائياً حين يكون العمل في إدارة غير إدارتك.',
+                    style: TextStyle(fontSize: 11, height: 1.6, color: AppColors.textSecondary),
+                  ),
+                  onChanged: canEdit
+                      ? (v) => setState(() => _requireApprovalOverride = v ?? false)
+                      : null,
+                ),
+              ],
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -620,7 +671,17 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
                       initialValue: _status,
                       isExpanded: true,
                       decoration: const InputDecoration(labelText: 'الحالة'),
-                      items: TaskStatus.values.map((s) => DropdownMenuItem(value: s, child: Text(s.label))).toList(),
+                      // «منجزة» تُحجب عمّن لا يملك الاعتماد: إغلاقُ العمل
+                      // قرارُ طالبه، وتركُها في القائمة يَعِد بما ترفضه قاعدة
+                      // الخادم — فيظنّ المستخدم عطلاً وهو حارس.
+                      items: TaskStatus.values
+                          .where((s) =>
+                              s != TaskStatus.done ||
+                              widget.editing == null ||
+                              !widget.editing!.closure.requiresApproval ||
+                              store.canApproveWorkClosure(widget.editing!))
+                          .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
+                          .toList(),
                       onChanged: canSetProgress ? (v) => setState(() => _status = v ?? _status) : null,
                     ),
                   ),

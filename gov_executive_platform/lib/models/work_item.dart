@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'closure_trail.dart';
 import 'enums.dart';
 
 /// "عمل" تشغيلي مستقل لا يرتبط بمشروع.
@@ -37,6 +38,11 @@ class WorkItem {
   final String createdByUid;
   final DateTime createdAt;
 
+  /// سجلّ الإغلاق: من يعتمده، ومن أعلن إتمامه، ومن اعتمده ومتى.
+  ///
+  /// وفارغٌ في كل عملٍ كُتب قبل هذه الدورة — فيبقى إغلاقه مباشراً كما كان.
+  final ClosureTrail closure;
+
   const WorkItem({
     required this.id,
     required this.title,
@@ -52,9 +58,18 @@ class WorkItem {
     this.isRecurring = false,
     required this.createdByUid,
     required this.createdAt,
+    this.closure = ClosureTrail.none,
   });
 
+  /// **مغلَقٌ فعلاً** — لا «أفادت الإدارة بإتمامه».
+  ///
+  /// تُركت على `done` وحدها بقصد: بها يفترق ما اعتُمد عمّا يقف على مكتبٍ
+  /// ينتظر مراجعة، وهو الفرق الذي طُلب أن تراه لوحة المدير التنفيذي. ولو
+  /// قبلت `awaitingApproval` لعاد العدّادان رقماً واحداً في كل شاشة.
   bool get isDone => status == TaskStatus.done;
+
+  /// أعلنت الإدارة إتمامه ولم يُعتمد بعد.
+  bool get isAwaitingApproval => status == TaskStatus.awaitingApproval;
 
   /// أيام التأخير عن الموعد، محسوبة حيّة. صفر للعمل المنجَز أو الذي لم يحن موعده.
   int get delayDays {
@@ -78,6 +93,7 @@ class WorkItem {
     DateTime? dueDate,
     DateTime? completedDate,
     bool? isRecurring,
+    ClosureTrail? closure,
   }) {
     final nextStatus = status ?? this.status;
     return WorkItem(
@@ -98,6 +114,7 @@ class WorkItem {
       isRecurring: isRecurring ?? this.isRecurring,
       createdByUid: createdByUid,
       createdAt: createdAt,
+      closure: closure ?? this.closure,
     );
   }
 
@@ -115,6 +132,7 @@ class WorkItem {
         'isRecurring': isRecurring,
         'createdByUid': createdByUid,
         'createdAt': Timestamp.fromDate(createdAt),
+        'closure': closure.toMap(),
       };
 
   factory WorkItem.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -134,6 +152,7 @@ class WorkItem {
       isRecurring: j['isRecurring'] as bool? ?? false,
       createdByUid: j['createdByUid'] as String? ?? '',
       createdAt: (j['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      closure: ClosureTrail.fromMap(j['closure']),
     );
   }
 }

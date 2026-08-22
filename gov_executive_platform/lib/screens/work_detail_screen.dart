@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/enums.dart';
+import '../models/late_alert.dart';
+import '../models/notify_templates.dart';
 import '../models/work_item.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
+import '../utils/platform_url.dart';
 import '../widgets/meta_row.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
@@ -134,8 +138,30 @@ class WorkDetailScreen extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      if (canUpdate)
+                      // ــ «تم الإنجاز» لا «إغلاق» ــ
+                      //
+                      // اللفظ مقصود: من ينفّذ **يُفيد** بالإتمام ولا يُغلق.
+                      // والإغلاق زرٌّ آخر عند طرفٍ آخر.
+                      if (store.canClaimWorkCompletion(work) && !work.isAwaitingApproval)
                         FilledButton.icon(
+                          onPressed: () => _claim(context, store, work),
+                          icon: const Icon(Icons.done_all_rounded, size: 18),
+                          label: Text(work.closure.requiresApproval ? 'تم الإنجاز' : 'إغلاق العمل'),
+                        ),
+                      if (work.isAwaitingApproval && store.canApproveWorkClosure(work)) ...[
+                        FilledButton.icon(
+                          onPressed: () => _approve(context, store, work),
+                          icon: const Icon(Icons.verified_rounded, size: 18),
+                          label: const Text('اعتماد الإنجاز والإغلاق'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => _rework(context, store, work),
+                          icon: const Icon(Icons.undo_rounded, size: 18),
+                          label: const Text('إعادة للتنفيذ'),
+                        ),
+                      ],
+                      if (canUpdate)
+                        OutlinedButton.icon(
                           onPressed: () => showDialog(
                             context: context,
                             builder: (_) => WorkUpdateForm(work: work),
@@ -154,6 +180,17 @@ class WorkDetailScreen extends StatelessWidget {
                         ),
                     ],
                   ),
+                  // من أفاد بالإتمام يجب أن يرى أن الكرة صارت في ملعبٍ آخر،
+                  // وإلا ظنّ الزرَّ لم يعمل فأعاد الضغط.
+                  if (work.isAwaitingApproval && !store.canApproveWorkClosure(work)) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'أُفيد بإتمام هذا العمل، ولا يُغلق إلا باعتماد '
+                      '${work.closure.approverName.isEmpty ? 'طالبه' : work.closure.approverName}.',
+                      style: const TextStyle(
+                          fontSize: 11.5, color: AppColors.textSecondary, height: 1.6),
+                    ),
+                  ],
                   // من لا يملك التحديث يجب أن يعرف لماذا، لا أن يرى صفحةً
                   // بلا أزرار فيظنّها معطّلة.
                   if (!canUpdate) ...[
@@ -167,6 +204,8 @@ class WorkDetailScreen extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 22),
+          _ClosureTimeline(work: work, store: store),
           const SizedBox(height: 22),
           Row(
             children: [
@@ -236,6 +275,324 @@ class WorkDetailScreen extends StatelessWidget {
                   ),
                 )),
         ],
+      ),
+    );
+  }
+}
+
+/// «تم الإنجاز» — إفادةٌ بالإتمام لا إغلاق.
+///
+/// ــــ الإشعار: فوريٌّ داخل المنصة، وبريدٌ اختياري ــــ
+///
+/// إشعار المعتمِد داخل المنصة يقع **دائماً وفوراً**: قسم «بانتظار اعتمادك»
+/// في صفحته يُبنى من الحالة نفسها بلا وسيط.
+///
+/// والبريد اختياري لأنه يمرّ ببوابة `notifySend`: كل رسالة تخرج باسم المنصة
+/// يعتمدها مسؤول النظام. فإخطارٌ من غير مسؤول النظام يصير **طلباً** ينتظر
+/// البتّ، وقد يتراكم في مركز القرارات إن أُرسل مع كل إفادة إتمام. فيُقال ذلك
+/// في النافذة ويُترك القرار لمن يضغط — والحالة تتحوّل سواء خرج البريد أو لا.
+Future<void> _claim(BuildContext context, AppStore store, WorkItem work) async {
+  final gated = work.closure.requiresApproval;
+  var alsoEmail = true;
+
+  final approver =
+      store.users.where((u) => u.id == work.closure.approverUid).firstOrNull;
+  final canEmail = gated && approver != null && approver.email.trim().isNotEmpty;
+
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) {
+      return AlertDialog(
+        title: Text(gated ? 'الإفادة بإتمام العمل' : 'إغلاق العمل'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                gated
+                    ? 'تنتقل حالة العمل إلى «بانتظار الاعتماد»، ويظهر لدى '
+                        '${work.closure.approverName} في صفحته فوراً. ولا يُغلق إلا باعتماده.'
+                    : 'هذا العمل بلا مرحلة اعتماد، فيُغلق الآن مباشرةً.',
+                style: const TextStyle(fontSize: 12.5, height: 1.9),
+              ),
+              if (canEmail) ...[
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  value: alsoEmail,
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('إخطاره بالبريد أيضاً',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                  subtitle: Text(
+                    store.isAdmin
+                        ? 'يُرسَل البريد الآن.'
+                        : 'البريد يمرّ باعتماد مسؤول النظام، فقد يصل متأخراً. '
+                            'أما الإشعار داخل المنصة فيصل فوراً بلا انتظار.',
+                    style: const TextStyle(
+                        fontSize: 11, height: 1.6, color: AppColors.textSecondary),
+                  ),
+                  onChanged: (v) => setLocal(() => alsoEmail = v ?? false),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(gated ? 'تم الإنجاز' : 'إغلاق'),
+          ),
+        ],
+      );
+    }),
+  );
+  if (go != true || !context.mounted) return;
+
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await store.claimWorkCompletion(work);
+    if (canEmail && alsoEmail) {
+      final notice = completionClaimNotice(
+        itemTitle: work.title,
+        claimedByName: store.currentUser?.name ?? '',
+        claimedAt: DateTime.now(),
+        link: workLink(platformBaseUrl(), work.id),
+      );
+      // البريد **بعد** تحوّل الحالة ولا يُفشلها: الحوكمة في الحالة لا في
+      // الرسالة، وفشلُ الإرسال لا يجوز أن يُبقي العمل معلّقاً في يد المنفّذ.
+      await store.sendOrRequestNotification(
+        messages: [(user: approver, subject: notice.subject, body: notice.body)],
+        channel: NotifyChannel.email,
+        requestTitle: 'إخطار اعتماد إنجاز — ${work.title}',
+        requestDescription: notice.subject,
+        auditAction: 'إخطار اعتماد',
+        auditDetails: 'إخطار ${approver.name} باعتماد إنجاز العمل "${work.title}"',
+      );
+    }
+    if (!context.mounted) return;
+    messenger.showSnackBar(SnackBar(
+      content: Text(gated
+          ? 'أُفيد بإتمام العمل. لا يُغلق إلا باعتماد ${work.closure.approverName}.'
+          : 'أُغلق العمل.'),
+    ));
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text('تعذّر التنفيذ: $e')));
+  }
+}
+
+/// «اعتماد الإنجاز» — هنا وحده يُغلق العمل.
+Future<void> _approve(BuildContext context, AppStore store, WorkItem work) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await store.approveWorkClosure(work);
+    messenger.showSnackBar(const SnackBar(content: Text('اعتُمد الإنجاز وأُغلق العمل.')));
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text('تعذّر الاعتماد: $e')));
+  }
+}
+
+/// «إعادة للتنفيذ» — بسببٍ مكتوب لا بضغطة صامتة.
+Future<void> _rework(BuildContext context, AppStore store, WorkItem work) async {
+  final ctrl = TextEditingController();
+  final reason = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('إعادة العمل للتنفيذ'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'ما الذي ينقص؟ يقرؤه المنفّذ، ويبقى في سجل العمل. وردٌّ بلا سبب '
+              'يُعيده إلى نقطة البداية بلا أن يعرف المطلوب فيُردّ ثانيةً.',
+              style: TextStyle(fontSize: 12.5, height: 1.8, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              maxLines: 3,
+              autofocus: true,
+              decoration: const InputDecoration(hintText: 'سبب الإعادة…'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+          child: const Text('إعادة للتنفيذ'),
+        ),
+      ],
+    ),
+  );
+  if (!context.mounted) return;
+  final messenger = ScaffoldMessenger.of(context);
+  if (reason == null) return;
+  if (reason.isEmpty) {
+    messenger.showSnackBar(const SnackBar(content: Text('سبب الإعادة مطلوب.')));
+    return;
+  }
+  try {
+    await store.sendWorkBackForRework(work, reason);
+    // ومن أُعيد إليه العمل يُخطَر: الرد بلا إخطار يترك العمل يرجع إلى قائمته
+    // بلا أن يعرف أنه رجع، فيقف أياماً بلا حركة.
+    final assignee = store.users.where((u) => u.id == work.assigneeUid).firstOrNull;
+    if (assignee != null && assignee.email.trim().isNotEmpty) {
+      final notice = reworkNotice(
+        itemTitle: work.title,
+        byName: store.currentUser?.name ?? '',
+        reason: reason,
+        link: workLink(platformBaseUrl(), work.id),
+      );
+      await store.sendOrRequestNotification(
+        messages: [(user: assignee, subject: notice.subject, body: notice.body)],
+        channel: NotifyChannel.email,
+        requestTitle: 'إخطار إعادة للتنفيذ — ${work.title}',
+        requestDescription: notice.subject,
+        auditAction: 'إخطار إعادة للتنفيذ',
+        auditDetails: 'إخطار ${assignee.name} بإعادة العمل "${work.title}" للتنفيذ',
+      );
+    }
+    messenger.showSnackBar(const SnackBar(content: Text('أُعيد العمل للتنفيذ مع السبب.')));
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text('تعذّرت الإعادة: $e')));
+  }
+}
+
+/// شريط دورة الإغلاق: من أنشأ ← من استلم ← من أفاد بالإتمام ← من اعتمد.
+///
+/// ــــ لماذا شريطٌ لا سطرٌ في سجل التدقيق؟ ــــ
+///
+/// لأن سجل التدقيق لمسؤول النظام وحده ويُقرأ بالبحث. ومن يسأل «من قال إن هذا
+/// تمّ، ومتى، ومن اعتمده؟» يسأل عن **هذا العمل** وهو ينظر إليه — فالجواب
+/// يجب أن يكون في صفحته لا في شاشةٍ أخرى لا يفتحها.
+class _ClosureTimeline extends StatelessWidget {
+  final WorkItem work;
+  final AppStore store;
+  const _ClosureTimeline({required this.work, required this.store});
+
+  String _nameOf(String uid, String fallback) {
+    if (uid.isEmpty) return fallback;
+    return store.users.where((u) => u.id == uid).map((u) => u.name).firstOrNull ?? fallback;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = work.closure;
+    final steps = <({IconData icon, String title, String detail, Color color, bool done})>[
+      (
+        icon: Icons.add_circle_outline_rounded,
+        title: 'أنشأ الطلب',
+        detail: '${_nameOf(work.createdByUid, 'غير معروف')} · ${Formatters.date(work.createdAt)}',
+        color: AppColors.info,
+        done: true,
+      ),
+      (
+        icon: Icons.person_outline_rounded,
+        title: 'استلمه',
+        detail: work.assigneeName.isEmpty ? 'لم يُسنَد بعد' : work.assigneeName,
+        color: AppColors.info,
+        done: work.assigneeName.isNotEmpty,
+      ),
+      (
+        icon: Icons.done_all_rounded,
+        title: 'أفاد بالإتمام',
+        detail: c.claimedAt == null
+            ? 'لم يُفَد بالإتمام بعد'
+            : '${c.claimedByName} · ${Formatters.date(c.claimedAt!)}',
+        color: AppColors.warning,
+        done: c.claimedAt != null,
+      ),
+      (
+        icon: Icons.verified_rounded,
+        title: 'اعتمد الإغلاق',
+        detail: c.approvedAt == null
+            ? (c.requiresApproval
+                ? 'بانتظار ${c.approverName.isEmpty ? 'المعتمِد' : c.approverName}'
+                : 'هذا العمل يُغلق مباشرةً بلا اعتماد')
+            : '${c.approvedByName} · ${Formatters.date(c.approvedAt!)}',
+        color: AppColors.success,
+        done: c.approvedAt != null,
+      ),
+    ];
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('دورة الإغلاق',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+            const SizedBox(height: 12),
+            for (final s in steps)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(s.icon,
+                        size: 18,
+                        color: s.done ? s.color : AppColors.textSecondary.withValues(alpha: 0.45)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(s.title,
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: s.done
+                                      ? AppColors.textPrimary
+                                      : AppColors.textSecondary)),
+                          Text(s.detail,
+                              style: const TextStyle(
+                                  fontSize: 11.5, height: 1.6, color: AppColors.textSecondary)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            // الإعادة ليست خطوةً في الدورة بل انحرافٌ عنها — فتُعرض تحتها
+            // بعددها وسببها، لا مدسوسةً بينها.
+            if (c.reworkCount > 0)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: AppColors.danger.withValues(alpha: 0.09),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: AppColors.danger.withValues(alpha: 0.35)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('أُعيد للتنفيذ ${c.reworkCount} مرة',
+                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                    if (c.reworkReason.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'آخر سبب: ${c.reworkReason}'
+                          '${c.reworkByName.isEmpty ? '' : ' — ${c.reworkByName}'}',
+                          style: const TextStyle(
+                              fontSize: 11.5, height: 1.7, color: AppColors.textSecondary),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/assignment_policy.dart';
+import '../models/closure_trail.dart';
 import '../models/enums.dart';
 import '../models/attachment.dart';
 import '../models/project.dart';
@@ -639,6 +641,7 @@ class _StageBit extends StatelessWidget {
       TaskStatus.blocked => Icons.block_rounded,
       TaskStatus.inProgress => Icons.autorenew_rounded,
       TaskStatus.review => Icons.rate_review_outlined,
+      TaskStatus.awaitingApproval => Icons.how_to_reg_outlined,
       TaskStatus.todo => Icons.schedule_rounded,
     };
     return Column(
@@ -899,6 +902,9 @@ const _kanbanColumns = [
   TaskStatus.inProgress,
   TaskStatus.review,
   TaskStatus.blocked,
+  // عمودٌ قائم بذاته قبل «منجزة»: المهمة التي أُفيد بإتمامها لم تُغلق بعد،
+  // ووضعُها في «منجزة» يجعل اللوحة تكذب على من ينظر إليها.
+  TaskStatus.awaitingApproval,
   TaskStatus.done,
 ];
 
@@ -1072,6 +1078,18 @@ class _TaskCard extends StatelessWidget {
                   _showProgressDialog(context);
                 },
               ),
+              // «إعادة للتنفيذ» تسبق قائمة الحالات: هي القرار المضادّ
+              // للاعتماد، وتركُها بين خيارات النقل يجعلها تبدو نقلاً عادياً
+              // بلا سبب — والسبب هو كل قيمتها.
+              if (task.isAwaitingApproval && context.read<AppStore>().canApproveTaskClosure(task))
+                ListTile(
+                  leading: const Icon(Icons.undo_rounded),
+                  title: const Text('إعادة للتنفيذ (بسبب)'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showReworkDialog(context);
+                  },
+                ),
               ...TaskStatus.values.map((s) => ListTile(
                     leading: Icon(s == task.status ? Icons.radio_button_checked : Icons.radio_button_unchecked),
                     title: Text('نقل إلى: ${s.label}'),
@@ -1084,6 +1102,39 @@ class _TaskCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  /// إعادة المهمة للتنفيذ — بسببٍ مكتوب يقرؤه المنفّذ ويبقى في سجلّها.
+  void _showReworkDialog(BuildContext context) {
+    final ctrl = TextEditingController();
+    final store = context.read<AppStore>();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إعادة المهمة للتنفيذ'),
+        content: SizedBox(
+          width: 400,
+          child: TextField(
+            controller: ctrl,
+            maxLines: 3,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: 'ما الذي ينقص؟'),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          FilledButton(
+            onPressed: () {
+              final reason = ctrl.text.trim();
+              if (reason.isEmpty) return;
+              store.sendTaskBackForRework(task, reason);
+              Navigator.pop(ctx);
+            },
+            child: const Text('إعادة للتنفيذ'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1147,6 +1198,8 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
     _dueDate = suggested.isAfter(widget.projectDueDate) ? widget.projectDueDate : suggested;
   }
 
+  String _assigneeUid = '';
+
   @override
   void dispose() {
     _titleCtrl.dispose();
@@ -1179,7 +1232,43 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
           children: [
             TextField(controller: _titleCtrl, decoration: const InputDecoration(labelText: 'عنوان المهمة')),
             const SizedBox(height: 12),
-            TextField(controller: _assigneeCtrl, decoration: const InputDecoration(labelText: 'المسؤول عن التنفيذ')),
+            // ــ المسؤول بحسابه لا باسمه المكتوب ــ
+            //
+            // كان حقلاً نصياً حرّاً. وذلك يكفي للعرض ولا يكفي للحوكمة: دورة
+            // إغلاقٍ من مرحلتين تحتاج أن تعرف **من** أعلن الإتمام بهويةٍ لا
+            // بحروفٍ قد تتشابه. والقائمة تُصفّى بقاعدة الإسناد الموحّدة نفسها.
+            Builder(builder: (context) {
+              final store = context.watch<AppStore>();
+              final candidates = eligibleAssignees(
+                allUsers: store.users,
+                actor: store.currentUser,
+                departmentId: widget.departmentId,
+              );
+              if (candidates.isEmpty) {
+                return Text(
+                  emptyAssigneeReason(
+                    allUsers: store.users,
+                    actor: store.currentUser,
+                    departmentId: widget.departmentId,
+                  ),
+                  style: const TextStyle(
+                      fontSize: 11.5, height: 1.7, color: AppColors.textSecondary),
+                );
+              }
+              return DropdownButtonFormField<String>(
+                initialValue: candidates.any((u) => u.id == _assigneeUid) ? _assigneeUid : null,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'المسؤول عن التنفيذ'),
+                items: candidates
+                    .map((u) => DropdownMenuItem(value: u.id, child: Text(u.name)))
+                    .toList(),
+                onChanged: (v) => setState(() {
+                  _assigneeUid = v ?? '';
+                  _assigneeCtrl.text =
+                      candidates.where((u) => u.id == v).map((u) => u.name).firstOrNull ?? '';
+                }),
+              );
+            }),
             const SizedBox(height: 12),
             DropdownButtonFormField<PriorityLevel>(
               initialValue: _priority,
@@ -1218,17 +1307,30 @@ class _AddTaskDialogState extends State<_AddTaskDialog> {
               setState(() => _error = 'لا يمكن أن يتجاوز تاريخ استحقاق المهمة الموعد النهائي للمشروع');
               return;
             }
-            context.read<AppStore>().addTask(ProjectTask(
+            final store = context.read<AppStore>();
+            final me = store.currentUser;
+            // المعتمِد هو المُنشئ حين يكون من خارج الإدارة المنفّذة — القاعدة
+            // نفسها التي على الأعمال، من الدالّة نفسها.
+            final approver = defaultApproverUid(
+              creator: me,
+              executingDepartmentId: widget.departmentId,
+            );
+            store.addTask(ProjectTask(
                   id: '${widget.projectId}_t${DateTime.now().microsecondsSinceEpoch}',
                   projectId: widget.projectId,
                   departmentId: widget.departmentId,
                   title: _titleCtrl.text.trim(),
+                  assigneeUid: _assigneeUid,
                   assigneeName: _assigneeCtrl.text.trim(),
                   status: TaskStatus.todo,
                   progressPercent: 0,
                   lastUpdated: DateTime.now(),
                   dueDate: _dueDate,
                   priority: _priority,
+                  createdByUid: me?.id ?? '',
+                  closure: approver == null || me == null
+                      ? ClosureTrail.none
+                      : ClosureTrail(approverUid: approver, approverName: me.name),
                 ));
             Navigator.pop(context);
           },

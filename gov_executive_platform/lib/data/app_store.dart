@@ -16,6 +16,7 @@ import '../models/audit_log_entry.dart';
 import '../models/blocker.dart';
 import '../models/daily_update.dart';
 import '../models/custom_role.dart';
+import '../models/closure_trail.dart';
 import '../models/dashboard_metric.dart';
 import '../models/dashboard_widget_config.dart';
 import '../models/department.dart';
@@ -519,6 +520,123 @@ class AppStore extends ChangeNotifier {
     await _db.collection('works').doc(work.id).update(work.toMap());
   }
 
+  // ــــــــــــــــــ دورة الإغلاق على مرحلتين ــــــــــــــــــ
+  //
+  // كانت ضغطةٌ واحدة تُغلق العمل، ويضغطها **الطرف المنفِّذ نفسه**. فصار
+  // الإغلاق مرحلتين: الإدارة تُفيد بالإتمام، والطالب يراجع ويعتمد. ودالّة
+  // لكل انتقال بدل `updateWork` عامة — فالانتقال يحمل معه من فعله ومتى،
+  // وكتابةُ ذلك في مكان واحد تمنع أن يُنسى في مسار.
+
+  /// هل يستطيع المستخدم الحالي **اعتماد** إغلاق هذا العمل أو ردَّه؟
+  bool canApproveWorkClosure(WorkItem work) {
+    if (!work.closure.requiresApproval) return false;
+    if (isAdmin) return true;
+    return work.closure.isApprover(currentUser?.id);
+  }
+
+  /// هل يستطيع أن يُعلن إتمامه؟ من يعدّله يُعلن إتمامه — المُسنَد إليه أو
+  /// من يدير أعمال إدارته.
+  bool canClaimWorkCompletion(WorkItem work) => canEditWork(work) && !work.isDone;
+
+  /// «تم الإنجاز»: تنتقل الحالة إلى **بانتظار الاعتماد** متى وُجد معتمِد،
+  /// وإلى «منجَزة» مباشرةً حين لا معتمِد له (كما كانت المنصة).
+  Future<void> claimWorkCompletion(WorkItem work) async {
+    final now = DateTime.now();
+    final needsApproval = work.closure.requiresApproval;
+    final trail = work.closure.copyWith(
+      claimedByUid: currentUser?.id ?? '',
+      claimedByName: currentUser?.name ?? '',
+      claimedAt: now,
+    );
+    await _db.collection('works').doc(work.id).update({
+      'status': needsApproval ? TaskStatus.awaitingApproval.name : TaskStatus.done.name,
+      'progressPercent': 100.0,
+      'completedDate': needsApproval ? null : Timestamp.fromDate(now),
+      'closure': trail.toMap(),
+    });
+    await _log(
+      'إنجاز عمل',
+      needsApproval
+          ? 'أفاد ${currentUser?.name} بإتمام العمل "${work.title}" — بانتظار اعتماد '
+              '${work.closure.approverName}'
+          : 'أنجز ${currentUser?.name} العمل "${work.title}"',
+    );
+  }
+
+  /// «اعتماد الإنجاز»: هنا وحده يُغلق العمل ويُكتب تاريخ إغلاقه.
+  Future<void> approveWorkClosure(WorkItem work) async {
+    final now = DateTime.now();
+    final trail = work.closure.copyWith(
+      approvedByUid: currentUser?.id ?? '',
+      approvedByName: currentUser?.name ?? '',
+      approvedAt: now,
+    );
+    await _db.collection('works').doc(work.id).update({
+      'status': TaskStatus.done.name,
+      'progressPercent': 100.0,
+      'completedDate': Timestamp.fromDate(now),
+      'closure': trail.toMap(),
+    });
+    await _log('اعتماد إنجاز',
+        'اعتمد ${currentUser?.name} إنجاز العمل "${work.title}" وأغلقه');
+  }
+
+  /// «إعادة للتنفيذ»: يعود العمل قيد التنفيذ ومعه **سببٌ مكتوب**.
+  ///
+  /// والسبب إلزامي عند المستدعي وهنا معاً: ردٌّ بلا سبب يُعيد المنفّذ إلى
+  /// نقطة البداية بلا أن يعرف ما المطلوب، فيُعيد الكرّة ويُردّ ثانيةً.
+  Future<void> sendWorkBackForRework(WorkItem work, String reason) async {
+    final text = reason.trim();
+    if (text.isEmpty) throw ArgumentError('سبب الإعادة مطلوب');
+    final now = DateTime.now();
+    final trail = work.closure.copyWith(
+      reworkCount: work.closure.reworkCount + 1,
+      reworkReason: text,
+      reworkByName: currentUser?.name ?? '',
+      reworkAt: now,
+      clearApproval: true,
+    );
+    await _db.collection('works').doc(work.id).update({
+      'status': TaskStatus.inProgress.name,
+      'completedDate': null,
+      'closure': trail.toMap(),
+    });
+    await _log('إعادة عمل للتنفيذ',
+        'أعاد ${currentUser?.name} العمل "${work.title}" للتنفيذ — السبب: $text');
+  }
+
+  /// الأعمال التي تنتظر **اعتماد المستخدم الحالي** — إشعارُه داخل المنصة.
+  List<WorkItem> get worksAwaitingMyApproval {
+    final uid = currentUser?.id;
+    if (uid == null) return const [];
+    return works
+        .where((w) => w.isAwaitingApproval && w.closure.isApprover(uid))
+        .toList()
+      ..sort((a, b) => (b.closure.claimedAt ?? b.dueDate).compareTo(a.closure.claimedAt ?? a.dueDate));
+  }
+
+  /// مهام المشاريع التي تنتظر اعتماد المستخدم الحالي.
+  List<ProjectTask> get tasksAwaitingMyApproval {
+    final uid = currentUser?.id;
+    if (uid == null) return const [];
+    return tasks.where((t) => t.isAwaitingApproval && t.closure.isApprover(uid)).toList();
+  }
+
+  /// كم بنداً ينتظر اعتماد المستخدم الحالي — للّافتة والعدّاد.
+  int get pendingClosureApprovals =>
+      worksAwaitingMyApproval.length + tasksAwaitingMyApproval.length;
+
+  /// ما أفادت الإدارات بإتمامه ولم يُعتمد بعد — ضمن نطاق المستخدم.
+  ///
+  /// وهو وعدّادُ «المغلَق» أدناه الفرقُ الذي طُلب أن تراه لوحة المدير
+  /// التنفيذي: الأول بندٌ يقف على مكتب، والثاني بندٌ انتهى.
+  int get claimedDoneCount =>
+      visibleWorks.where((w) => w.isAwaitingApproval).length +
+      tasks.where((t) => t.isAwaitingApproval).length;
+
+  int get closedApprovedCount =>
+      visibleWorks.where((w) => w.isDone).length + tasks.where((t) => t.isDone).length;
+
   /// تحديثات عملٍ بعينه، الأحدث أولاً.
   List<WorkUpdate> updatesForWork(String workId) =>
       workUpdates.where((u) => u.workId == workId).toList()
@@ -576,11 +694,30 @@ class AppStore extends ChangeNotifier {
     // الحالة تتبع النسبة كما في المشاريع: مئةٌ تعني منجَزاً، وما دونها
     // يُخرج العمل من «منجَز» إن كان فيه — فلا يبقى مكتوباً عليه «منجَز»
     // وصاحبه يكتب فيه تحديثاً.
-    final done = progressPercent >= 100;
+    //
+    // ــــ وهنا كان أوسع ثقبٍ في دورة الإغلاق ــــ
+    //
+    // بلوغ المئة كان يكتب `done` مباشرةً. فلو أُغلق باب «قائمة الحالة» في
+    // نموذج العمل وحده، لبقي كلُّ منفّذٍ قادراً على إغلاق عمله من **نموذج
+    // التحديث اليومي** — وهو أكثر ما يُفتح في المنصة. فالمئة تُنتج الآن
+    // «بانتظار الاعتماد» متى وُجد معتمِد، ولا تُنتج إغلاقاً إلا بلا معتمِد.
+    final full = progressPercent >= 100;
+    final needsApproval = work.closure.requiresApproval;
+    final closesNow = full && !needsApproval;
+    final trail = full && needsApproval
+        ? work.closure.copyWith(
+            claimedByUid: currentUser?.id ?? '',
+            claimedByName: currentUser?.name ?? '',
+            claimedAt: stamp,
+          )
+        : null;
     batch.update(_db.collection('works').doc(work.id), {
       'progressPercent': progressPercent,
-      'status': done ? TaskStatus.done.name : TaskStatus.inProgress.name,
-      if (done) 'completedDate': Timestamp.fromDate(stamp),
+      'status': full
+          ? (needsApproval ? TaskStatus.awaitingApproval.name : TaskStatus.done.name)
+          : TaskStatus.inProgress.name,
+      if (closesNow) 'completedDate': Timestamp.fromDate(stamp),
+      if (trail != null) 'closure': trail.toMap(),
     });
 
     await batch.commit();
@@ -2506,13 +2643,73 @@ class AppStore extends ChangeNotifier {
     await _log('تحديث يومي', 'أضاف ${currentUser?.name} تحديثاً يومياً لمشروع "${project.name}"');
   }
 
+  /// ينقل مهمة المشروع بين الحالات — **ولا يُغلقها لمن لا يملك اعتمادها**.
+  ///
+  /// ــــ ثقب لوحة كانبان ــــ
+  ///
+  /// سحبُ البطاقة إلى عمود «منجزة» يستدعي هذه الدالّة، وكان يكتب `done`
+  /// مباشرةً. فلو أُغلق باب النموذج والتحديث اليومي وحدهما لبقي السحبُ
+  /// طريقاً ثالثاً يتخطّى الاعتماد كلَّه — وهو أسهلها على المستخدم.
+  ///
+  /// فمن أراد «منجزة» على مهمةٍ لها معتمِد وليس هو، تُحوَّل إلى «بانتظار
+  /// الاعتماد» ويُكتب أنه أعلن الإتمام. ومن يملك الاعتماد يُغلق فعلاً.
   Future<void> updateTaskStatus(ProjectTask task, TaskStatus status) async {
+    final now = DateTime.now();
+    final wantsClose = status == TaskStatus.done;
+    final gated = wantsClose &&
+        task.closure.requiresApproval &&
+        !(isAdmin || task.closure.isApprover(currentUser?.id));
+    final effective = gated ? TaskStatus.awaitingApproval : status;
+
+    ClosureTrail? trail;
+    if (gated) {
+      trail = task.closure.copyWith(
+        claimedByUid: currentUser?.id ?? '',
+        claimedByName: currentUser?.name ?? '',
+        claimedAt: now,
+      );
+    } else if (wantsClose && task.closure.requiresApproval) {
+      trail = task.closure.copyWith(
+        approvedByUid: currentUser?.id ?? '',
+        approvedByName: currentUser?.name ?? '',
+        approvedAt: now,
+      );
+    }
+
     await _db.collection('tasks').doc(task.id).update({
-      'status': status.name,
+      'status': effective.name,
       'lastUpdated': Timestamp.now(),
-      if (status == TaskStatus.done) 'progressPercent': 100.0,
+      if (wantsClose) 'progressPercent': 100.0,
+      if (trail != null) 'closure': trail.toMap(),
     });
-    await _log('تحديث مهمة', 'تم تغيير حالة المهمة "${task.title}" إلى ${status.label}');
+    await _log('تحديث مهمة', 'تم تغيير حالة المهمة "${task.title}" إلى ${effective.label}');
+  }
+
+  /// إعادة مهمة مشروع إلى التنفيذ بسببٍ مكتوب — نظير `sendWorkBackForRework`.
+  Future<void> sendTaskBackForRework(ProjectTask task, String reason) async {
+    final text = reason.trim();
+    if (text.isEmpty) throw ArgumentError('سبب الإعادة مطلوب');
+    final trail = task.closure.copyWith(
+      reworkCount: task.closure.reworkCount + 1,
+      reworkReason: text,
+      reworkByName: currentUser?.name ?? '',
+      reworkAt: DateTime.now(),
+      clearApproval: true,
+    );
+    await _db.collection('tasks').doc(task.id).update({
+      'status': TaskStatus.inProgress.name,
+      'lastUpdated': Timestamp.now(),
+      'closure': trail.toMap(),
+    });
+    await _log('إعادة مهمة للتنفيذ',
+        'أعاد ${currentUser?.name} المهمة "${task.title}" للتنفيذ — السبب: $text');
+  }
+
+  /// هل يستطيع المستخدم الحالي اعتماد إغلاق هذه المهمة أو ردَّها؟
+  bool canApproveTaskClosure(ProjectTask task) {
+    if (!task.closure.requiresApproval) return false;
+    if (isAdmin) return true;
+    return task.closure.isApprover(currentUser?.id);
   }
 
   Future<void> updateTaskProgress(ProjectTask task, double progress) async {

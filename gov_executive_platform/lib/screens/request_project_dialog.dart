@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/app_user.dart';
+import '../models/assignment_policy.dart';
 import '../models/enums.dart';
 import '../theme/app_theme.dart';
 import '../widgets/executors_field.dart';
@@ -123,17 +124,16 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
     // ــــ من يُسنَد إلى المشروع ــــ
     //
     // كانت القائمة `users.where(role == projectOfficer)` — فالموظف صاحب
-    // صلاحية الإنشاء **لا يجد اسمه فيها** ولو أراد تسجيل نفسه، وهو ما
-    // اشتُكي منه. المعيار الآن الانتماء للإدارة لا الدور.
-    final candidates = store.users
-        .where((u) =>
-            u.status == UserStatus.approved &&
-            (departmentId == null ||
-                departmentId.isEmpty ||
-                u.departmentId == departmentId ||
-                u.departmentIds.contains(departmentId)))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    // صلاحية الإنشاء **لا يجد اسمه فيها** ولو أراد تسجيل نفسه. ثم صارت
+    // «كل معتمَد في الإدارة»، فظهر **المسؤول التنفيذي** لمن هو دونه.
+    //
+    // والمعيار الآن واحدٌ لكل المنصة: `eligibleAssignees` — الحالة والإدارة
+    // و**رتبة الإسناد** معاً. لا شرط محلياً في هذه الشاشة.
+    final candidates = eligibleAssignees(
+      allUsers: store.users,
+      actor: store.currentUser,
+      departmentId: departmentId,
+    );
     final me = store.currentUser;
     return AlertDialog(
       title: Text(isAdmin ? 'إضافة مشروع جديد' : 'طلب إضافة مشروع جديد'),
@@ -148,7 +148,11 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
               const SizedBox(height: 12),
               TextField(controller: _descCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'وصف المشروع')),
               const SizedBox(height: 12),
-              ExecutorsField(initial: _executorNames, onChanged: (v) => _executorNames = v),
+              ExecutorsField(
+                initial: _executorNames,
+                departmentId: departmentId,
+                onChanged: (v) => _executorNames = v,
+              ),
               const SizedBox(height: 12),
               if (widget.departmentId == null) ...[
                 DropdownButtonFormField<String?>(
@@ -224,6 +228,28 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
                   departmentNameOf: (u) => _departmentNameOf(store, u),
                   selected: _executorUids,
                   onChanged: () => setState(() {}),
+                ),
+                const SizedBox(height: 12),
+              ] else ...[
+                // صندوقٌ خالٍ يبدو عطلاً. والسبب يُقال: إمّا لا حساب في
+                // الإدارة، وإمّا أن من فيها أعلى من المستخدم في ترتيب الإسناد.
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(
+                    emptyAssigneeReason(
+                      allUsers: store.users,
+                      actor: store.currentUser,
+                      departmentId: departmentId,
+                    ),
+                    style: const TextStyle(
+                        fontSize: 12, height: 1.7, color: AppColors.textSecondary),
+                  ),
                 ),
                 const SizedBox(height: 12),
               ],

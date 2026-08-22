@@ -307,6 +307,69 @@ function uidList(raw: unknown): string[] {
   return out;
 }
 
+// ــــــــــــــ رتبة الإسناد: من يحقّ له أن يُسنِد إلى مَن ــــــــــــــ
+//
+// نظير `lib/models/assignment_policy.dart` و`roleRank` في `firestore.rules`.
+// والثلاثة تُقرأ معاً: من غيّر واحداً ولم يغيّر أخويه فتح ثغرة أو أغلق باباً
+// مشروعاً. والجدول مكتوب في المواضع الثلاثة صراحةً لأن لا سبيل لمشاركته
+// بينها — لغاتٌ ثلاث ومحرّكاتٌ ثلاثة.
+const ASSIGN_RANK: Record<string, number> = {
+  systemAdmin: 5,
+  executiveViewer: 4,
+  departmentManager: 3,
+  projectOfficer: 2,
+  custom: 2,
+  employee: 1,
+};
+
+function assignRank(role: string | undefined): number {
+  return ASSIGN_RANK[role ?? "employee"] ?? 1;
+}
+
+/**
+ * يرفض الطلب إن كان في [uids] من هو أعلى رتبةً من [actorUid].
+ *
+ * **والرسالة تسمّي المخالِف**: «لا يمكنك الإسناد إلى هذا المستخدم» يترك من
+ * اختار عشرة أسماء يخمّن أيّها المقصود، فيحذفهم واحداً واحداً حتى يمرّ.
+ */
+async function assertAssignable(
+  uids: string[],
+  actorUid: string,
+  actorRole: string | undefined,
+  departmentId?: string | null,
+): Promise<void> {
+  const actorRank = assignRank(actorRole);
+  if (actorRole === "systemAdmin") return;
+  for (const uid of uids) {
+    // المرء يُسنِد إلى نفسه دائماً — رتبته رتبته، ولا حاجة لقراءة سجلّه.
+    if (uid === actorUid) continue;
+    const snap = await db().collection("users").doc(uid).get();
+    if (!snap.exists) {
+      throw new HttpsError("not-found", `لا يوجد حساب بهذا المعرّف: ${uid}`);
+    }
+    const data = snap.data() ?? {};
+    const targetRole = data.role as string | undefined;
+    // النطاق يُفحص هنا وقد قُرئ السجل أصلاً — بلا قراءة إضافية.
+    if (departmentId) {
+      const ids = Array.isArray(data.departmentIds) ? data.departmentIds.map(String) : [];
+      if (data.departmentId !== departmentId && !ids.includes(departmentId)) {
+        throw new HttpsError(
+          "permission-denied",
+          `"${data.name ?? uid}" ليس من هذه الإدارة، فلا يُسنَد إليها.`,
+        );
+      }
+    }
+    if (assignRank(targetRole) > actorRank) {
+      throw new HttpsError(
+        "permission-denied",
+        `لا يمكنك إسناد هذا العمل إلى "${data.name ?? uid}" — ` +
+        "فدوره أعلى من دورك في ترتيب الإسناد. الإسناد إلى من هو أعلى " +
+        "يقوم به مسؤول النظام.",
+      );
+    }
+  }
+}
+
 /** رسالة موجَّهة لمستلم بعينه — لكلٍّ عنوانه ونصّه. */
 interface OutgoingMessage {
   uid: string;
@@ -584,6 +647,18 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       // الآخر تترك مستنداً لا تقبله القاعدة عند أول تعديل عليه.
       const managerUids = uidList(payload.managerUids);
       const executorUids = uidList(payload.executorUids);
+      // ــ رتبة الإسناد تُفحص هنا لا في متصفح مقدّم الطلب ــ
+      //
+      // والمقياس رتبة **مقدّم الطلب** لا المعتمِد: هو من اختار الفريق، وهو
+      // من تسري عليه القاعدة. ولو قيست برتبة المعتمِد لصار الطلب باباً
+      // جانبياً: يكتب الموظف في حمولته المسؤول التنفيذي، فيعتمده مسؤول
+      // النظام روتينياً فيمرّ ما لا يحقّ للموظف أن يفعله بيده.
+      const requesterSnap = await db().collection("users").doc(String(data.requestedByUid ?? "")).get();
+      await assertAssignable(
+        [...managerUids, ...executorUids],
+        String(data.requestedByUid ?? ""),
+        requesterSnap.data()?.role as string | undefined,
+      );
       await db().collection("projects").doc().set({
         departmentId: payload.departmentId,
         name: payload.name,
@@ -610,6 +685,17 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       // العمل التشغيلي ليس من بوابات الاعتماد: يعتمده مدير الإدارة صاحبته.
       // والإدارة تُؤخذ من **مستند الطلب** لا من الحمولة، فهي التي فُحص عليها
       // نطاق المعتمِد قبل قليل — وإلا لأمكن أن يُفحص نطاقٌ ويُكتب غيره.
+      //
+      // ورتبة الإسناد تُفحص برتبة مقدّم الطلب للسبب نفسه المشروح أعلاه.
+      const workAssignee = typeof payload.assigneeUid === "string" ? payload.assigneeUid.trim() : "";
+      if (workAssignee) {
+        const reqSnap = await db().collection("users").doc(String(data.requestedByUid ?? "")).get();
+        await assertAssignable(
+          [workAssignee],
+          String(data.requestedByUid ?? ""),
+          reqSnap.data()?.role as string | undefined,
+        );
+      }
       await db().collection("works").doc().set({
         departmentId: data.departmentId ?? null,
         title: payload.title,
@@ -1115,6 +1201,67 @@ export const setScopedGrant = onCall(async (request) => {
   );
 
   return {ok: true, claims};
+});
+
+/**
+ * يكتب فريق المشروع (المديرون والمنفّذون) بعد فحص رتبة كل عضو.
+ *
+ * ــــ ولماذا دالّة، والقواعد تكفي في الأعمال؟ ــــ
+ *
+ * لأن المسؤول عن العمل حقلٌ **مفرد**، فتُقرأ رتبته في القاعدة بقراءة واحدة.
+ * وفريق المشروع **قائمتان**، ولغة قواعد Firestore بلا حلقات: لا سبيل للمرور
+ * على `executorUids` عنصراً عنصراً فيها إطلاقاً.
+ *
+ * فصار الفحص هنا، وضُيِّقت القاعدة لتمنع كتابة العضوية مباشرةً من العميل
+ * إلا لمسؤول النظام (بلا قيد أصلاً) أو للمستخدم على **نفسه** وحده.
+ */
+export const setProjectTeam = onCall(async (request) => {
+  const auth = requireAuth(request);
+  const {projectId, managerUids: rawManagers, executorUids: rawExecutors} =
+    (request.data ?? {}) as {
+      projectId?: string; managerUids?: unknown; executorUids?: unknown;
+    };
+  if (!projectId) throw new HttpsError("invalid-argument", "معرّف المشروع مطلوب");
+
+  const ref = db().collection("projects").doc(projectId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "المشروع غير موجود");
+  const project = snap.data() ?? {};
+  const departmentId = (project.departmentId as string | null) ?? null;
+
+  const callerRole = auth.token.role as string | undefined;
+  const isAdminCaller = callerRole === "systemAdmin";
+  const myDepts = (auth.token.departmentIds as string[] | undefined) ?? [];
+  const isDeptManager =
+    callerRole === "departmentManager" && departmentId !== null && myDepts.includes(departmentId);
+  if (!isAdminCaller && !isDeptManager && !tokenScopeCovers(auth, "mpr", departmentId)) {
+    throw new HttpsError("permission-denied", "لا تملك صلاحية تعديل فريق هذا المشروع");
+  }
+
+  const managerUids = uidList(rawManagers);
+  const executorUids = uidList(rawExecutors);
+  await assertAssignable(
+    [...managerUids, ...executorUids],
+    auth.uid,
+    callerRole,
+    departmentId,
+  );
+
+  // القوائم الثلاث تُكتب معاً: القاعدة تشترط أن يكون `managerUid` عضواً في
+  // `managerUids`، فكتابة أحدهما دون الآخر تترك مستنداً لا تقبله عند أول
+  // تعديل عليه.
+  await ref.update({
+    managerUids,
+    executorUids,
+    managerUid: managerUids.length ? managerUids[0] : null,
+  });
+
+  await logAudit(
+    (auth.token.name as string | undefined) ?? "مستخدم",
+    "تعديل فريق المشروع",
+    `مشروع "${project.name ?? projectId}": ${managerUids.length} مديراً و${executorUids.length} منفّذاً`,
+  );
+  return {ok: true};
 });
 
 /** يزامن بطاقة **المتصل نفسه** فقط. */

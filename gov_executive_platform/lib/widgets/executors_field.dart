@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
-import '../models/enums.dart';
+import '../models/assignment_policy.dart';
 import '../theme/app_theme.dart';
 import 'person_picker.dart';
 
@@ -11,7 +11,16 @@ import 'person_picker.dart';
 class ExecutorsField extends StatefulWidget {
   final List<String> initial;
   final ValueChanged<List<String>> onChanged;
-  const ExecutorsField({super.key, required this.initial, required this.onChanged});
+
+  /// إدارة المشروع، فيُقصر البحث على من ينتمي إليها — و null تعني بلا نطاق.
+  final String? departmentId;
+
+  const ExecutorsField({
+    super.key,
+    required this.initial,
+    required this.onChanged,
+    this.departmentId,
+  });
 
   @override
   State<ExecutorsField> createState() => _ExecutorsFieldState();
@@ -56,13 +65,22 @@ class _ExecutorsFieldState extends State<ExecutorsField> {
     // القائمة المنسدلة تعرض مئتي اسم بالترتيب الأبجدي، فمن يبحث عن زميله
     // يُمرّر عشرات الشاشات — وهو ما اشتُكي منه عند إضافة مشروع. والبحث
     // يوحّد صور الهمزة والتاء المربوطة، فمن يكتب «احمد» يجد «أحمد».
+    //
+    // ــ ولماذا تُصفّى القائمة بالرتبة وهي تكتب **أسماءً** لا معرّفات؟ ــ
+    //
+    // لأن الاسم المكتوب يصير سطراً في المشروع يُقرأ على أنه إسناد. فمن لا
+    // يحقّ له إسناد المسؤول التنفيذي بحسابه لا يُلتفّ على ذلك بكتابة اسمه.
+    // والأسماء الحرّة القديمة تبقى كما هي — القاعدة تحكم ما يُضاف من الآن.
     final query = _query.text;
-    final available = store.users
-        .where((u) => u.status == UserStatus.approved && !_names.contains(u.name))
+    final available = eligibleAssignees(
+      allUsers: store.users,
+      actor: store.currentUser,
+      departmentId: widget.departmentId,
+    )
+        .where((u) => !_names.contains(u.name))
         .where((u) => personMatches(u, query,
             departmentName: store.departmentById(u.departmentId ?? '')?.name))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+        .toList();
     const maxShown = 12;
     final shown = available.take(maxShown).toList();
     final hidden = available.length - shown.length;

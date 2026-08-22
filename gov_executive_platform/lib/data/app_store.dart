@@ -2632,6 +2632,13 @@ class AppStore extends ChangeNotifier {
     String? sectionId,
   }) async {
     final ref = _db.collection('projects').doc();
+    final me = currentUser?.id ?? '';
+    // ــ العضوية الذاتية أولاً لمن ليس مسؤول نظام ــ
+    //
+    // القاعدة تشترط على صاحب `mpr` أن يُنشئ بعضويةٍ لا تحوي غيره: فحصُ رتبة
+    // من في القائمتين مستحيل في لغة القواعد. فيُنشأ المشروع بما تقبله، ثم
+    // يُكتب الفريق كاملاً عبر `setProjectTeam` التي تفحص كل عضو.
+    final selfOnly = !isAdmin;
     await ref.set(Project(
       id: ref.id,
       departmentId: departmentId,
@@ -2643,12 +2650,19 @@ class AppStore extends ChangeNotifier {
       priority: priority,
       progressPercent: 0,
       executorNames: executorNames,
-      createdByUid: currentUser?.id ?? '',
-      managerUids: managerUids,
-      executorUids: executorUids,
+      createdByUid: me,
+      managerUids: selfOnly ? managerUids.where((u) => u == me).toList() : managerUids,
+      executorUids: selfOnly ? executorUids.where((u) => u == me).toList() : executorUids,
       sectionId: sectionId,
       createdAt: DateTime.now(),
     ).toMap());
+    if (selfOnly && (managerUids.isNotEmpty || executorUids.isNotEmpty)) {
+      await _functions.httpsCallable('setProjectTeam').call({
+        'projectId': ref.id,
+        'managerUids': managerUids,
+        'executorUids': executorUids,
+      });
+    }
     await _log('إضافة مشروع', 'أضاف ${currentUser?.name} مشروعاً جديداً "$name" مباشرة');
   }
 
@@ -2664,6 +2678,28 @@ class AppStore extends ChangeNotifier {
       'managerUids': managers,
       'executorUids': executors,
       'managerUid': managers.isEmpty ? null : managers.first,
+    });
+  }
+
+  /// يكتب فريق المشروع عبر الخادم، فتُفحص **رتبة كل عضو** قبل الكتابة.
+  ///
+  /// ــــ ولماذا لا كتابةٌ مباشرة كما كانت؟ ــــ
+  ///
+  /// لأن قاعدة Firestore لا تستطيع فحص رتبة من في قائمتَي العضوية: لغتها
+  /// بلا حلقات. فكان مدير الإدارة يكتب القائمتين مباشرةً بلا حارس، ويُسنِد
+  /// مشروعاً إلى المسؤول التنفيذي بلا أن يمنعه شيء على الخادم.
+  ///
+  /// ومسؤول النظام يبقى على الكتابة المباشرة: القاعدة لا تقيّده أصلاً، فلا
+  /// مكسب من إدخاله في مسارٍ سحابي قد يفشل.
+  Future<void> _writeTeam(Project project, List<String> managers, List<String> executors) async {
+    if (isAdmin) {
+      await _writeMembership(project, managers, executors);
+      return;
+    }
+    await _functions.httpsCallable('setProjectTeam').call({
+      'projectId': project.id,
+      'managerUids': managers,
+      'executorUids': executors,
     });
   }
 
@@ -2719,7 +2755,7 @@ class AppStore extends ChangeNotifier {
     if (role == 'manager') managers.add(uid);
     if (role == 'executor') executors.add(uid);
     try {
-      await _writeMembership(project, managers, executors);
+      await _writeTeam(project, managers, executors);
       final name = users.where((u) => u.id == uid).map((u) => u.name).firstOrNull ?? uid;
       await _log('تعديل فريق المشروع',
           'عُدِّلت صفة "$name" في مشروع "${project.name}" إلى ${role == 'manager' ? 'مدير' : role == 'executor' ? 'منفّذ' : 'مُزال'}');

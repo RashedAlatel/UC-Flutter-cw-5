@@ -565,7 +565,11 @@ class _EditExecutorsDialogState extends State<_EditExecutorsDialog> {
       title: const Text('تعديل المنفذين'),
       content: SizedBox(
         width: 380,
-        child: ExecutorsField(initial: _names, onChanged: (v) => _names = v),
+        child: ExecutorsField(
+          initial: _names,
+          departmentId: widget.project.departmentId,
+          onChanged: (v) => _names = v,
+        ),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),

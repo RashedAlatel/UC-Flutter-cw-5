@@ -120,9 +120,18 @@ describe('إنشاء المشاريع بنطاق', () => {
 });
 
 describe('إسناد المستخدمين بنطاق', () => {
-  test('صاحب المنحة يُسنِد غيره داخل نطاقه', async () => {
+  // ــ تبدّل الطريق لا الصلاحية ــ
+  //
+  // كان صاحب `mpr` يكتب العضوية **مباشرةً** من العميل، وكان هذا الاختبار
+  // يشترط نجاحه. وسقط الفرع من القاعدة: لغتها بلا حلقات، فلا تستطيع فحص
+  // **رتبة** من في `executorUids` عنصراً عنصراً — وكان الباب مفتوحاً
+  // ليُسنِد صاحبُ المنحة المشروعَ إلى المسؤول التنفيذي بلا مانع.
+  //
+  // فالمنحة باقية بمعناها («إسناد المستخدمين»)، وطريقها صار دالّة
+  // `setProjectTeam` التي تفحص كل عضو. والقاعدة تمنع الطريق القديم.
+  test('صاحب المنحة لا يكتب العضوية مباشرةً — الطريق دالّة setProjectTeam', async () => {
     const db = env.authenticatedContext(ME, claims({ scopes: { mpr: [MINE] } })).firestore();
-    await assertSucceeds(updateDoc(doc(db, 'projects/p-mine'), {
+    await assertFails(updateDoc(doc(db, 'projects/p-mine'), {
       executorUids: ['u-someone-else'], managerUids: [], managerUid: null,
     }));
   });

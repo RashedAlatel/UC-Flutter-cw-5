@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/app_user.dart';
-import '../models/enums.dart';
+import '../models/assignment_policy.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
 import '../widgets/person_picker.dart';
@@ -89,16 +89,14 @@ class _ChangeManagerDialogState extends State<ChangeManagerDialog> {
         .map((uid) => store.users.where((u) => u.id == uid).firstOrNull?.name ?? uid)
         .toList();
 
-    // المرشَّحون: المعتمَدون في إدارة المشروع. ومن هو مديرٌ الآن مستبعَد —
-    // «تغييرٌ» إلى من يقود أصلاً ليس تغييراً.
-    final candidates = store.users
-        .where((u) =>
-            u.status == UserStatus.approved &&
-            !project.managerUids.contains(u.id) &&
-            (u.departmentId == project.departmentId ||
-                u.departmentIds.contains(project.departmentId)))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    // المرشَّحون بالقاعدة الموحّدة: الحالة والإدارة و**رتبة الإسناد** معاً.
+    // ومن هو مديرٌ الآن مستبعَد — «تغييرٌ» إلى من يقود أصلاً ليس تغييراً.
+    final candidates = eligibleAssignees(
+      allUsers: store.users,
+      actor: store.currentUser,
+      departmentId: project.departmentId,
+      exclude: project.managerUids.toSet(),
+    );
 
     final chosen = candidates.where((u) => _picked.contains(u.id)).firstOrNull;
 
@@ -161,9 +159,15 @@ class _ChangeManagerDialogState extends State<ChangeManagerDialog> {
                     ),
                     const SizedBox(height: 14),
                     if (candidates.isEmpty)
-                      const Text(
-                        'لا يوجد مستخدم معتمَد آخر في إدارة هذا المشروع ليُسنَد إليه.',
-                        style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.7),
+                      Text(
+                        emptyAssigneeReason(
+                          allUsers: store.users,
+                          actor: store.currentUser,
+                          departmentId: project.departmentId,
+                          exclude: project.managerUids.toSet(),
+                        ),
+                        style: const TextStyle(
+                            fontSize: 12.5, color: AppColors.textSecondary, height: 1.7),
                       )
                     else
                       PersonPicker(

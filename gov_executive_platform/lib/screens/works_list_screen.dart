@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../models/app_user.dart';
+import '../models/assignment_policy.dart';
 import '../models/enums.dart';
 import '../models/work_sort.dart';
 import '../models/work_item.dart';
@@ -522,12 +523,15 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
     final canEdit = canManage || widget.editing == null;
     final canSetProgress = canManage || !isRequest;
     final departments = store.visibleDepartments;
-    // المسؤولون المتاحون للإسناد: حسابات الإدارة المختارة.
-    final candidates = store.users
-        .where((u) =>
-            u.status == UserStatus.approved &&
-            (_departmentId.isEmpty || u.departmentId == _departmentId || u.departmentIds.contains(_departmentId)))
-        .toList();
+    // المسؤولون المتاحون للإسناد — بالقاعدة الموحّدة لا بشرطٍ محلي.
+    //
+    // كان الشرط «معتمَد + في الإدارة» وحده، فكان الموظف يفتح النموذج فيجد
+    // **المسؤول التنفيذي** ومدير الإدارة في قائمة من يُسنِد إليهم عملاً.
+    final candidates = eligibleAssignees(
+      allUsers: store.users,
+      actor: store.currentUser,
+      departmentId: _departmentId,
+    );
 
     return AlertDialog(
       title: Text(widget.editing == null ? 'إضافة عمل' : 'تعديل العمل'),
@@ -595,6 +599,19 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
                 items: candidates.map((u) => DropdownMenuItem<String>(value: u.id, child: Text(_userLabel(u)))).toList(),
                 onChanged: canEdit ? (v) => setState(() => _assigneeUid = v ?? '') : null,
               ),
+              // قائمةٌ خالية تبدو عطلاً. والسبب يُقال صراحةً.
+              if (candidates.isEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  emptyAssigneeReason(
+                    allUsers: store.users,
+                    actor: store.currentUser,
+                    departmentId: _departmentId,
+                  ),
+                  style: const TextStyle(
+                      fontSize: 11.5, height: 1.7, color: AppColors.textSecondary),
+                ),
+              ],
               const SizedBox(height: 12),
               Row(
                 children: [

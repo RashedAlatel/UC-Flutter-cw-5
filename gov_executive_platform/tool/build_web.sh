@@ -51,6 +51,7 @@ else
   guard ./tool/test/firebase_sdk_modules_test.sh
   guard ./tool/test/storage_message_test.sh
   guard ./tool/test/approval_gates_test.sh
+  guard ./tool/test/assignment_rank_parity_test.sh
   guard ./tool/test/worktree_state_test.sh
 fi
 

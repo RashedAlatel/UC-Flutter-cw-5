@@ -146,6 +146,40 @@ service cloud.firestore {
       let w = realWork(workId);
       return deptOf(w) == deptId && w.get('assigneeUid', '') == assigneeUid;
     }
+    // ــــ رتبة الإسناد: من يحقّ له أن يُسنِد إلى مَن ــــ
+    //
+    // نظير `lib/models/assignment_policy.dart` حرفاً. وكان الإسناد بلا حارس
+    // على الخادم إطلاقاً: الواجهة تصفّي القائمة، ومن فتح أدوات المتصفح كتب
+    // ما شاء — فيُسنِد الموظف عملاً إلى المسؤول التنفيذي.
+    //
+    // والدور المخصّص يقع في `else` مع «موظف»؟ لا — يُذكر صراحةً برتبة 2
+    // كما في Dart. والافتراضي 1 لمستندٍ بلا حقل دور، وهو أضيق الاحتمالات.
+    function roleRank(r) {
+      return r == 'systemAdmin' ? 5
+           : r == 'executiveViewer' ? 4
+           : r == 'departmentManager' ? 3
+           : r == 'projectOfficer' ? 2
+           : r == 'custom' ? 2
+           : 1;
+    }
+    // رتبة صاحب هذا المعرّف — قراءة مستندٍ واحد.
+    function rankOfUser(uid) {
+      return roleRank(get(/databases/$(database)/documents/users/$(uid)).data.get('role', 'employee'));
+    }
+    // هل يحقّ للمتصل إسناد شيء إلى [uid]؟
+    //
+    // والمعرّف الفارغ مسموح: عملٌ بلا مسؤول حالةٌ مشروعة، ومنعُها يكسر كل
+    // إنشاءٍ يؤجّل الإسناد. والمتصل نفسه مسموح بلا قراءة — رتبته رتبته.
+    function mayAssign(uid) {
+      return uid == null || uid == '' || uid == request.auth.uid || isAdmin()
+          || rankOfUser(uid) <= roleRank(role());
+    }
+    // ولا تُقرأ رتبةُ أحد إلا حين **يتغيّر** المُسنَد إليه: كتابة تقدُّمٍ
+    // يومي لا تُسنِد شيئاً، فتحميلها قراءةً زائدة ثمنٌ بلا مقابل.
+    function assigneeUnchanged() {
+      return request.resource.data.get('assigneeUid', '') == resource.data.get('assigneeUid', '');
+    }
+
     // وصول آمن للحقلين على مستندات قد تكون قديمة (سابقة لإضافة managerUid)
     // وتفتقد الحقل أصلاً؛ الوصول المباشر بالنقطة يفشل في هذه الحالة.
     function deptOf(data) { return data.get('departmentId', null); }
@@ -211,7 +245,14 @@ service cloud.firestore {
       // مسؤول النظام يُنشئ مباشرةً، ومعه من مُنِح `mpr` **داخل نطاقه**.
       // ومن لا يملكها يمرّ بطلب اعتماد كما كان — وهذا هو الوضع الافتراضي
       // لكل المستخدمين، فالمنحة لا يرثها دور ولا تُفتح إلا بقرار فردي.
-      allow create: if isAdmin() || inScope('mpr', deptOf(request.resource.data));
+      // وصاحب `mpr` يُنشئ بعضويةٍ **ذاتية** لا أكثر، ثم يكتب الفريق عبر
+      // دالّة `setProjectTeam` التي تفحص رتبة كل عضو. والسبب أن لغة القواعد
+      // بلا حلقات: لا سبيل للمرور على `executorUids` عنصراً عنصراً هنا،
+      // فتُرك الفحص لمن يقدر عليه بدل أن يُترك بلا فحص.
+      allow create: if isAdmin()
+                    || (inScope('mpr', deptOf(request.resource.data))
+                        && request.resource.data.get('managerUids', []).toSet().hasOnly([request.auth.uid])
+                        && request.resource.data.get('executorUids', []).toSet().hasOnly([request.auth.uid]));
       // يمكن لمدير الإدارة أو مدير المشروع المُسنَد إليه تحديث حقول التقدم والحالة
       // فقط، دون المساس بالموعد النهائي أو نقل المشروع لإدارة أخرى أو تغيير
       // مديره - أي تغيير في الموعد النهائي يمر عبر طلب موافقة منفصل، وتغيير
@@ -221,11 +262,12 @@ service cloud.firestore {
                         && !request.resource.data.diff(resource.data).affectedKeys()
                               .hasAny(['dueDate', 'departmentId', 'createdByUid',
                                        'managerUid', 'managerUids', 'executorUids']))
-                    // مدير الإدارة يعدّل فريق مشاريع إدارته كاملاً، ومعه
-                    // صاحب `mpr` داخل نطاقه — وهو شقّ «إسناد المستخدمين».
-                    || ((canEditDept(deptOf(resource.data)) || inScope('mpr', deptOf(resource.data)))
-                        && onlyMembershipKeys()
-                        && legacyManagerConsistent())
+                    // وكان هنا فرعٌ يسمح لمدير الإدارة وصاحب `mpr` بكتابة
+                    // العضوية مباشرةً. وسقط: القاعدة لا تستطيع فحص **رتبة**
+                    // من في القائمتين (لا حلقات في لغتها)، فكان الفرع باباً
+                    // يُسنِد منه مدير الإدارة مشروعاً إلى المسؤول التنفيذي.
+                    // وصار الطريق دالّة `setProjectTeam` وحدها.
+                    //
                     // والموظف يسجّل **نفسه فقط** — راجع selfOnlyDelta.
                     || isSelfMembershipChange();
       allow delete: if isAdmin();
@@ -347,17 +389,20 @@ service cloud.firestore {
                       || isMyDeptAny(deptOf(resource.data))
                       || resource.data.get('assigneeUid', '') == request.auth.uid);
       // الإنشاء والإسناد لمن يملك صلاحية "إدارة الأعمال" ضمن نطاقه.
-      allow create: if isAdmin()
+      allow create: if (isAdmin()
                     || (perm('mw')
                         && (canViewAll() || isMyDeptAny(deptOf(request.resource.data))))
-                    || inScope('mpr', deptOf(request.resource.data));
+                    || inScope('mpr', deptOf(request.resource.data)))
+                    && mayAssign(request.resource.data.get('assigneeUid', ''));
       // الموظف المُسنَد إليه يحدّث تقدّم عمله وحالته فقط، دون إعادة إسناده
       // لنفسه أو نقله لإدارة أخرى.
-      allow update: if isAdmin()
+      allow update: if (isAdmin()
                     || (perm('mw') && (canViewAll() || isMyDeptAny(deptOf(resource.data))))
                     || (resource.data.get('assigneeUid', '') == request.auth.uid
                         && !request.resource.data.diff(resource.data).affectedKeys()
-                              .hasAny(['departmentId', 'assigneeUid', 'createdByUid']));
+                              .hasAny(['departmentId', 'assigneeUid', 'createdByUid'])))
+                    && (assigneeUnchanged()
+                        || mayAssign(request.resource.data.get('assigneeUid', '')));
       allow delete: if isAdmin() || perm('del');
     }
 

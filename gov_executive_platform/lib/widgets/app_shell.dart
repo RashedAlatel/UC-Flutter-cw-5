@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
-import '../models/enums.dart';
-import '../models/role_permissions.dart';
 import '../screens/appearance_settings_screen.dart';
 import '../screens/audit_log_screen.dart';
 import '../screens/dashboard_screen.dart';
@@ -26,15 +24,40 @@ import '../utils/formatters.dart';
 import 'announcements_banner.dart';
 import 'data_access_banner.dart';
 import 'ministry_logo.dart';
+import 'nav_entries.dart';
 import 'smart_alerts_banner.dart';
 import 'update_banner.dart';
 
 class _NavEntry {
-  final String label;
-  final IconData icon;
+  final NavKey key;
   final Widget page;
-  const _NavEntry({required this.label, required this.icon, required this.page});
+  const _NavEntry({required this.key, required this.page});
+
+  String get label => key.label;
+  IconData get icon => _navIcons[key]!;
 }
+
+/// أيقونة كل مدخل. في خريطةٍ هنا لا في `NavKey` نفسه: تلك ملفٌّ خالٍ من
+/// Flutter عمداً ليبقى قابلاً للاختبار.
+const Map<NavKey, IconData> _navIcons = {
+  NavKey.dashboard: Icons.dashboard_rounded,
+  NavKey.departments: Icons.account_balance_rounded,
+  NavKey.myDepartments: Icons.account_balance_rounded,
+  NavKey.myDepartment: Icons.account_balance_rounded,
+  NavKey.projects: Icons.folder_copy_rounded,
+  NavKey.works: Icons.checklist_rounded,
+  NavKey.myAssignments: Icons.assignment_ind_outlined,
+  NavKey.decisions: Icons.gavel_rounded,
+  NavKey.reports: Icons.assessment_rounded,
+  NavKey.feedback: Icons.forum_outlined,
+  NavKey.people: Icons.groups_rounded,
+  NavKey.auditLog: Icons.history_rounded,
+  NavKey.users: Icons.manage_accounts_rounded,
+  NavKey.roles: Icons.badge_outlined,
+  NavKey.rolePermissions: Icons.key_rounded,
+  NavKey.registration: Icons.how_to_reg_outlined,
+  NavKey.appearance: Icons.palette_outlined,
+};
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -46,111 +69,58 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _selected = 0;
 
+  /// يترجم مفاتيح القائمة إلى صفحاتها.
+  ///
+  /// والقرار — من يرى ماذا — في `nav_entries.dart` لا هنا: هذا الملف يستورد
+  /// كل شاشة، ومنها ما يستورد `package:web`، فلا يُستورَد من اختبار. وترْكُ
+  /// القرار فيه يجعل كل شرطٍ في القائمة خارج مدى أي حارس — وقد حجب ذلك
+  /// «المُسنَد إليّ» عن مسؤول النظام دون أن يصيح شيء.
   List<_NavEntry> _buildEntries(AppStore store) {
-    // كان «مدير المشروع» يُعطى قائمةً بمشاريعه المُسنَدة وحدها — بلا لوحة
-    // قيادة ولا تبويب مشاريع إطلاقاً. فلم يكن له طريق إلى مشاريع إدارته
-    // ليضيف نفسه على أحدها، وهو ما اشتُكي منه. صار يأخذ الشاشات نفسها
-    // كبقية الأدوار، ومشاريعه المُسنَدة تظهر له مثبّتةً في أول القائمة
-    // فلا يفقد الوصول المباشر إليها.
-    final entries = <_NavEntry>[
-      // لوحة القيادة بمفتاح: مغلقة لدور «موظف» افتراضياً، ومسؤول النظام
-      // يفتحها لدور أو لفرد. ومسؤول النظام نفسه لا يُفحص — صلاحياته كاملة
-      // عبر isAdmin لا عبر أعلام.
-      if (store.hasPermission(RolePermission.viewDashboard))
-        const _NavEntry(label: 'لوحة القيادة', icon: Icons.dashboard_rounded, page: DashboardScreen()),
+    return [
+      for (final key in navKeysFor(store)) _NavEntry(key: key, page: _pageFor(key, store)),
     ];
+  }
 
-    if (!store.hasPermission(RolePermission.viewDepartmentPage)) {
-      // بلا مدخل إدارة إطلاقاً — ويبقى «المشاريع» و«الأعمال» و«المُسنَد إليّ»
-      // فلا تخلو شاشته.
-    } else if (store.canViewAllDepartments) {
-      entries.add(const _NavEntry(
-        label: 'الإدارات',
-        icon: Icons.account_balance_rounded,
-        page: DepartmentsListScreen(),
-      ));
-    } else if (store.isManager) {
-      // مدير الإدارة قد يدير أكثر من إدارة واحدة، فنعرض له نفس شاشة "الإدارات"
-      // (تُصفَّى تلقائياً عبر store.visibleDepartments) بدل صفحة إدارة واحدة ثابتة.
-      entries.add(_NavEntry(
-        label: store.myDepartmentIds.length > 1 ? 'إداراتي' : 'إدارتي',
-        icon: Icons.account_balance_rounded,
-        page: const DepartmentsListScreen(),
-      ));
-    } else if (store.currentUser?.departmentId != null) {
-      entries.add(_NavEntry(
-        label: 'إدارتي',
-        icon: Icons.account_balance_rounded,
-        page: DepartmentDetailScreen(departmentId: store.currentUser!.departmentId!),
-      ));
+  Widget _pageFor(NavKey key, AppStore store) {
+    switch (key) {
+      case NavKey.dashboard:
+        return const DashboardScreen();
+      case NavKey.departments:
+      case NavKey.myDepartments:
+        return const DepartmentsListScreen();
+      case NavKey.myDepartment:
+        // مدير إدارة واحدة يرى شاشة «الإدارات» مصفّاةً؛ وغيرُه يرى صفحة
+        // إدارته مباشرةً.
+        return store.isManager
+            ? const DepartmentsListScreen()
+            : DepartmentDetailScreen(departmentId: store.currentUser!.departmentId!);
+      case NavKey.projects:
+        return const ProjectsListScreen();
+      case NavKey.works:
+        return const WorksListScreen();
+      case NavKey.myAssignments:
+        return const MyAssignmentsScreen();
+      case NavKey.decisions:
+        return const DecisionCenterScreen();
+      case NavKey.reports:
+        return const ReportsScreen();
+      case NavKey.feedback:
+        return const FeedbackScreen();
+      case NavKey.people:
+        return const PeopleTrackingScreen();
+      case NavKey.auditLog:
+        return const AuditLogScreen();
+      case NavKey.users:
+        return const UserManagementScreen();
+      case NavKey.roles:
+        return const RolesManagementScreen();
+      case NavKey.rolePermissions:
+        return const RolePermissionsScreen();
+      case NavKey.registration:
+        return const RegistrationSettingsScreen();
+      case NavKey.appearance:
+        return const AppearanceSettingsScreen();
     }
-
-    entries.add(const _NavEntry(label: 'المشاريع', icon: Icons.folder_copy_rounded, page: ProjectsListScreen()));
-    entries.add(const _NavEntry(label: 'الأعمال', icon: Icons.checklist_rounded, page: WorksListScreen()));
-
-    // «المُسنَد إليّ»: بقية الشاشات مبنية على الإدارة، وهذه على **العضوية**.
-    // فمن أُسنِد إليه مشروع أو عمل في إدارة أخرى يجده هنا بدل أن يبحث عنه
-    // بين ما ليس له. وتظهر لمن يُسنَد إليه العمل فعلاً — لا لمن يرى كل
-    // الإدارات، فلوحته أصلاً هي كل شيء.
-    if (!store.canViewAllDepartments) {
-      entries.add(const _NavEntry(
-        label: 'المُسنَد إليّ',
-        icon: Icons.assignment_ind_outlined,
-        page: MyAssignmentsScreen(),
-      ));
-    }
-
-    // مداخل مشاريع مدير المشروع المفردة أُزيلت: تبويب «المُسنَد إليّ» يجمعها
-    // كلها ومعها أعماله، ويشمل ما أُسنِد إليه خارج إدارته — بينما كانت
-    // القائمة الجانبية تطول باسم كل مشروع حتى تصير هي نفسها عائقاً.
-
-    // مركز القرارات مخصص لمن يملك فعلياً صلاحية اعتماد قرار فيه (مسؤول النظام،
-    // المستخدم التنفيذي، أو دور مخصص بصلاحية اعتماد القرارات العامة) — مدير
-    // الإدارة ومدير المشروع يقدّمان الطلبات فقط ولا يعتمدان شيئاً هناك.
-    if (store.hasPermission(RolePermission.approveGeneralDecisions)) {
-      entries.add(const _NavEntry(
-        label: 'مركز القرارات',
-        icon: Icons.gavel_rounded,
-        page: DecisionCenterScreen(),
-      ));
-    }
-    if (store.currentUser?.role != UserRole.projectOfficer && store.currentUser?.role != UserRole.employee) {
-      entries.add(const _NavEntry(
-        label: 'التقارير',
-        icon: Icons.assessment_rounded,
-        page: ReportsScreen(),
-      ));
-    }
-
-    // الشكاوى والاقتراحات: يظهر المدخل لمن يرفع أو لمن يتابع الوارد. ومن
-    // رفع شيئاً سابقاً ثم سُحبت منه صلاحية الرفع يبقى المدخل ليتابع ردّه.
-    if (store.canSubmitFeedback || store.canManageFeedback || store.myFeedback.isNotEmpty) {
-      entries.add(const _NavEntry(
-        label: 'الشكاوى والاقتراحات',
-        icon: Icons.forum_outlined,
-        page: FeedbackScreen(),
-      ));
-    }
-    if (store.canTrackPeople) {
-      entries.add(const _NavEntry(label: 'متابعة الأشخاص', icon: Icons.groups_rounded, page: PeopleTrackingScreen()));
-    }
-    if (store.canViewAuditLog) {
-      entries.add(const _NavEntry(label: 'سجل التدقيق', icon: Icons.history_rounded, page: AuditLogScreen()));
-    }
-    if (store.canManageUsers) {
-      entries.add(const _NavEntry(label: 'المستخدمون', icon: Icons.manage_accounts_rounded, page: UserManagementScreen()));
-      entries.add(const _NavEntry(label: 'إدارة الأدوار', icon: Icons.badge_outlined, page: RolesManagementScreen()));
-      entries.add(const _NavEntry(label: 'صلاحيات الأدوار', icon: Icons.key_rounded, page: RolePermissionsScreen()));
-    }
-    if (store.isAdmin) {
-      entries.add(const _NavEntry(
-        label: 'سياسة التسجيل',
-        icon: Icons.how_to_reg_outlined,
-        page: RegistrationSettingsScreen(),
-      ));
-      entries.add(const _NavEntry(label: 'إعدادات المظهر', icon: Icons.palette_outlined, page: AppearanceSettingsScreen()));
-    }
-    return entries;
   }
 
   @override

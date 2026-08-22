@@ -136,6 +136,16 @@ service cloud.firestore {
       let p = realProject(projectId);
       return deptOf(p) == deptId && managerOf(p) == managerUid;
     }
+    // ونظيرُها للأعمال: الحقول المنسوخة على التحديث يجب أن تطابق **العمل
+    // الحقيقي**. بغيرها يكتب الموظف مستنداً يزعم فيه أنه المُسنَد إليه عملاً
+    // ليس له، فيقرأه بعدها بقاعدة القراءة — وهو التفافٌ كاملٌ على النطاق.
+    function realWork(workId) {
+      return get(/databases/$(database)/documents/works/$(workId)).data;
+    }
+    function matchesRealWork(workId, deptId, assigneeUid) {
+      let w = realWork(workId);
+      return deptOf(w) == deptId && w.get('assigneeUid', '') == assigneeUid;
+    }
     // وصول آمن للحقلين على مستندات قد تكون قديمة (سابقة لإضافة managerUid)
     // وتفتقد الحقل أصلاً؛ الوصول المباشر بالنقطة يفشل في هذه الحالة.
     function deptOf(data) { return data.get('departmentId', null); }
@@ -298,6 +308,37 @@ service cloud.firestore {
 
     // ------------------------- الأعمال التشغيلية -------------------------
     // بنود عمل مستقلة عن المشاريع، مُسنَدة لموظف داخل إدارة.
+    // ــــ تحديثات الأعمال اليومية ــــ
+    //
+    // مجموعةٌ مستقلة عن `dailyUpdates` عمداً: تلك تشترط أن يقابل المستندَ
+    // **مشروعٌ حقيقي** (`matchesRealProject`)، وهو شرطٌ أمني به يُمنع من
+    // يكتب تحديثاً أن ينسبه إلى مشروعٍ ليس عضواً فيه. وتوسيعُه ليقبل مستنداً
+    // بلا مشروع يفتح ثغرةً هناك. والعمل ليس مشروعاً: إدارتُه وإسنادُه وحدهما
+    // يقرّران من يراه ومن يكتب فيه — فقاعدتُه صورةٌ من قاعدة `works` نفسها.
+    match /workUpdates/{id} {
+      allow read: if isApproved()
+                  && (canViewAll()
+                      || isMyDeptAny(deptOf(resource.data))
+                      || resource.data.get('assigneeUid', '') == request.auth.uid);
+      // من يكتب: مسؤول النظام، أو صاحب صلاحية إدارة الأعمال في نطاقه، أو
+      // **المُسنَد إليه العمل نفسه** — وهو أكثر من يكتب هنا.
+      //
+      // وشرطُ المطابقة لازم: بغيره يكتب الموظف مستنداً يزعم فيه أنه المُسنَد
+      // إليه عملاً ليس له، فيقرأه بعد ذلك بقاعدة القراءة أعلاه. فيُشترط أن
+      // يقابل التحديثَ **عملٌ حقيقي** إدارتُه وإسنادُه كما كُتبا.
+      allow create: if isApproved()
+                    && matchesRealWork(request.resource.data.workId,
+                                       deptOf(request.resource.data),
+                                       request.resource.data.get('assigneeUid', ''))
+                    && (isAdmin()
+                        || (perm('mw') && (canViewAll() || isMyDeptAny(deptOf(request.resource.data))))
+                        || request.resource.data.get('assigneeUid', '') == request.auth.uid);
+      // السجل غير قابل للتعديل، كما في `dailyUpdates`. والحذف لمسؤول النظام
+      // وحده — ولازمٌ لحذف عملٍ أو إدارةٍ حذفاً متسلسلاً بلا تحديثات يتيمة.
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
     match /works/{id} {
       // يقرأها من يرى كل الإدارات، أو مدير الإدارة صاحبة العمل، أو الموظف
       // المُسنَد إليه العمل نفسه.

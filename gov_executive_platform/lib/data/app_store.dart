@@ -29,6 +29,7 @@ import '../models/report.dart';
 import '../models/role_permissions.dart';
 import '../models/risk.dart';
 import '../models/work_item.dart';
+import '../models/work_update.dart';
 import '../theme/app_theme.dart';
 import '../utils/file_picker.dart';
 import '../utils/formatters.dart';
@@ -109,6 +110,8 @@ class AppStore extends ChangeNotifier {
   /// الأعمال وطلبات الاعتماد كذلك: لكل نطاق تدفّقه، ثم تُدمج — راجع `_mergeById`.
   List<WorkItem> _worksByScope = [];
   List<WorkItem> _worksByAssignment = [];
+  List<WorkUpdate> _workUpdatesByScope = [];
+  List<WorkUpdate> _workUpdatesByAssignment = [];
   List<ApprovalRequest> _requestsByScope = [];
   List<ApprovalRequest> _requestsByMine = [];
   List<FeedbackItem> _feedbackAll = [];
@@ -372,6 +375,9 @@ class AppStore extends ChangeNotifier {
   /// بنود العمل التشغيلية المستقلة عن المشاريع (مجموعة `works`).
   List<WorkItem> works = [];
 
+  /// تحديثات الأعمال اليومية — بنطاقها كما `works` تماماً.
+  List<WorkUpdate> workUpdates = [];
+
   /// الشكاوى والاقتراحات (مجموعة `feedback`)، مرتّبة بالأحدث.
   List<FeedbackItem> feedback = [];
 
@@ -511,8 +517,84 @@ class AppStore extends ChangeNotifier {
     await _db.collection('works').doc(work.id).update(work.toMap());
   }
 
+  /// تحديثات عملٍ بعينه، الأحدث أولاً.
+  List<WorkUpdate> updatesForWork(String workId) =>
+      workUpdates.where((u) => u.workId == workId).toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+
+  /// تحديثات عملٍ في يومٍ بعينه — لتقويم صفحة العمل.
+  List<WorkUpdate> workUpdatesOnDay(String workId, DateTime day) => workUpdates
+      .where((u) =>
+          u.workId == workId &&
+          u.date.year == day.year &&
+          u.date.month == day.month &&
+          u.date.day == day.day)
+      .toList();
+
+  /// يكتب تحديثاً يومياً على عمل، ويرفع نسبة إنجازه معه.
+  ///
+  /// [forDay] اليوم الذي يُسجَّل تحته — اليومُ الحالي إن لم يُحدَّد. ويومٌ
+  /// ماضٍ يُختم بمنتصف نهاره، كما في `addDailyUpdate` بالضبط.
+  ///
+  /// والنسبة تُكتب على العمل **وعلى التحديث** معاً: الأولى هي الحال الآن،
+  /// والثانية هي ما كانت عليه ذلك اليوم — ولولاها لتعذّر أن يُقرأ من السجل
+  /// كيف تقدّم العمل.
+  Future<void> addWorkUpdate({
+    required WorkItem work,
+    required String summary,
+    required double progressPercent,
+    String notes = '',
+    List<Attachment> attachments = const [],
+    DateTime? forDay,
+  }) async {
+    final now = DateTime.now();
+    final stamp = forDay == null || _isSameDay(forDay, now)
+        ? now
+        : DateTime(forDay.year, forDay.month, forDay.day, 12);
+
+    final ref = _db.collection('workUpdates').doc();
+    final batch = _db.batch();
+    batch.set(
+      ref,
+      WorkUpdate(
+        id: ref.id,
+        workId: work.id,
+        departmentId: work.departmentId,
+        assigneeUid: work.assigneeUid,
+        authorUid: currentUser?.id ?? '',
+        authorName: currentUser?.name ?? 'غير معروف',
+        date: stamp,
+        summary: summary,
+        notes: notes,
+        progressPercent: progressPercent,
+        attachments: attachments,
+      ).toMap(),
+    );
+
+    // الحالة تتبع النسبة كما في المشاريع: مئةٌ تعني منجَزاً، وما دونها
+    // يُخرج العمل من «منجَز» إن كان فيه — فلا يبقى مكتوباً عليه «منجَز»
+    // وصاحبه يكتب فيه تحديثاً.
+    final done = progressPercent >= 100;
+    batch.update(_db.collection('works').doc(work.id), {
+      'progressPercent': progressPercent,
+      'status': done ? TaskStatus.done.name : TaskStatus.inProgress.name,
+      if (done) 'completedDate': Timestamp.fromDate(stamp),
+    });
+
+    await batch.commit();
+    await _log('الأعمال التشغيلية', 'حدّث ${currentUser?.name} العمل "${work.title}"');
+  }
+
   Future<String?> deleteWork(WorkItem work) async {
     try {
+      // تحديثات العمل تُحذف معه: قاعدة قراءتها تعتمد على إدارة العمل
+      // وإسناده، فبقاؤها بعد حذفه يترك مستنداتٍ لا يملك أحدٌ حذفها إلا
+      // مسؤول النظام — ولا تُعرض في شيء. وهو نفس ما يفعله حذف المشروع
+      // بتحديثاته.
+      final orphans = await _db.collection('workUpdates').where('workId', isEqualTo: work.id).get();
+      for (final doc in orphans.docs) {
+        await doc.reference.delete();
+      }
       await _db.collection('works').doc(work.id).delete();
       await _log('الأعمال التشغيلية', 'حذف ${currentUser?.name} العمل "${work.title}"');
       return null;
@@ -892,6 +974,9 @@ class AppStore extends ChangeNotifier {
     _projectsByExecution = [];
     _worksByScope = [];
     _worksByAssignment = [];
+    _workUpdatesByScope = [];
+    _workUpdatesByAssignment = [];
+    workUpdates = [];
     _requestsByScope = [];
     _requestsByMine = [];
     _feedbackAll = [];
@@ -1213,6 +1298,41 @@ class AppStore extends ChangeNotifier {
             _db.collection('works').where('assigneeUid', isEqualTo: myUid).snapshots(), (snap) {
           _worksByAssignment = snap.docs.map(WorkItem.fromDoc).toList();
           publishWorks();
+        });
+      }
+    }
+
+    // ــ تحديثات الأعمال: النطاق نفسه حرفاً ــ
+    //
+    // قواعد Firestore **ترفض ولا تُصفّي**: الطلب المفتوح يُرفض كلّه فتظهر
+    // الصفحة فارغة كأن لا بيانات — وهو ما أخفى أعمال الموظف من قبل. فيُنسخ
+    // نطاق `works` نفسه على `workUpdates`، ولذلك يحمل كل تحديثٍ إدارتَه
+    // والمُسنَد إليه منسوخين عن عمله.
+    void publishWorkUpdates() {
+      workUpdates = mergeById<WorkUpdate>((u) => u.id, [_workUpdatesByScope, _workUpdatesByAssignment])
+        ..sort((a, b) => b.date.compareTo(a.date));
+      notifyListeners();
+    }
+
+    if (canViewAllDepartments) {
+      _listen('workUpdates', _db.collection('workUpdates').snapshots(), (snap) {
+        _workUpdatesByScope = snap.docs.map(WorkUpdate.fromDoc).toList();
+        publishWorkUpdates();
+      });
+    } else {
+      final deptIds = myDepartmentIds;
+      if ((isManager || canManageWorks) && deptIds.isNotEmpty) {
+        _listen('workUpdates/إدارتي', _whereDeptIn(_db.collection('workUpdates'), deptIds).snapshots(),
+            (snap) {
+          _workUpdatesByScope = snap.docs.map(WorkUpdate.fromDoc).toList();
+          publishWorkUpdates();
+        });
+      }
+      if (myUid != null) {
+        _listen('workUpdates/المسنَدة إليّ',
+            _db.collection('workUpdates').where('assigneeUid', isEqualTo: myUid).snapshots(), (snap) {
+          _workUpdatesByAssignment = snap.docs.map(WorkUpdate.fromDoc).toList();
+          publishWorkUpdates();
         });
       }
     }

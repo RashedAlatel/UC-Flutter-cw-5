@@ -12,6 +12,7 @@ import '../widgets/meta_row.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
 import 'project_detail_screen.dart';
+import 'work_detail_screen.dart';
 
 /// «المُسنَد إليّ»: مشاريع المستخدم وأعماله في مكان واحد.
 ///
@@ -217,7 +218,12 @@ class _WorkTile extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
+      // العمل يُدخَل كما يُدخل المشروع: كانت البطاقة بلا `onTap` إطلاقاً،
+      // فمن أُسنِد إليه عمل لا يجد موضعاً يقرأ فيه سجلّه ولا يكتب فيه تحديثه.
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => openWorkDetail(context, work),
+        child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -265,6 +271,7 @@ class _WorkTile extends StatelessWidget {
               MetaLine(icon: Icons.account_balance_outlined, text: 'إدارة العمل: ${dept.name}'),
             ],
           ],
+        ),
         ),
       ),
     );

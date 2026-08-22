@@ -15,6 +15,7 @@ import '../widgets/focus_assignment_dialog.dart';
 import '../widgets/kpi_card.dart';
 import '../widgets/notify_dialog.dart';
 import '../widgets/progress_bar.dart';
+import 'work_detail_screen.dart';
 
 /// شاشة "الأعمال": بنود العمل التشغيلية المستقلة عن المشاريع.
 ///
@@ -253,14 +254,18 @@ class _WorkRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final dept = store.departmentById(work.departmentId);
-    final canEdit = store.canEditWork(work);
     final delay = work.delayDays;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: canEdit ? () => showDialog(context: context, builder: (_) => WorkFormDialog(editing: work)) : null,
+        // النقر يفتح **صفحة العمل** لا نافذة التحرير:
+        //
+        // كان يفتح التحرير لمن يملكه، ولا يفعل شيئاً لغيره — فمن يقرأ عملاً
+        // في إدارته لا يجد سبيلاً إلى تفاصيله ولا إلى سجلّه. والصفحة تحمل
+        // زرّ التحرير لمن يملكه، فلم يضع شيء.
+        onTap: () => openWorkDetail(context, work),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(

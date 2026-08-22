@@ -1442,3 +1442,155 @@ export const generateDailyReportNow = onCall(
     return {ok: true, ...result};
   },
 );
+
+// ــــــــــــــــــ حذف حساب المستخدم نهائياً ــــــــــــــــــ
+
+/**
+ * إحصاء ارتباطات المستخدم في المنصة.
+ *
+ * يُستعمل مرّتين: في `inspectUserForDeletion` ليرى مسؤول النظام ما سيمسّه
+ * قبل أن يضغط، وفي `deleteUserAccount` نفسها قبل التنفيذ. والحساب هنا لا
+ * في العميل: العميل لا يقرأ كل المجموعات، ولو قرأها لكان الإحصاء رهين ما
+ * وصله لا ما في قاعدة البيانات.
+ */
+async function userDependencies(uid: string): Promise<{
+  ledProjects: {id: string; name: string}[];
+  memberProjects: number;
+  openWorks: {id: string; title: string}[];
+  openTasks: number;
+  dailyUpdates: number;
+  pendingRequests: number;
+}> {
+  const [led, member, works, tasks, updates, workUpdates, requests] = await Promise.all([
+    db().collection("projects").where("managerUids", "array-contains", uid).get(),
+    db().collection("projects").where("executorUids", "array-contains", uid).get(),
+    db().collection("works").where("assigneeUid", "==", uid).get(),
+    db().collection("tasks").where("assigneeUid", "==", uid).get(),
+    db().collection("dailyUpdates").where("authorUid", "==", uid).get(),
+    db().collection("workUpdates").where("authorUid", "==", uid).get(),
+    db().collection("approvalRequests").where("requestedByUid", "==", uid)
+      .where("status", "==", "pending").get(),
+  ]);
+
+  // «مفتوح» = غير مغلق. و`awaitingApproval` مفتوحٌ عمداً: أُفيد بإتمامه ولم
+  // يُعتمد بعد، فحذفُ من عليه يترك بنداً على مكتب معتمِدٍ بلا صاحب.
+  const isOpen = (s: unknown) => s !== "done";
+
+  return {
+    ledProjects: led.docs.map((d) => ({id: d.id, name: (d.data().name as string) ?? d.id})),
+    memberProjects: member.size,
+    openWorks: works.docs
+      .filter((d) => isOpen(d.data().status))
+      .map((d) => ({id: d.id, title: (d.data().title as string) ?? d.id})),
+    openTasks: tasks.docs.filter((d) => isOpen(d.data().status)).length,
+    dailyUpdates: updates.size + workUpdates.size,
+    pendingRequests: requests.size,
+  };
+}
+
+/** رسالة الرفض حين تبقى على المستخدم مسؤوليات مفتوحة — تسمّيها ولا تُبهم. */
+function blockingReason(deps: Awaited<ReturnType<typeof userDependencies>>): string | null {
+  const parts: string[] = [];
+  if (deps.ledProjects.length > 0) {
+    const names = deps.ledProjects.slice(0, 5).map((p) => `«${p.name}»`).join("، ");
+    const more = deps.ledProjects.length > 5 ? ` وغيرها` : "";
+    parts.push(`يقود ${deps.ledProjects.length} مشروعاً: ${names}${more}`);
+  }
+  if (deps.openWorks.length > 0) {
+    const names = deps.openWorks.slice(0, 5).map((w) => `«${w.title}»`).join("، ");
+    const more = deps.openWorks.length > 5 ? ` وغيرها` : "";
+    parts.push(`وعليه ${deps.openWorks.length} عملاً غير مغلق: ${names}${more}`);
+  }
+  if (deps.openTasks > 0) parts.push(`و${deps.openTasks} مهمة مشروع غير مغلقة`);
+  if (parts.length === 0) return null;
+  return `لا يُحذف هذا الحساب وعليه مسؤوليات مفتوحة — ${parts.join("، ")}. ` +
+    "انقل هذه المسؤوليات إلى غيره أولاً (من بطاقة فريق المشروع ومن نموذج العمل)، " +
+    "أو أوقف الحساب بدل حذفه فيبقى أثره كاملاً ولا يستطيع الدخول.";
+}
+
+/**
+ * يعرض ما سيمسّه الحذف قبل تنفيذه — لمسؤول النظام وحده.
+ *
+ * الحذف النهائي لا يُلغى بـ«تراجع»، فلا يُعرض زرُّه قبل أن يُقال بالضبط
+ * ماذا على هذا الحساب.
+ */
+export const inspectUserForDeletion = onCall(async (request) => {
+  requireAdmin(request);
+  const {uid} = (request.data ?? {}) as {uid?: string};
+  if (!uid) throw new HttpsError("invalid-argument", "الرجاء تحديد المستخدم");
+  const deps = await userDependencies(uid);
+  return {ok: true, ...deps, blockingReason: blockingReason(deps)};
+});
+
+/**
+ * حذفٌ نهائي: **سجل المستخدم وحساب الدخول معاً**.
+ *
+ * ــــ ولماذا دالّة، ولا يُحذف السجل من العميل؟ ــــ
+ *
+ * لأن حذف السجل من قاعدة البيانات **لا يحذف حساب المصادقة**. فمن حُذف من
+ * جدول المستخدمين يبقى قادراً على تسجيل الدخول، ويُنشئ سجلّاً جديداً
+ * بحالة «بانتظار الموافقة» ثم يعود. وكانت قاعدة `/users` تقول
+ * `allow delete: if isAdmin()` — أي أن هذا يقع فعلاً بضغطةٍ من الشاشة.
+ *
+ * فصارت القاعدة `allow delete: if false`، والحذف لا يقع إلا هنا حيث
+ * يُحذف الاثنان معاً — فلا يبقى حساب دخولٍ يتيم أبداً.
+ *
+ * والتحديثات اليومية **لا تُحذف**: هي سجلّ الوزارة لا بيانات شخصية، ويبقى
+ * اسم كاتبها منسوخاً عليها كما هو.
+ */
+export const deleteUserAccount = onCall(async (request) => {
+  const auth = requireAdmin(request);
+  const {uid, confirmName} = (request.data ?? {}) as {uid?: string; confirmName?: string};
+  if (!uid) throw new HttpsError("invalid-argument", "الرجاء تحديد المستخدم");
+  if (uid === auth.uid) {
+    throw new HttpsError("failed-precondition", "لا يحذف مسؤول النظام حسابه بنفسه");
+  }
+
+  const userRef = db().collection("users").doc(uid);
+  const userDoc = await userRef.get();
+  if (!userDoc.exists) throw new HttpsError("not-found", "المستخدم غير موجود");
+  const user = userDoc.data()!;
+  const name = (user.name as string) ?? uid;
+
+  // تأكيدٌ بالاسم لا بزرّ: الحذف النهائي لا يُلغى، وضغطةٌ واحدة بالخطأ على
+  // صفٍّ في قائمة مئتَي موظف تمحو الحساب الخطأ.
+  if ((confirmName ?? "").trim() !== name.trim()) {
+    throw new HttpsError(
+      "failed-precondition",
+      `للتأكيد اكتب اسم المستخدم كما هو مسجَّل: «${name}»`,
+    );
+  }
+
+  const deps = await userDependencies(uid);
+  const blocked = blockingReason(deps);
+  if (blocked) throw new HttpsError("failed-precondition", blocked);
+
+  // **حساب الدخول أولاً**: لو أخفق حذف السجل بعده بقي حسابٌ لا يدخل وسجلٌّ
+  // ظاهر — وهو وضعٌ يُرى ويُصلَح. والعكس (سجلٌّ محذوف وحسابُ دخولٍ حيّ) لا
+  // يُرى في المنصة إطلاقاً، وهو الوضع الذي بُنيت هذه الدالّة لمنعه.
+  try {
+    await admin.auth().deleteUser(uid);
+  } catch (e) {
+    const code = (e as {code?: string}).code;
+    // حسابٌ محذوف من المصادقة سلفاً ليس عطلاً: بقي سجلّه، وحذفُه هو المطلوب.
+    if (code !== "auth/user-not-found") {
+      logger.error("deleteUserAccount: تعذّر حذف حساب المصادقة", e);
+      throw new HttpsError(
+        "internal",
+        "تعذّر حذف حساب الدخول، ولم يُحذف السجل — فلا يبقى حسابُ دخولٍ بلا سجل. " +
+          ((e as Error).message ?? ""),
+      );
+    }
+  }
+  await userRef.delete();
+
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "حذف حساب مستخدم نهائياً",
+    `حُذف حساب «${name}» (${(user.email as string) ?? ""}) من سجل المستخدمين ومن حساب الدخول معاً. ` +
+      `وكان عضواً في ${deps.memberProjects} مشروعاً، وكتب ${deps.dailyUpdates} تحديثاً يومياً ` +
+      `(تبقى التحديثات في سجل المنصة باسمه)، وله ${deps.pendingRequests} طلباً معلّقاً.`,
+  );
+
+  return {ok: true, name};
+});

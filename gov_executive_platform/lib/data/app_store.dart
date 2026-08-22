@@ -29,6 +29,7 @@ import '../models/project_category.dart';
 import '../models/project_task.dart';
 import '../models/report.dart';
 import '../models/role_permissions.dart';
+import '../models/user_deletion_report.dart';
 import '../models/risk.dart';
 import '../models/work_item.dart';
 import '../models/work_update.dart';
@@ -1888,6 +1889,35 @@ class AppStore extends ChangeNotifier {
       return null;
     } on FirebaseFunctionsException catch (e) {
       return e.message ?? 'تعذّر ضبط الصلاحيات الفردية';
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  // ــــــــــــــ حذف حساب المستخدم نهائياً ــــــــــــــ
+
+  /// يقرأ ما سيمسّه الحذف قبل تنفيذه.
+  ///
+  /// والإحصاء يجري على الخادم لا هنا: العميل لا يقرأ كل المجموعات، ولو
+  /// قرأها لكان الإحصاء رهين ما وصله لا ما في قاعدة البيانات — فيُعرض
+  /// «لا شيء عليه» لحسابٍ يقود خمسة مشاريع خارج نطاق قارئ الشاشة.
+  Future<UserDeletionReport> inspectUserForDeletion(String uid) async {
+    final res = await _functions.httpsCallable('inspectUserForDeletion').call({'uid': uid});
+    return UserDeletionReport.fromMap(Map<String, dynamic>.from(res.data as Map));
+  }
+
+  /// يحذف سجل المستخدم **وحساب دخوله معاً**.
+  ///
+  /// [confirmName] اسم المستخدم كما هو مسجَّل — يفحصه الخادم أيضاً، فالتأكيد
+  /// حارسٌ لا تجميل.
+  Future<String?> deleteUserAccount(String uid, String confirmName) async {
+    try {
+      await _functions
+          .httpsCallable('deleteUserAccount')
+          .call({'uid': uid, 'confirmName': confirmName});
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر حذف الحساب';
     } catch (e) {
       return e.toString();
     }

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/app_user.dart';
 import '../models/enums.dart';
+import '../models/user_deletion_report.dart';
 import '../theme/app_theme.dart';
 import '../widgets/command_band.dart';
 import '../widgets/notify_dialog.dart';
@@ -349,6 +350,15 @@ class _UserRowState extends State<_UserRow> {
                   : Icon(active ? Icons.block_rounded : Icons.check_circle_outline_rounded, size: 19),
               tooltip: active ? 'إيقاف الحساب' : 'إعادة التفعيل',
               onPressed: _busy ? null : _toggleStatus,
+            ),
+          // الحذف النهائي — آخر الأفعال وأحمرُها، ولا يُعرض لمسؤول النظام
+          // على نفسه (والخادم يرفضه كذلك).
+          if (u.id != store.currentUser?.id)
+            IconButton(
+              icon: const Icon(Icons.delete_forever_outlined, size: 19, color: AppColors.danger),
+              tooltip: 'حذف الحساب نهائياً (هو وحساب الدخول معاً)',
+              onPressed: () =>
+                  showDialog(context: context, builder: (_) => _DeleteUserDialog(user: u)),
             ),
     ];
 
@@ -833,6 +843,268 @@ class _LegacyRoleDialogState extends State<_LegacyRoleDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق')),
       ],
+    );
+  }
+}
+
+/// نافذة الحذف النهائي: تُحصي أولاً، ثم تسأل، ثم تحذف.
+///
+/// ــــ ثلاثة قرارات فيها، وكلٌّ منها لسبب ــــ
+///
+/// ١) **الإحصاء قبل الزرّ**: الحذف النهائي لا يُلغى بـ«تراجع». فلا يُعرض
+///    زرُّه قبل أن يُقال بالضبط ما على هذا الحساب — كم مشروعاً يقود، وكم
+///    عملاً عليه، وكم تحديثاً كتب.
+///
+/// ٢) **كتابة الاسم للتأكيد**: قائمة مئتَي موظف، وصفوفها متشابهة، وضغطةٌ
+///    واحدة بالخطأ تمحو الحساب الخطأ. والخادم يفحص الاسم أيضاً — فالتأكيد
+///    حارسٌ لا تجميل.
+///
+/// ٣) **الإيقاف معروضٌ بجانبه دائماً**: هو الخيار الصحيح في أغلب الحالات —
+///    يمنع الدخول ويحفظ الأثر كاملاً. والحذف لمن لا سجلّ له يُحفظ.
+class _DeleteUserDialog extends StatefulWidget {
+  final AppUser user;
+  const _DeleteUserDialog({required this.user});
+
+  @override
+  State<_DeleteUserDialog> createState() => _DeleteUserDialogState();
+}
+
+class _DeleteUserDialogState extends State<_DeleteUserDialog> {
+  final _confirmCtrl = TextEditingController();
+  UserDeletionReport? _report;
+  String? _loadError;
+  bool _deleting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _confirmCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final r = await context.read<AppStore>().inspectUserForDeletion(widget.user.id);
+      if (!mounted) return;
+      setState(() => _report = r);
+    } catch (e) {
+      if (!mounted) return;
+      // ولا يُعرض زرّ الحذف حين يخفق الإحصاء: الحذف بلا معرفة ما يمسّه هو
+      // بالضبط ما بُنيت هذه النافذة لمنعه.
+      setState(() => _loadError = e.toString());
+    }
+  }
+
+  Future<void> _delete() async {
+    setState(() => _deleting = true);
+    final store = context.read<AppStore>();
+    final error = await store.deleteUserAccount(widget.user.id, _confirmCtrl.text);
+    if (!mounted) return;
+    setState(() => _deleting = false);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('حُذف حساب «${widget.user.name}» من المنصة ومن حساب الدخول معاً.')),
+    );
+  }
+
+  Future<void> _suspend() async {
+    setState(() => _deleting = true);
+    final error =
+        await context.read<AppStore>().setUserStatus(widget.user, UserStatus.suspended);
+    if (!mounted) return;
+    setState(() => _deleting = false);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('أُوقف حساب «${widget.user.name}» — لا يستطيع الدخول، وأثره باقٍ كاملاً.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = _report;
+    final nameMatches = _confirmCtrl.text.trim() == widget.user.name.trim();
+
+    return AlertDialog(
+      title: Text('حذف حساب «${widget.user.name}» نهائياً'),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // النقطة التقنية التي يجهلها أكثر من يضغط «حذف»: محو السجل
+              // وحده يترك حساب الدخول حيّاً، فيعود صاحبه بحسابٍ جديد.
+              const _DeleteNote(
+                icon: Icons.info_outline_rounded,
+                color: AppColors.info,
+                text: 'الحذف هنا يمحو سجل المستخدم **وحساب الدخول معاً**، فلا يبقى '
+                    'قادراً على تسجيل الدخول. ولا يُلغى بعد تنفيذه.',
+              ),
+              const SizedBox(height: AppSpace.md),
+              if (_loadError != null)
+                _DeleteNote(
+                  icon: Icons.error_outline_rounded,
+                  color: AppColors.danger,
+                  text: 'تعذّر إحصاء ارتباطات هذا الحساب، فلا يُعرض زرّ الحذف: '
+                      'الحذف بلا معرفة ما يمسّه هو الخطر نفسه.\n$_loadError',
+                )
+              else if (r == null)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else ...[
+                const Text('ما على هذا الحساب:',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: AppSpace.xs),
+                _Stat(label: 'مشاريع يقودها', value: r.ledProjects.length),
+                if (r.ledProjects.isNotEmpty)
+                  _Names(names: [for (final p in r.ledProjects) p.label]),
+                _Stat(label: 'مشاريع هو منفّذ فيها', value: r.memberProjects),
+                _Stat(label: 'أعمال مُسنَدة إليه غير مغلقة', value: r.openWorks.length),
+                if (r.openWorks.isNotEmpty)
+                  _Names(names: [for (final w in r.openWorks) w.label]),
+                _Stat(label: 'مهام مشاريع غير مغلقة', value: r.openTasks),
+                _Stat(label: 'تحديثات يومية كتبها', value: r.dailyUpdates),
+                _Stat(label: 'طلبات معلّقة قدّمها', value: r.pendingRequests),
+                const SizedBox(height: AppSpace.md),
+                if (!r.canDelete)
+                  _DeleteNote(
+                    icon: Icons.block_rounded,
+                    color: AppColors.warning,
+                    text: r.blockingReason!,
+                  )
+                else ...[
+                  if (r.hasHistory)
+                    const _DeleteNote(
+                      icon: Icons.history_rounded,
+                      color: AppColors.warning,
+                      text: 'لهذا الحساب سجلّ عمل. والتحديثات اليومية لا تُحذف — '
+                          'هي سجلّ الوزارة، ويبقى اسم كاتبها عليها. '
+                          'والأولى في هذه الحالة **إيقاف** الحساب لا حذفه.',
+                    ),
+                  const SizedBox(height: AppSpace.md),
+                  Text('للتأكيد اكتب اسم المستخدم كما هو مسجَّل: ${widget.user.name}'),
+                  const SizedBox(height: AppSpace.xs),
+                  TextField(
+                    controller: _confirmCtrl,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      hintText: 'اسم المستخدم',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ],
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _deleting ? null : () => Navigator.of(context).pop(),
+          child: const Text('إلغاء'),
+        ),
+        // الإيقاف معروضٌ دائماً: هو الخيار الصحيح في أغلب الحالات، وعرضُه
+        // هنا يجعل من فتح النافذة يخرج بالقرار الأصوب بلا أن يغلقها ويبحث.
+        if (widget.user.status == UserStatus.approved)
+          TextButton(
+            onPressed: _deleting ? null : _suspend,
+            child: const Text('أوقف الحساب بدل حذفه'),
+          ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+          onPressed: (r != null && r.canDelete && nameMatches && !_deleting) ? _delete : null,
+          child: Text(_deleting ? 'جارٍ الحذف…' : 'احذف نهائياً'),
+        ),
+      ],
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  final String label;
+  final int value;
+  const _Stat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label,
+                style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+          ),
+          Text('$value',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: value > 0 ? AppColors.textPrimary : AppColors.textSecondary,
+              )),
+        ],
+      ),
+    );
+  }
+}
+
+/// الأسماء لا الأعداد: «يقود ٣ مشاريع» لا يقول لمن يقرأها أيّها، ونقلُ
+/// المسؤولية يحتاج أن يعرفها.
+class _Names extends StatelessWidget {
+  final List<String> names;
+  const _Names({required this.names});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: AppSpace.md, bottom: 4),
+      child: Text(
+        names.map((n) => '«$n»').join('، '),
+        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+      ),
+    );
+  }
+}
+
+class _DeleteNote extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String text;
+  const _DeleteNote({required this.icon, required this.color, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpace.sm),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: AppSpace.sm),
+          Expanded(child: Text(text.replaceAll('**', ''), style: const TextStyle(fontSize: 13))),
+        ],
+      ),
     );
   }
 }

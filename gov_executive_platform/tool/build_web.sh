@@ -99,7 +99,9 @@ if [ -n "$DIRTY" ]; then
   echo "⚠ لديك تعديلات محلية غير محفوظة — وهي ما يمنع «git pull» من الدمج:"
   echo "$DIRTY_FILES" | sed 's/^/     • /'
   echo "   لرؤيتها:  git diff"
-  echo "   للتخلّص منها:  git reset --hard origin/$BRANCH"
+  # هذه الملفات بأسمائها لا المستودع كله، و`:/` يثبّتها عند الجذر —
+  # راجع التعليل في `deploy.sh`.
+  echo "   ولاسترجاعها وحدها:  git checkout --$(echo "$DIRTY_FILES" | sed 's|^| :/|' | tr -d '\n')"
 fi
 
 flutter build web --release \

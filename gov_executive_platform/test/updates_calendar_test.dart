@@ -52,7 +52,22 @@ Project _project() => Project(
 void main() {
   group('خلاصة اليوم في التقويم', () {
     final today = dayOnly(DateTime.now());
-    final twoDaysAgo = today.subtract(const Duration(days: 2));
+
+    // ــــ الأسبوع الماضي لا «قبل يومين» ــــ
+    //
+    // كان الاختبار يضع التحديث على `today - 2`، وهو **يقع خارج الأسبوع
+    // المعروض** متى كان اليوم أحداً أو إثنين: الأسبوع يبدأ بالأحد
+    // (`_weekStart`)، فقبلَ يومين من الأحد جمعةُ الأسبوع الفائت.
+    //
+    // فكان الاختبار يمرّ أو يسقط **بحسب يوم تشغيله**. ومرّ شهوراً ثم سقط
+    // ثلاثةً دفعةً واحدة يوم أحدٍ بلا أن يتغيّر شيء في الشيفرة — وهو أسوأ
+    // ما يكون: إخفاقٌ لا يدلّ على عطل، فيُعلّم قارئه تجاهل الحمرة.
+    //
+    // وعلاجُه أن يُنقَل العرض أسبوعاً إلى الوراء: كل أيامه ماضية مهما كان
+    // اليوم، فالاختبار يقيس ما يدّعي قياسه في كل يوم من أيام السنة.
+    final lastWeekStart =
+        today.subtract(Duration(days: today.weekday % 7 + 7));
+    final dayInLastWeek = lastWeekStart.add(const Duration(days: 2));
 
     Future<void> pump(WidgetTester tester, Map<DateTime, DayDigest> digests,
         {void Function(DateTime)? onOpen}) async {
@@ -65,7 +80,8 @@ void main() {
           child: Scaffold(
             body: SingleChildScrollView(
               child: UpdatesCalendar(
-                firstDay: DateTime(today.year, today.month, 1),
+                // يتّسع للأسبوع الماضي ولو عبَر حدّ الشهر.
+                firstDay: today.subtract(const Duration(days: 60)),
                 lastDay: today,
                 digests: digests,
                 onOpenDay: onOpen ?? (_) {},
@@ -75,6 +91,14 @@ void main() {
         ),
       ));
       await tester.pump();
+    }
+
+    /// إلى العرض الأسبوعي، ثم أسبوعاً إلى الوراء.
+    Future<void> toLastWeek(WidgetTester tester) async {
+      await tester.tap(find.text('أسبوعي'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('الأسبوع السابق'));
+      await tester.pumpAndSettle();
     }
 
     testWidgets('المدَيان معروضان: شهري وأسبوعي', (tester) async {
@@ -88,16 +112,15 @@ void main() {
       // في الأسبوعي، والحال في الشهري. ووعدُ ملخّصٍ في خمسين بكسلاً وعدٌ
       // لا يقع.
       await pump(tester, {
-        twoDaysAgo: DayDigest(
-          day: twoDaysAgo,
+        dayInLastWeek: DayDigest(
+          day: dayInLastWeek,
           summary: 'تم الانتهاء من الربط',
           count: 1,
           progress: 75,
           hasBlocker: true,
         ),
       });
-      await tester.tap(find.text('أسبوعي'));
-      await tester.pumpAndSettle();
+      await toLastWeek(tester);
 
       expect(find.text('تم الانتهاء من الربط'), findsOneWidget);
       expect(find.textContaining('إنجاز 75'), findsOneWidget);
@@ -106,16 +129,14 @@ void main() {
 
     testWidgets('واليوم الذي مضى بلا تحديث يقول ذلك', (tester) async {
       await pump(tester, const {});
-      await tester.tap(find.text('أسبوعي'));
-      await tester.pumpAndSettle();
+      await toLastWeek(tester);
       expect(find.textContaining('لا يوجد تحديث لهذا اليوم'), findsWidgets);
     });
 
     testWidgets('والنقر على يوم يُبلّغ به', (tester) async {
       DateTime? opened;
       await pump(tester, const {}, onOpen: (d) => opened = d);
-      await tester.tap(find.text('أسبوعي'));
-      await tester.pumpAndSettle();
+      await toLastWeek(tester);
       await tester.tap(find.textContaining('لا يوجد تحديث لهذا اليوم').first);
       await tester.pump();
       expect(opened, isNotNull);

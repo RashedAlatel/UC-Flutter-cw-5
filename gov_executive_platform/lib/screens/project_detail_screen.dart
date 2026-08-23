@@ -10,6 +10,7 @@ import '../models/project.dart';
 import '../models/project_task.dart';
 import '../theme/app_theme.dart';
 import '../utils/file_download.dart';
+import '../widgets/responsive_header_row.dart';
 import '../widgets/project_team_card.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
@@ -135,11 +136,8 @@ class ProjectDetailScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
+                  ResponsiveHeaderRow(
+                    title: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(project.name, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
@@ -168,9 +166,9 @@ class ProjectDetailScreen extends StatelessWidget {
                                   ),
                               ],
                             ),
-                          ],
-                        ),
-                      ),
+                    ],
+                    ),
+                    actions: [
                       StatusChip(status: project.effectiveStatus),
                       if (store.canSendNotifications)
                         IconButton(

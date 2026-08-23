@@ -267,8 +267,12 @@ class WorkDetailScreen extends StatelessWidget {
           const SizedBox(height: 22),
           Row(
             children: [
-              const Text('سجل التحديثات اليومية',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+              // `Flexible` لا نصٌّ حرّ: بلا حدٍّ يُرسم العنوان بطوله كاملاً
+              // ويطفح الصفُّ يميناً — وقد قِيس ٢٦ بكسل على آيفون SE.
+              const Flexible(
+                child: Text('سجل التحديثات اليومية',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+              ),
               const SizedBox(width: 8),
               Text('(${updates.length})',
                   style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),

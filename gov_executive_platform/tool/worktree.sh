@@ -56,3 +56,54 @@ worktree_dirt_is_generated() {
   done
   echo yes
 }
+
+# "yes" إن كان في الدرن ما يمسّه الوارد من الخادم.
+#
+# ــــ لماذا هذا السؤال بالذات؟ ــــ
+#
+# كان الحارس يقف على **أي** ملفٍّ متّسخ، ويقول إن ذلك «يمنع git pull من
+# الدمج فتبقى شيفرتك قديمة». والحجّة غير صحيحة، وقد اختُبرت لا استُنتجت:
+# مستودعان، وملفٌّ متّسخ لا يمسّه الوارد، ثم سحبٌ — فنجح السحب.
+#
+# فـ`git` لا يرفض الدمج إلا حين يكون المتّسخ **مما يمسّه الوارد نفسه**.
+# وهذا ما تسأله هذه الدالّة، لا «هل هناك درن؟».
+#
+# ومن لا يجد الفرع البعيد (شبكةٌ منقطعة، أو فرعٌ لم يُرفع بعد) يُجاب "no":
+# لا وارِدَ يُعرف، فلا يُدَّعى تعارضٌ لا دليل عليه. والحمايةُ التي تهمّ —
+# ألّا تُنشر شيفرة قديمة — يحرسها فحصُ التأخّر لا هذه.
+worktree_dirt_blocks_pull() {
+  local files="$1" branch="$2" incoming f g
+  [ -z "$files" ] && { echo no; return; }
+  incoming="$(git diff --name-only "HEAD..origin/$branch" 2>/dev/null)" || { echo no; return; }
+  [ -z "$incoming" ] && { echo no; return; }
+  for f in $files; do
+    for g in $incoming; do
+      [ "$f" = "$g" ] && { echo yes; return; }
+    done
+  done
+  echo no
+}
+
+# أسماء الملفات المتّسخة التي يمسّها الوارد — وهي وحدها ما يُسمّى عند الوقوف.
+worktree_conflicting_files() {
+  local files="$1" branch="$2" incoming f g
+  incoming="$(git diff --name-only "HEAD..origin/$branch" 2>/dev/null)" || return 0
+  for f in $files; do
+    for g in $incoming; do
+      [ "$f" = "$g" ] && { echo "$f"; break; }
+    done
+  done
+}
+
+# "yes" إن كان فرق الملفات المتّسخة يختفي بتجاهل المسافات.
+#
+# سببٌ يتكرّر بلا أن يُرى: محرّرٌ يبدّل نهايات الأسطر أو يُقلّم مسافةً، فيعود
+# الملف «معدَّلاً» بعد كل استرجاع و`git diff` لا يُظهر شيئاً للعين.
+worktree_dirt_is_whitespace_only() {
+  git diff --quiet 2>/dev/null && { echo no; return; }
+  if git diff --quiet --ignore-all-space --ignore-blank-lines 2>/dev/null; then
+    echo yes
+  else
+    echo no
+  fi
+}

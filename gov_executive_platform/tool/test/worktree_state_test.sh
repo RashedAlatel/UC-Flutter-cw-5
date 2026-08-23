@@ -132,6 +132,75 @@ for f in tool/deploy.sh tool/build_web.sh; do
   check "  ولا يقترح المنجنيق علاجاً للتعديلات المحلية" yes "$r"
 done
 
+
+# ــــ هل الدرن يمنع السحب فعلاً؟ ــــ
+#
+# كان الحارس يقف على **أي** ملفٍّ متّسخ ويقول إن ذلك «يمنع git pull من
+# الدمج فتبقى شيفرتك قديمة». وأوقف نشراً مرّتين على إعداد محلّل الشيفرة.
+#
+# والحجّة تُقاس هنا **بمستودعات حقيقية** لا بنصٍّ يُبحث عنه: يُبنى مستودعان،
+# ويُتّسخ ملف، ويُسحب — فيُرى ما يجري. فحارسٌ مبنيٌّ على ظنٍّ عن سلوك `git`
+# هو ما أوقع هذا العطل أصلاً.
+echo ""
+echo "الدرن والسحب — على مستودعات حقيقية:"
+
+TMP="$(mktemp -d 2>/dev/null || mktemp -d -t wtst)"
+trap 'rm -rf "$TMP"' EXIT
+
+# مستودعٌ عليه ملفّان: إعدادٌ لا يمسّه أحد، وشيفرةٌ يغيّرها الخادم.
+(
+  cd "$TMP" || exit 1
+  git init -q up && cd up || exit 1
+  git config user.email t@t && git config user.name t
+  printf 'lint\n' > cfg.yaml
+  printf 'code\n' > app.dart
+  git add -A && git commit -qm base
+  cd "$TMP" || exit 1
+  git clone -q up down
+  cd up || exit 1
+  printf 'code v2\n' > app.dart
+  git commit -qam next
+  cd "$TMP/down" || exit 1
+  git config user.email t@t && git config user.name t
+  git fetch -q origin
+) >/dev/null 2>&1
+
+BR="$(cd "$TMP/down" && git rev-parse --abbrev-ref HEAD)"
+
+# ١) ملفٌّ متّسخ لا يمسّه الوارد.
+printf 'lint LOCAL\n' > "$TMP/down/cfg.yaml"
+check "ما لا يمسّه الوارد لا يُوصف بأنه يمنع السحب" no \
+  "$(cd "$TMP/down" && worktree_dirt_blocks_pull "cfg.yaml" "$BR")"
+
+# وهذه هي الشهادة القاطعة: السحب **ينجح** رغم الدرن.
+PULLED=fail
+(cd "$TMP/down" && git pull -q origin "$BR" >/dev/null 2>&1) && PULLED=ok
+check "والسحب ينجح فعلاً معه" ok "$PULLED"
+
+# ٢) ملفٌّ متّسخ **يمسّه** الوارد — وهنا وحدها الحجّة صحيحة.
+(
+  cd "$TMP/up" || exit 1
+  printf 'code v3\n' > app.dart
+  git commit -qam third
+  cd "$TMP/down" || exit 1
+  git fetch -q origin
+) >/dev/null 2>&1
+printf 'code MINE\n' > "$TMP/down/app.dart"
+check "وما يمسّه الوارد يُوصف بأنه يمنع السحب" yes \
+  "$(cd "$TMP/down" && worktree_dirt_blocks_pull "app.dart" "$BR")"
+check "ويُسمّى وحده عند الوقوف" "app.dart" \
+  "$(cd "$TMP/down" && worktree_conflicting_files "app.dart
+cfg.yaml" "$BR")"
+
+# والسحب يُرفض فعلاً — فالوقوف هنا في محلّه.
+REFUSED=ok
+(cd "$TMP/down" && git pull -q origin "$BR" >/dev/null 2>&1) && REFUSED=merged
+check "والسحب يُرفض فعلاً" ok "$REFUSED"
+
+# ٣) فرعٌ لا وارِدَ له: لا يُدَّعى تعارضٌ لا دليل عليه.
+check "وفرعٌ مجهول لا يُنتج ادّعاء تعارض" no \
+  "$(cd "$TMP/down" && worktree_dirt_blocks_pull "app.dart" "لا-وجود-له")"
+
 echo ""
 if [ "$fail" -gt 0 ]; then
   echo "نجح: $pass · فشل: $fail"

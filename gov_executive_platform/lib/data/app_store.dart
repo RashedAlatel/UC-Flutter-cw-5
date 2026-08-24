@@ -2267,16 +2267,28 @@ class AppStore extends ChangeNotifier {
   /// حسابات المستخدمين المرتبطة بمشروع: مديره المُسنَد إليه، إضافة إلى
   /// المنفذين المطابَقين بالاسم. المشروع يخزّن أسماء المنفذين لا معرّفاتهم،
   /// فالمطابقة بالاسم أفضل المتاح؛ من لا يُطابَق يبقى للاختيار اليدوي.
+  /// من يُراسَل في هذا المشروع: مديروه ومنفّذوه.
+  ///
+  /// ــ`managerUids` لا `managerUid`ــ: كان يُطابَق المفرد الموروث — أي
+  /// أوّلَ المديرين وحده — فلا يصل المديرَ الثاني فصاعداً إشعارٌ على مشروعٍ
+  /// هو مسؤولٌ عنه.
+  ///
+  /// وـ[AppUser.isContactable] تُسقط توأمَ الحساب الموقوف المندمج: المطابقة
+  /// بالاسم أدناه لا تفرّق بينه وبين الحساب الجديد، فيصل الشخصَ بريدان.
   List<AppUser> recipientsForProject(Project project) {
     final names = project.executorNames.map((e) => e.trim()).toSet();
     return users
-        .where((u) => u.id == project.managerUid || names.contains(u.name.trim()))
+        .where((u) =>
+            u.isContactable &&
+            (project.managerUids.contains(u.id) ||
+                project.executorUids.contains(u.id) ||
+                names.contains(u.name.trim())))
         .toList();
   }
 
   /// حساب الموظف المُسنَد إليه العمل (مطابقة بالمعرّف لا بالاسم).
   List<AppUser> recipientsForWork(WorkItem work) =>
-      users.where((u) => u.id == work.assigneeUid).toList();
+      users.where((u) => u.isContactable && u.id == work.assigneeUid).toList();
   bool get canDeleteRecords => hasPermission(RolePermission.deleteRecords);
 
   /// اعتماد "قرار تنفيذي" عام يجوز للمسؤول أو المستخدم التنفيذي أو دور مخصص

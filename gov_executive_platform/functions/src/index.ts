@@ -8,7 +8,11 @@ import {notifyUser} from "./notify";
 import {notificationSecrets} from "./secrets";
 import {runDailyReport} from "./daily_report_job";
 import {judgeOverride} from "./approval_override";
-import {pickMergeCandidate} from "./account_merge";
+import {
+  pickMergeCandidate,
+  projectMemberPatch,
+  pruneUidFromReportSettings,
+} from "./account_merge";
 
 admin.initializeApp();
 
@@ -1544,8 +1548,18 @@ async function mergeAccountsIfMatched(
   const oldName = (oldDoc.data().name as string) ?? oldUid;
   const oldEmail = (oldDoc.data().email as string) ?? email;
 
+  // ــ المستندات التابعة تحمل نسخةً من `managerUid` يوم أُنشئت ــ
+  //
+  // المهام والتحديثات اليومية والمخاطر والعوائق تُنسخ عليها إدارةُ المشروع
+  // ومديرُه ليُفحص الوصول إليها بحقلٍ على المستند نفسه لا باستعلامٍ عن
+  // المشروع (القواعد تقرؤها في `canAccessProjectDoc`). فإن بقيت النسخة على
+  // معرِّفٍ لم يعد لصاحبه حساب، سقط منها صاحبُ الحساب الجديد.
+  const staleChild = (col: string) =>
+    db().collection(col).where("managerUid", "==", oldUid).get();
+
   const [worksAssignee, worksCreated, tasksAssignee, tasksCreated,
-    projectsManaged, projectsExecuted, projectsCreated] = await Promise.all([
+    projectsManaged, projectsExecuted, projectsCreated,
+    childTasks, childUpdates, childRisks, childBlockers] = await Promise.all([
     db().collection("works").where("assigneeUid", "==", oldUid).get(),
     db().collection("works").where("createdByUid", "==", oldUid).get(),
     db().collection("tasks").where("assigneeUid", "==", oldUid).get(),
@@ -1553,6 +1567,10 @@ async function mergeAccountsIfMatched(
     db().collection("projects").where("managerUids", "array-contains", oldUid).get(),
     db().collection("projects").where("executorUids", "array-contains", oldUid).get(),
     db().collection("projects").where("createdByUid", "==", oldUid).get(),
+    staleChild("tasks"),
+    staleChild("dailyUpdates"),
+    staleChild("risks"),
+    staleChild("blockers"),
   ]);
 
   // مستندٌ واحد قد يظهر في أكثر من استعلام (مُسنَدٌ إليه ومنشئٌ له في آنٍ
@@ -1567,15 +1585,16 @@ async function mergeAccountsIfMatched(
   for (const d of worksCreated.docs) merge(d.ref, {createdByUid: newUid});
   for (const d of tasksAssignee.docs) merge(d.ref, {assigneeUid: newUid, assigneeName: newName});
   for (const d of tasksCreated.docs) merge(d.ref, {createdByUid: newUid});
-  for (const d of projectsManaged.docs) {
-    const uids = ((d.data().managerUids as string[]) ?? []).map((u) => (u === oldUid ? newUid : u));
-    merge(d.ref, {managerUids: uids});
-  }
-  for (const d of projectsExecuted.docs) {
-    const uids = ((d.data().executorUids as string[]) ?? []).map((u) => (u === oldUid ? newUid : u));
-    merge(d.ref, {executorUids: uids});
+  // القائمتان **والمفرد الموروث** — راجع `projectMemberPatch`: كتابة القائمة
+  // وحدها تنقض ثابتةَ القواعد فتُشلّ الكتابةُ على المشروع بعدها.
+  for (const d of [...projectsManaged.docs, ...projectsExecuted.docs]) {
+    merge(d.ref, projectMemberPatch(d.data(), oldUid, newUid));
   }
   for (const d of projectsCreated.docs) merge(d.ref, {createdByUid: newUid});
+  for (const d of [...childTasks.docs, ...childUpdates.docs,
+    ...childRisks.docs, ...childBlockers.docs]) {
+    merge(d.ref, {managerUid: newUid});
+  }
 
   // كتابةٌ مجمَّعة، على دفعاتٍ دون حدّ Firestore (٥٠٠ عمليةً للدفعة).
   const entries = [...writes.values()];
@@ -1594,17 +1613,37 @@ async function mergeAccountsIfMatched(
     await db().collection("deletedAccounts").doc(oldUid).update({migratedTo: newUid});
   }
 
+  // ــ قيود الحساب السابق تُشطب ولا تُورَّث ــ
+  //
+  // إعدادات التقرير اليومي تحمل ثلاث قوائم بمعرِّفات: مستثنون من البريد،
+  // ومُضافون قسراً، وقائمة حصر. والمعرِّف القديم يبقى فيها حرفاً ميّتاً بعد
+  // الدمج. فيُشطب — **ولا يُوضع الجديد مكانه**: من عاد يُعامَل معاملة من
+  // سُجّل أوّل مرّة، لا يُورَّث استثناءً قديماً يمنع بريده من حيث لا يدري
+  // أحد. راجع `pruneUidFromReportSettings` وحدَه استثناءَ قائمة الحصر.
+  const settingsRef = db().collection("settings").doc("dailyReport");
+  const settingsSnap = await settingsRef.get();
+  const prune = pruneUidFromReportSettings(settingsSnap.data() ?? {}, oldUid);
+  if (Object.keys(prune.patch).length > 0) await settingsRef.update(prune.patch);
+
   const worksTouched = new Set([...worksAssignee.docs, ...worksCreated.docs].map((d) => d.id)).size;
-  const tasksTouched = new Set([...tasksAssignee.docs, ...tasksCreated.docs].map((d) => d.id)).size;
+  const tasksTouched = new Set(
+    [...tasksAssignee.docs, ...tasksCreated.docs, ...childTasks.docs].map((d) => d.id),
+  ).size;
   const projectsTouched = new Set(
     [...projectsManaged.docs, ...projectsExecuted.docs, ...projectsCreated.docs].map((d) => d.id),
   ).size;
+  const childrenTouched = childUpdates.size + childRisks.size + childBlockers.size;
 
   await logAudit(
     actorName,
     "دمج حساب سابق عند إعادة التسجيل",
     `دُمج حساب "${oldName}" (${oldEmail}) ال${source === "suspended" ? "موقوف" : "محذوف"} مع حسابه ` +
-      `الجديد "${newName}" — نُقل ${worksTouched} عملاً، و${tasksTouched} مهمة مشروع، و${projectsTouched} مشروعاً.`,
+      `الجديد "${newName}" — نُقل ${worksTouched} عملاً، و${tasksTouched} مهمة مشروع، ` +
+      `و${projectsTouched} مشروعاً، و${childrenTouched} تحديثاً ومخاطرةً وعائقاً.` +
+      (prune.keptForSafety.length > 0 ?
+        " وبقي معرِّفه القديم في قائمة حصر بريد التقرير اليومي لأنه آخرُ ما فيها، " +
+          "وشطبُه كان يفتح البريد على الجميع — تُراجَع من شاشة إعدادات التقرير." :
+        ""),
   );
 }
 

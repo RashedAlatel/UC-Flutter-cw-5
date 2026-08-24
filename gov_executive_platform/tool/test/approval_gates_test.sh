@@ -479,6 +479,57 @@ want_in "$SRC" "والدمج ينقل أعمال العمل والمهام وا�
   'db().collection("works").where("assigneeUid", "==", oldUid)'
 echo ""
 
+# ــ الحقل المفرد الموروث يُكتب مع القائمة، وإلا شُلّ المشروع ــ
+#
+# مستند المشروع يحمل `managerUids` **و**`managerUid`. وقواعد الأمان تقرأ
+# المفرد: `legacyManagerConsistent()` تشترط أن يكون عضواً في القائمة،
+# و`matchesRealProject()` تشترط أن يساويَه ما ينسخه التحديث اليومي الجديد.
+# فكتابةُ القائمة وحدها — وهي ما وقع فعلاً في جولةٍ سابقة — تترك المشروع
+# بثابتةٍ منقوضة: صاحبُ الحساب الجديد يرى مشروعه ولا يكتب فيه شيئاً.
+#
+# والفحص هنا على **اسم الدالّة النقيّة** لا على نصّ الكتابة: تفصيلُ الحمولة
+# مُختبَرٌ في `functions/test/account_merge.test.mjs` بطفراتٍ تعضّ، وما
+# يحرسه هذا السطر ألّا يعود الدمج يكتب القائمة بيده متجاوزاً الدالّة.
+echo "والدمج يكتب المفرد الموروث مع القائمة — لا القائمة وحدها:"
+want_in "$SRC" "حمولة العضوية من الدالّة النقيّة" \
+  "projectMemberPatch(d.data(), oldUid, newUid)"
+reject_in "$SRC" "ولا كتابة قائمةٍ يدوية تتجاوزها" \
+  'merge(d.ref, {managerUids: uids})'
+want_in "$SRC" "والتوابع تُصحَّح كذلك — لا تبقى نسختها على معرِّفٍ ميّت" \
+  'staleChild("dailyUpdates")'
+echo ""
+
+# ــ «عدم بقاء أي قيود مرتبطة بالحساب السابق» ــ
+echo "وقيود الحساب السابق تُشطب ولا تُورَّث:"
+want_in "$SRC" "الشطب يقع على إعدادات التقرير" \
+  "pruneUidFromReportSettings(settingsSnap.data()"
+# والشطب **لا يعرف المعرِّف الجديد أصلاً**: دالّةٌ لا يصلها إلا القديم لا
+# تستطيع أن تورِّث قيداً حتى لو أراد كاتبُها. والفحص على توقيعها وحده لا على
+# الملف كله — فالملف يحمل `newUid` في دالّة العضوية لغرضٍ مشروع.
+PRUNE_FILE="$(mktemp)"
+sed -n '/^export function pruneUidFromReportSettings(/,/^}/p' "$AM" > "$PRUNE_FILE"
+echo "  — الشطب لا يعرف المعرِّف الجديد:"
+if [[ -s "$PRUNE_FILE" ]] && ! grep -q 'newUid' "$PRUNE_FILE"; then
+  echo "  ✔ لا يُوضع الجديد مكان القديم في القوائم"
+  PASS=$((PASS + 1))
+else
+  echo "  ✗ لا يُوضع الجديد مكان القديم في القوائم"
+  echo "      إمّا لم توجد الدالّة، وإمّا صار المعرِّف الجديد يصلها"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$PRUNE_FILE"
+echo ""
+
+# ــ الواجهة ترتيبٌ والخادم حراسة ــ
+echo "والخادم يفحص حال الحساب قبل الإرسال:"
+want_in "functions/src/notify.ts" "قرارٌ في دالّةٍ واحدة مُختبَرة" \
+  "export function undeliverableReason("
+want_in "functions/src/notify.ts" "ودالّة الإرسال تمرّ به فعلاً" \
+  "const blocked = undeliverableReason(data);"
+want_in "lib/models/app_user.dart" "وتعريفُ «من يُراسَل» واحدٌ في العميل" \
+  "bool get isContactable =>"
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

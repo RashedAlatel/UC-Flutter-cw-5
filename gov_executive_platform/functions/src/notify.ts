@@ -17,6 +17,37 @@ export interface NotifyResult {
 }
 
 /**
+ * سببُ امتناع الإرسال إلى حسابٍ بعينه — أو `null` إن كان يُراسَل.
+ *
+ * ــــ لماذا يُفحص هذا على الخادم وقد صُفّيت القائمة في الواجهة؟ ــــ
+ *
+ * لأن الواجهة ترتيبٌ والخادم حراسة، كما في بقية المنصة. والمستلمون قد
+ * يأتون من مسارٍ لا نافذة فيه أصلاً (تنبيه المشاريع المتأخرة يجمعهم من
+ * المشاريع)، وقد تتغيّر حالُ حسابٍ بين اختياره والإرسال.
+ *
+ * ــــ ولماذا هاتان الحالتان دون غيرهما؟ ــــ
+ *
+ * • **المندمج**: مستندٌ قديم بالبريد نفسه لحسابٍ جديد قائم. الإرسال إليه
+ *   ليس إرسالاً إلى أحد، بل نسخةٌ ثانية تصل الشخصَ نفسه.
+ * • **الموقوف**: مُنع من المنصة بقرار، فلا تصله مراسلاتها.
+ *
+ * أما **المعلَّق** و**المرفوض** فيُراسَلان عمداً: «تم اعتماد تسجيلك» و«تم
+ * رفض طلبك» يُرسَلان في اللحظة التي تكون فيها الحالُ كذلك بالضبط. فمنعُهما
+ * كان يُسكت الإخطارَين اللذين لا بديل عنهما.
+ */
+export function undeliverableReason(
+  data: {status?: unknown; mergedIntoUid?: unknown},
+): string | null {
+  if (typeof data.mergedIntoUid === "string" && data.mergedIntoUid) {
+    return "هذا الحساب دُمج مع حسابٍ جديد بالبريد نفسه — تُرسَل الرسالة إلى الحساب الجديد";
+  }
+  if (data.status === "suspended") {
+    return "حساب هذا المستخدم موقوف";
+  }
+  return null;
+}
+
+/**
  * إرسال إشعار لمستخدم عبر البريد و/أو واتساب حسب بيانات الاتصال المسجّلة له.
  * على عكس السلوك السابق، لا تُبتلع أخطاء الإرسال بصمت: تُعاد في النتيجة
  * حتى يظهر الفشل الفعلي (بيانات اعتماد بريد خاطئة، رقم واتساب غير صالح...)
@@ -33,7 +64,22 @@ export async function notifyUser(
     logger.warn(`notifyUser: user ${uid} not found`);
     return {emailSent: false, whatsappSent: false, emailError: "المستخدم غير موجود"};
   }
-  const data = userDoc.data() as {email?: string; phone?: string; name?: string};
+  const data = userDoc.data() as {
+    email?: string; phone?: string; name?: string;
+    status?: string; mergedIntoUid?: string;
+  };
+
+  const blocked = undeliverableReason(data);
+  if (blocked) {
+    logger.warn(`notifyUser: ${uid} undeliverable — ${blocked}`);
+    return {
+      emailSent: false,
+      whatsappSent: false,
+      ...(channels.email !== false ? {emailError: blocked} : {}),
+      ...(channels.whatsapp !== false ? {whatsappError: blocked} : {}),
+    };
+  }
+
   const result: NotifyResult = {emailSent: false, whatsappSent: false};
 
   if (channels.email !== false) {

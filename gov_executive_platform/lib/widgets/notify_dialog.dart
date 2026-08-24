@@ -71,7 +71,19 @@ class _NotifyDialogState extends State<NotifyDialog> {
     final store = context.read<AppStore>();
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    final recipients = store.users.where((u) => _selectedUids.contains(u.id)).toList();
+    // والتصفية تُعاد هنا لا اعتماداً على القائمة المعروضة: المستلمون قد
+    // يأتون مُختارين سلفاً من صفحة المشروع، وقد تتغيّر حالُ حسابٍ بين فتح
+    // النافذة والضغط على «إرسال».
+    final recipients =
+        store.users.where((u) => u.isContactable && _selectedUids.contains(u.id)).toList();
+    if (recipients.isEmpty) {
+      setState(() {
+        _busy = false;
+        _error = 'لا يوجد مستلمٌ قابل للمراسلة بين من اخترتَهم — '
+            'قد يكون حسابه أُوقف أو دُمج مع حسابٍ جديد.';
+      });
+      return;
+    }
     final subject =
         _subjectCtrl.text.trim().isEmpty ? 'إشعار من المنصة التنفيذية' : _subjectCtrl.text.trim();
     final body = _messageCtrl.text.trim();
@@ -180,7 +192,14 @@ class _NotifyDialogState extends State<NotifyDialog> {
                   ),
                   child: SingleChildScrollView(
                     child: Column(
+                      // ــ من يُراسَل وحده يُعرَض ــ
+                      //
+                      // كانت القائمة كلَّ من في `users` بلا استثناء: المعلَّق
+                      // الذي لم يُعتمد بعد، والموقوف، وتوأمُ الموقوف المندمج
+                      // — صفّان بالاسم والبريد نفسيهما لا يفرّق بينهما شيء.
+                      // فيُختار أحدهما، ولا يصل شيء.
                       children: store.users
+                          .where((u) => u.isContactable)
                           .map((u) => CheckboxListTile(
                                 dense: true,
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 10),

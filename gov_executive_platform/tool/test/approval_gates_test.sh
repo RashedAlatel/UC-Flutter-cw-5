@@ -254,12 +254,15 @@ echo "والقاعدة تمنع الحذف من العميل:"
 want_in "$RULES" "على /users حذفٌ مغلق" 'allow delete: if false;'
 echo ""
 
-# التعطيل قائمٌ ويعمل، ولم تمسّه هذه الجولة. وهذه الفحوص تمنع أن يسقط في
-# تعديلٍ لاحق للحذف — فكلاهما يقع في `setUserStatus` وجوارها.
-echo "والتعطيل لم ينكسر:"
+# التحويل من/إلى `approved`/`rejected`/`pending` لم ينكسر بإضافة مسار
+# التوقيف — يبقى `setUserStatus` يضبط بطاقة الدخول وتعطيلها كما كان لكل
+# حالةٍ **سوى** التوقيف، الذي صار حذفاً كاملاً (راجع القسم أدناه) فلا حاجة
+# فيه لتعطيلٍ ولا لإبطال جلسات: الحذف يفعل الاثنين معاً وأقوى.
+echo "والتعطيل خارج التوقيف لم ينكسر:"
 want "حساب المصادقة يُعطَّل مع الحالة" 'await admin.auth().updateUser(uid, {disabled: !approved});'
-want "والجلسات القائمة تُبطَل" 'await admin.auth().revokeRefreshTokens(uid);'
 want "والبطاقة تُعاد بلا اعتماد" 'approved,'
+reject_in "$SRC" "ولم يعد إبطال الجلسات موجوداً — الحذف كافٍ ويسبقه" \
+  "await admin.auth().revokeRefreshTokens(uid);"
 echo ""
 
 # ــــ التسجيل الذاتي يمرّ بالسجل المشترك ــــ
@@ -431,6 +434,49 @@ echo ""
 echo "والواجهة ترسل ما يقبله الخادم لا أكثر:"
 want_in "$CENTER" "زرّ التكليف عند الاعتماد قائم" "اعتمد وكلّف"
 want_in "$CENTER" "ويرسل مفتاحاً واحداً" "{'assigneeUid': uid}"
+echo ""
+
+# ــ التوقيف يحذف حساب الدخول، لا يُعطّله فحسب ــ
+#
+# كان `updateUser(uid, {disabled: true})`، فيبقى الحساب موجوداً في Firebase
+# Auth والبريد محجوزاً به — فيُرفض تسجيلٌ جديد بنفس البريد. والحذف يحرّره
+# فوراً. وهذا هو العطل الذي أُبلغ عنه: «من أُوقف يجب أن يُسمح له بالتسجيل
+# من جديد».
+#
+# والفحص **داخل جسم `setUserStatus` وحده** لا على الملف كله: `deleteUser(uid)`
+# عبارةٌ موجودة أصلاً في `deleteUserAccount` لغرضٍ آخر، فبحثٌ على الملف
+# كاملاً يمرّ حتى لو رجع مسار التوقيف إلى `updateUser(disabled: true)` —
+# وقد قِيست هذه الغفلة بعينها بطفرة فمرّت قبل هذا التضييق.
+AM="functions/src/account_merge.ts"
+SET_STATUS_FILE="$(mktemp)"
+sed -n '/^export const setUserStatus/,/^});/p' "$SRC" > "$SET_STATUS_FILE"
+echo "التوقيف يُحرِّر البريد، لا يُعطّله فحسب:"
+if grep -q 'await admin.auth().deleteUser(uid);' "$SET_STATUS_FILE" \
+    && ! grep -q 'await admin.auth().updateUser(uid, {disabled: true});' "$SET_STATUS_FILE"; then
+  echo "  ✔ التوقيف يحذف حساب الدخول لا يُعطّله"
+  PASS=$((PASS + 1))
+else
+  echo "  ✗ التوقيف يحذف حساب الدخول لا يُعطّله"
+  echo "      لم يوجد الحذف داخل setUserStatus، أو عاد التعطيل القديم إليها"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$SET_STATUS_FILE"
+want_in "$SRC" "وإعادة تفعيل موقوفٍ تُرفض صراحةً" \
+  "لا يمكن إعادة تفعيل هذا الحساب: حُذف حساب دخوله عند التوقيف"
+echo ""
+
+echo "والحذف الكامل يترك أثراً خفيفاً لمطابقةٍ لاحقة:"
+want_in "$SRC" "يُكتب قبل محو السجل" 'collection("deletedAccounts").doc(uid).set('
+want_in "$RULES" "ومقفلة تماماً أمام أي عميل" \
+  "match /deletedAccounts/{uid} {"
+reject_in "$AM" "والقرار من وحدةٍ نقيّة — لا اختيار أول نتيجة عند التعدّد" \
+  "if (total < 1)"
+echo ""
+
+echo "وإعادة التسجيل تُعيد ربط الأعمال القديمة تلقائياً:"
+want_in "$SRC" "الاعتماد يستدعي الدمج" "await mergeAccountsIfMatched("
+want_in "$SRC" "والدمج ينقل أعمال العمل والمهام والمشاريع" \
+  'db().collection("works").where("assigneeUid", "==", oldUid)'
 echo ""
 
 echo "══════════════════════════════"

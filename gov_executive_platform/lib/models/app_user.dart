@@ -49,6 +49,14 @@ class AppUser {
   final UserStatus status;
   final DateTime createdAt;
 
+  /// إن كان هذا الحساب **موقوفاً** ودُمج مع تسجيلٍ جديد بالبريد نفسه —
+  /// معرِّف الحساب الجديد الذي نُقلت إليه أعماله ومهامّه.
+  ///
+  /// حقلٌ يكتبه الخادم وحده عند `pickMergeCandidate` (`functions/src/
+  /// account_merge.ts`)، ولا يُكتب من العميل ولا يُنسخ في [copyWith] — فهو
+  /// ليس تعديلاً يُجريه أحد، بل ختمٌ للتتبّع بعد فعلٍ تمّ فعلاً.
+  final String? mergedIntoUid;
+
   const AppUser({
     required this.id,
     required this.name,
@@ -64,6 +72,7 @@ class AppUser {
     this.scopedGrants = const {},
     required this.status,
     required this.createdAt,
+    this.mergedIntoUid,
   });
 
   bool get active => status == UserStatus.approved;
@@ -98,6 +107,9 @@ class AppUser {
       scopedGrants: scopedGrants ?? this.scopedGrants,
       status: status ?? this.status,
       createdAt: createdAt,
+      // لا مُعامَل له هنا عمداً: لا أحد يبني نسخةً بختمٍ جديد، فيبقى
+      // كما كان — كبقية الحقول التي لا يكتبها العميل أصلاً.
+      mergedIntoUid: mergedIntoUid,
     );
   }
 
@@ -140,6 +152,7 @@ class AppUser {
       },
       status: UserStatus.fromName(json['status'] as String? ?? UserStatus.pending.name),
       createdAt: (json['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      mergedIntoUid: json['mergedIntoUid'] as String?,
     );
   }
 }

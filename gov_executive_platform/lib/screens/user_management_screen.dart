@@ -273,10 +273,13 @@ class _UserRowState extends State<_UserRow> {
     ));
   }
 
-  Future<void> _toggleStatus() async {
+  // ولا يُنادى إلا للتحوّل **إلى** موقوف الآن — راجع `active` في `build`:
+  // زرّ إعادة التفعيل الفوري حُذف لأن الخادم يرفضه دائماً بعد هذه الجولة
+  // (التوقيف يحذف حساب الدخول، فلا يبقى ما يُعاد تفعيله). التفعيل من جديد
+  // يمرّ بتسجيلٍ جديد يُدمَج تلقائياً — لا بهذا الزرّ.
+  Future<void> _suspendActive() async {
     setState(() => _busy = true);
-    final target = widget.user.status == UserStatus.approved ? UserStatus.suspended : UserStatus.approved;
-    final error = await context.read<AppStore>().setUserStatus(widget.user, target);
+    final error = await context.read<AppStore>().setUserStatus(widget.user, UserStatus.suspended);
     if (!mounted) return;
     setState(() => _busy = false);
     if (error != null) {
@@ -374,13 +377,32 @@ class _UserRowState extends State<_UserRow> {
             tooltip: 'أرسل له رابط إعادة تعيين كلمة المرور',
             onPressed: _resetting ? null : _sendPasswordReset,
           ),
-          if (u.status == UserStatus.approved || u.status == UserStatus.suspended)
+          // إيقاف الحساب — لمن هو مفعَّل. ولا نظير له بالاتجاه المعاكس:
+          //
+          // التوقيف يحذف حساب الدخول (`setUserStatus` على الخادم)، فلا يبقى
+          // ما «يُعاد تفعيله» بضغطة. من أُوقف يُسجَّل من جديد بنفس بريده
+          // فيُسمح له فوراً، وتُنقل أعماله ومهامّه تلقائياً إلى حسابه
+          // الجديد عند اعتماد ذلك التسجيل — لا بزرٍّ هنا كان سيُردّ دائماً.
+          if (u.status == UserStatus.approved)
             IconButton(
               icon: _busy
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : Icon(active ? Icons.block_rounded : Icons.check_circle_outline_rounded, size: 19),
-              tooltip: active ? 'إيقاف الحساب' : 'إعادة التفعيل',
-              onPressed: _busy ? null : _toggleStatus,
+                  : const Icon(Icons.block_rounded, size: 19),
+              tooltip: 'إيقاف الحساب',
+              onPressed: _busy ? null : _suspendActive,
+            ),
+          if (u.status == UserStatus.suspended)
+            Tooltip(
+              message: u.mergedIntoUid != null
+                  ? 'دُمج مع حسابٍ جديد سُجِّل بالبريد نفسه — أعماله ومهامّه نُقلت إليه.'
+                  : 'حُذف حساب دخوله عند التوقيف. ليعود، يُسجَّل من جديد بنفس '
+                      'بريده — يُسمح له فوراً، وتُنقل أعماله ومهامّه تلقائياً '
+                      'إلى حسابه الجديد عند اعتماد تسجيله.',
+              child: Icon(
+                u.mergedIntoUid != null ? Icons.merge_type_rounded : Icons.info_outline_rounded,
+                size: 19,
+                color: AppColors.textSecondary,
+              ),
             ),
           // الحذف النهائي — آخر الأفعال وأحمرُها، ولا يُعرض لمسؤول النظام
           // على نفسه (والخادم يرفضه كذلك).
@@ -958,9 +980,11 @@ class _DeleteUserDialogState extends State<_DeleteUserDialog> {
       return;
     }
     Navigator.of(context).pop();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('أُوقف حساب «${widget.user.name}» — لا يستطيع الدخول، وأثره باقٍ كاملاً.')),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('أُوقف حساب «${widget.user.name}» — لا يستطيع الدخول، وأثره باقٍ كاملاً. '
+          'وإن سُجِّل من جديد بنفس بريده، سيُسمح له فوراً وتُنقل أعماله إلى حسابه الجديد تلقائياً.'),
+      duration: const Duration(seconds: 6),
+    ));
   }
 
   @override

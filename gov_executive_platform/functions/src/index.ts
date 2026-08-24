@@ -8,6 +8,7 @@ import {notifyUser} from "./notify";
 import {notificationSecrets} from "./secrets";
 import {runDailyReport} from "./daily_report_job";
 import {judgeOverride} from "./approval_override";
+import {pickMergeCandidate} from "./account_merge";
 
 admin.initializeApp();
 
@@ -663,6 +664,15 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       // وبطاقة الدخول لها حدّ حجم صارم فلا تُثقَل بما لا يُفحص عليها.
       await db().collection("users").doc(uid)
         .update({role, departmentId, departmentIds, sectionId, status: "approved"});
+
+      // إن كان هذا البريد لحسابٍ موقوف أو محذوف سابقاً — تُنقل أعماله إليه.
+      // راجع `mergeAccountsIfMatched`: لا أثر إن لم يوجد مُرشَّح يقيني.
+      await mergeAccountsIfMatched(
+        uid,
+        (userSnap.data()?.name as string) ?? "",
+        String(account.email ?? ""),
+        auth.token.name ?? "مسؤول النظام",
+      );
       break;
     }
     case "projectCreate": {
@@ -1024,23 +1034,51 @@ export const setUserStatus = onCall(async (request) => {
   if (!userDoc.exists) throw new HttpsError("not-found", "المستخدم غير موجود");
   const current = userDoc.data()!;
 
+  // ــ إخراج موقوفٍ من التوقيف بأي حالةٍ أخرى: مرفوضٌ صراحةً ــ
+  //
+  // التوقيف يحذف حساب الدخول (أدناه)، فلا وجود له بعدها لتُضبط له مطالبات
+  // أو يُعطَّل من جديد — أياً كانت الحالة المطلوبة. ولولا هذا الفحص لسقط
+  // `setCustomUserClaims`/`updateUser` تحته على `auth/user-not-found` بلا
+  // تفسير، وهي بالضبط طمأنينةٌ كاذبة سبق علاجها في هذه المنصة من قبل.
+  if (current.status === "suspended" && status !== "suspended") {
+    throw new HttpsError(
+      "failed-precondition",
+      "لا يمكن إعادة تفعيل هذا الحساب: حُذف حساب دخوله عند التوقيف. " +
+        "اطلب من صاحبه التسجيل من جديد بنفس بريده — سيُعتمد ويُربط تلقائياً بسجله السابق.",
+    );
+  }
+
   await userRef.update({status});
 
   const approved = status === "approved";
-  await admin.auth().setCustomUserClaims(uid, {
-    role: current.role,
-    departmentId: current.departmentId ?? null,
-    departmentIds: current.departmentIds ?? [],
-    approved,
-    ...claimPermissions(
-      await loadCustomRolePerms(current.role, current.customRoleId),
-      current,
-      (current.departmentId as string | null) ?? null,
-    ),
-  });
-  await admin.auth().updateUser(uid, {disabled: !approved});
-  if (!approved) {
-    await admin.auth().revokeRefreshTokens(uid);
+  if (status === "suspended") {
+    // ــ التوقيف يحذف حساب الدخول، لا يُعطّله فحسب ــ
+    //
+    // كان `updateUser(uid, {disabled: true})`، فيبقى الحساب **موجوداً**
+    // في Firebase Auth، والبريد محجوزاً به — فيُرفض أي تسجيلٍ جديد بنفس
+    // البريد بـ«هذا البريد مسجّل مسبقاً»، ولو أراد صاحبه العودة بحسابٍ
+    // جديد. والحذف يحرّر البريد فوراً، ومستند `users/{uid}` يبقى بحالة
+    // `suspended` — وهو ما يحمل الاسم والبريد لمطابقةٍ لاحقة عند تسجيلٍ
+    // جديد (راجع `pickMergeCandidate` في `approveRequest`).
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (e) {
+      const code = (e as {code?: string}).code;
+      if (code !== "auth/user-not-found") throw e;
+    }
+  } else {
+    await admin.auth().setCustomUserClaims(uid, {
+      role: current.role,
+      departmentId: current.departmentId ?? null,
+      departmentIds: current.departmentIds ?? [],
+      approved,
+      ...claimPermissions(
+        await loadCustomRolePerms(current.role, current.customRoleId),
+        current,
+        (current.departmentId as string | null) ?? null,
+      ),
+    });
+    await admin.auth().updateUser(uid, {disabled: !approved});
   }
 
   await logAudit(auth.token.name ?? "مسؤول النظام", "تحديث حالة مستخدم", `تم تغيير حالة المستخدم "${current.name}" إلى ${status}`);
@@ -1464,6 +1502,112 @@ export const generateDailyReportNow = onCall(
   },
 );
 
+// ـــــــ دمج حسابٍ موقوف/محذوف مع تسجيلٍ جديد بالبريد نفسه ـــــــ
+
+/**
+ * إن وُجد بريد الحساب الجديد على حسابٍ موقوف أو محذوف سابقاً — بمطابقةٍ
+ * واحدة يقينية لا أكثر (راجع `pickMergeCandidate`) — تُنقَل أعماله ومهامّه
+ * وقيادته لمشاريعه إلى الحساب الجديد، ويُختم الأصل، ويُسجَّل الكل في سجل
+ * التدقيق. ولا يُمسّ التحديثات اليومية ولا طلبات الاعتماد القديمة عمداً:
+ * سجلّ الوزارة والقرارات التاريخية تبقى كما وقعت فعلاً.
+ *
+ * لا خطأ يُرفع إن لم يوجد مُرشَّح — الحالة الشائعة (موظفٌ جديدٌ كلياً) تمرّ
+ * بقراءتين رخيصتين بلا أثر آخر.
+ */
+async function mergeAccountsIfMatched(
+  newUid: string,
+  newName: string,
+  email: string,
+  actorName: string,
+): Promise<void> {
+  if (!email) return;
+
+  // استعلامٌ بحقلٍ واحد فحسب — لا يحتاج فهرساً مركّباً — والتصفية الثانية
+  // (الحالة، وعدم الدمج سلفاً) في الذاكرة على نتيجةٍ صغيرة يقيناً.
+  const [usersByEmail, deletedByEmail] = await Promise.all([
+    db().collection("users").where("email", "==", email).get(),
+    db().collection("deletedAccounts").where("email", "==", email).get(),
+  ]);
+  const suspendedMatches = usersByEmail.docs
+    .filter((d) => d.id !== newUid && d.data().status === "suspended" && !d.data().mergedIntoUid)
+    .map((d) => ({uid: d.id, doc: d}));
+  const deletedMatches = deletedByEmail.docs
+    .filter((d) => !d.data().migratedTo)
+    .map((d) => ({uid: d.id, doc: d}));
+
+  const candidate = pickMergeCandidate(suspendedMatches, deletedMatches);
+  if (!candidate.found) return;
+
+  const {oldUid, source} = candidate;
+  const oldDoc = (source === "suspended" ? suspendedMatches : deletedMatches)
+    .find((m) => m.uid === oldUid)!.doc;
+  const oldName = (oldDoc.data().name as string) ?? oldUid;
+  const oldEmail = (oldDoc.data().email as string) ?? email;
+
+  const [worksAssignee, worksCreated, tasksAssignee, tasksCreated,
+    projectsManaged, projectsExecuted, projectsCreated] = await Promise.all([
+    db().collection("works").where("assigneeUid", "==", oldUid).get(),
+    db().collection("works").where("createdByUid", "==", oldUid).get(),
+    db().collection("tasks").where("assigneeUid", "==", oldUid).get(),
+    db().collection("tasks").where("createdByUid", "==", oldUid).get(),
+    db().collection("projects").where("managerUids", "array-contains", oldUid).get(),
+    db().collection("projects").where("executorUids", "array-contains", oldUid).get(),
+    db().collection("projects").where("createdByUid", "==", oldUid).get(),
+  ]);
+
+  // مستندٌ واحد قد يظهر في أكثر من استعلام (مُسنَدٌ إليه ومنشئٌ له في آنٍ
+  // معاً)، فتُجمَع تعديلاته في كتابةٍ واحدة لا كتابتين متعارضتين.
+  const writes = new Map<string, {ref: FirebaseFirestore.DocumentReference; data: Record<string, unknown>}>();
+  const merge = (ref: FirebaseFirestore.DocumentReference, data: Record<string, unknown>) => {
+    const existing = writes.get(ref.path);
+    if (existing) Object.assign(existing.data, data);
+    else writes.set(ref.path, {ref, data: {...data}});
+  };
+  for (const d of worksAssignee.docs) merge(d.ref, {assigneeUid: newUid, assigneeName: newName});
+  for (const d of worksCreated.docs) merge(d.ref, {createdByUid: newUid});
+  for (const d of tasksAssignee.docs) merge(d.ref, {assigneeUid: newUid, assigneeName: newName});
+  for (const d of tasksCreated.docs) merge(d.ref, {createdByUid: newUid});
+  for (const d of projectsManaged.docs) {
+    const uids = ((d.data().managerUids as string[]) ?? []).map((u) => (u === oldUid ? newUid : u));
+    merge(d.ref, {managerUids: uids});
+  }
+  for (const d of projectsExecuted.docs) {
+    const uids = ((d.data().executorUids as string[]) ?? []).map((u) => (u === oldUid ? newUid : u));
+    merge(d.ref, {executorUids: uids});
+  }
+  for (const d of projectsCreated.docs) merge(d.ref, {createdByUid: newUid});
+
+  // كتابةٌ مجمَّعة، على دفعاتٍ دون حدّ Firestore (٥٠٠ عمليةً للدفعة).
+  const entries = [...writes.values()];
+  const CHUNK = 450;
+  for (let i = 0; i < entries.length; i += CHUNK) {
+    const batch = db().batch();
+    for (const {ref, data} of entries.slice(i, i + CHUNK)) batch.update(ref, data);
+    await batch.commit();
+  }
+
+  // ختم الأصل — للتتبّع لا للوظيفة، فلا يُعرَض على مسؤول النظام حساباً
+  // موقوفاً بحاجة قرار وهو في الحقيقة مُستوعَبٌ في حسابٍ آخر.
+  if (source === "suspended") {
+    await db().collection("users").doc(oldUid).update({mergedIntoUid: newUid});
+  } else {
+    await db().collection("deletedAccounts").doc(oldUid).update({migratedTo: newUid});
+  }
+
+  const worksTouched = new Set([...worksAssignee.docs, ...worksCreated.docs].map((d) => d.id)).size;
+  const tasksTouched = new Set([...tasksAssignee.docs, ...tasksCreated.docs].map((d) => d.id)).size;
+  const projectsTouched = new Set(
+    [...projectsManaged.docs, ...projectsExecuted.docs, ...projectsCreated.docs].map((d) => d.id),
+  ).size;
+
+  await logAudit(
+    actorName,
+    "دمج حساب سابق عند إعادة التسجيل",
+    `دُمج حساب "${oldName}" (${oldEmail}) ال${source === "suspended" ? "موقوف" : "محذوف"} مع حسابه ` +
+      `الجديد "${newName}" — نُقل ${worksTouched} عملاً، و${tasksTouched} مهمة مشروع، و${projectsTouched} مشروعاً.`,
+  );
+}
+
 // ــــــــــــــــــ حذف حساب المستخدم نهائياً ــــــــــــــــــ
 
 /**
@@ -1603,6 +1747,18 @@ export const deleteUserAccount = onCall(async (request) => {
       );
     }
   }
+  // ــ أثرٌ خفيف قبل المحو، لأجل مطابقةٍ لاحقة ــ
+  //
+  // حذف `users/{uid}` كاملاً لا يترك بريداً يُطابَق به تسجيلٌ جديد. فقبل
+  // المحو يُكتب مستندٌ صغير في مجموعةٍ مقفلة تماماً أمام العميل
+  // (`deletedAccounts` في القواعد) — لا وظيفة له إلا أن يقرأه
+  // `pickMergeCandidate` عند اعتماد تسجيلٍ جديد بالبريد نفسه.
+  await db().collection("deletedAccounts").doc(uid).set({
+    name,
+    email: (user.email as string) ?? "",
+    deletedAt: now(),
+    deletedBy: auth.token.name ?? "مسؤول النظام",
+  });
   await userRef.delete();
 
   await logAudit(

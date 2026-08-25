@@ -26,6 +26,7 @@ import '../theme/app_theme.dart';
 import '../theme/brand.dart';
 import '../utils/formatters.dart';
 import 'announcements_banner.dart';
+import 'audit_write_banner.dart';
 import 'data_access_banner.dart';
 import 'ministry_logo.dart';
 import 'nav_entries.dart';
@@ -234,6 +235,14 @@ class _AppShellState extends State<AppShell> {
               Padding(
                 padding: EdgeInsets.fromLTRB(wide ? 24 : 16, 12, wide ? 24 : 16, 0),
                 child: const DataAccessBanner(),
+              ),
+            // وتليها لافتةُ رفض **الكتابة** في السجل: الأولى تقول «لم تُقرأ
+            // بياناتك»، وهذه تقول «وقع فعلُك ولم يُكتب أثرُه». حالتان
+            // مختلفتان، ولكلٍّ علاجُها.
+            if (store.auditWriteFailure != null)
+              Padding(
+                padding: EdgeInsets.fromLTRB(wide ? 24 : 16, 12, wide ? 24 : 16, 0),
+                child: const AuditWriteBanner(),
               ),
             if (hasBanners)
               Padding(

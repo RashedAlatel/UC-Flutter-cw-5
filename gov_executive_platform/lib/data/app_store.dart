@@ -1609,6 +1609,8 @@ class AppStore extends ChangeNotifier {
     // أخطاء الاشتراك السابق لا تصف الاشتراك الجديد، فتُمسح معه — وإلا بقيت
     // لافتة خطأ معلّقة بعد أن صُحّحت صلاحيات الحساب فعلاً.
     dataErrors.clear();
+    // وكذلك سطرٌ تعذّرت كتابته في جلسةٍ سابقة: لا يصف هذه الجلسة.
+    auditWriteFailure = null;
     archivedProjects = [];
     archivedWorks = [];
     _projectsByScope = [];
@@ -4755,6 +4757,16 @@ class AppStore extends ChangeNotifier {
   ///
   /// و[actorUid] يُكتب دائماً من المستخدم الحالي لا من المُنادي: القاعدة
   /// تشترط مطابقتَه لهوية الكاتب، فلا يُترك لموضعٍ ينساه.
+  ///
+  /// ــ ولا تُسقِط إجراءً وقع ــ
+  ///
+  /// كانت ترفع خطأها إلى مُناديها، وهي تُنادى **بعد** أن يقع الفعل. فحين
+  /// رُدّت كتابةُ السطر ظهر «تعذر حذف المشروع» على حذفٍ تمّ فعلاً — يُقرأ
+  /// فشلاً فيُعاد، أو يُظنّ المشروع باقياً وقد ذهب. وفي مواضعَ أخرى كانت
+  /// خارج `try` أصلاً، فترتفع بلا التقاط ولا تظهر رسالةٌ إطلاقاً.
+  ///
+  /// فصارت تبتلع خطأها وتُسجّله في [auditWriteFailure]. وليس ابتلاعاً
+  /// صامتاً: اللافتة تقوله في أعلى الشاشة — راجع `AuditWriteBanner`.
   Future<void> _log(
     String action,
     String details, {
@@ -4766,20 +4778,48 @@ class AppStore extends ChangeNotifier {
     Map<String, dynamic>? after,
   }) async {
     final ref = _db.collection('auditLog').doc();
-    await ref.set(AuditLogEntry(
-      id: ref.id,
-      userName: currentUser?.name ?? 'النظام',
-      action: action,
-      details: details,
-      timestamp: DateTime.now(),
-      type: type,
-      actorUid: currentUser?.id,
-      targetType: targetType,
-      targetId: targetId,
-      targetName: targetName,
-      before: before,
-      after: after,
-    ).toMap());
+    try {
+      await ref.set(AuditLogEntry(
+        id: ref.id,
+        userName: currentUser?.name ?? 'النظام',
+        action: action,
+        details: details,
+        // قيمةٌ لا تُكتب: `toMap` تكتب ختمَ الخادم — راجع `AuditLogEntry`.
+        timestamp: DateTime.now(),
+        type: type,
+        actorUid: currentUser?.id,
+        targetType: targetType,
+        targetId: targetId,
+        targetName: targetName,
+        before: before,
+        after: after,
+      ).toMap());
+      if (auditWriteFailure != null) {
+        auditWriteFailure = null;
+        notifyListeners();
+      }
+    } catch (e) {
+      noteAuditWriteFailure(action, e);
+    }
+  }
+
+  /// آخرُ سطرٍ تعذّرت كتابته في سجل التدقيق — أو null إن لم يتعذّر شيء.
+  ///
+  /// يُعرض في لافتةٍ أعلى الشاشة، ويُمحى بأول سطرٍ يُكتب بنجاح: بقاؤُه بعد
+  /// أن عاد السجل يعمل يجعل اللافتة تصيح بلا سبب فيُتعوَّد على تجاهلها.
+  String? auditWriteFailure;
+
+  @visibleForTesting
+  void noteAuditWriteFailure(String action, Object error) {
+    auditWriteFailure = 'الإجراء "$action" وقع، ولم يُكتب سطرُه في السجل: $error';
+    notifyListeners();
+  }
+
+  /// يُخفي اللافتة بعد أن يقرأها المستخدم — ولا يُصلح شيئاً.
+  void dismissAuditWriteFailure() {
+    if (auditWriteFailure == null) return;
+    auditWriteFailure = null;
+    notifyListeners();
   }
 
   /// يكتب سطر تعديلٍ بـ«قبل/بعد» — ولا يكتب شيئاً إن لم يتغيّر شيء.

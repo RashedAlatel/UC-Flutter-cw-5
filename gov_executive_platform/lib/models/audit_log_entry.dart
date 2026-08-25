@@ -16,6 +16,18 @@ class AuditLogEntry {
   final String userName;
   final String action;
   final String details;
+
+  /// وقتُ السطر — **يُقرأ ولا يُكتب**.
+  ///
+  /// قاعدةُ `auditLog` تشترط `request.resource.data.timestamp ==
+  /// request.time`، أي وقتَ **الخادم**. فلا سبيل إلى كتابة قيمةٍ من هنا
+  /// تُطابقه: ساعةُ الجهاز لا تساوي ساعةَ الخادم ولو ضُبطت إلى
+  /// الميلي‑ثانية. ولذلك تكتب [toMap] ختمَ الخادم لا هذا الحقل.
+  ///
+  /// وهذا الحقل هو ما تقرؤه [AuditLogEntry.fromDoc] من المستند بعد كتابته،
+  /// وما تعرضه الشاشة. ومن أعاده يوماً إلى `Timestamp.fromDate` أعاد العطل:
+  /// رُدّ **كلُّ** سطرٍ يكتبه المتصفّح — لا سطرٌ بعينه — فوقعت الأفعال بلا
+  /// أثر. ويحرسه `tool/test/approval_gates_test.sh`.
   final DateTime timestamp;
 
   /// نوع التغيير — وبه تقع التصفية في الشاشة.
@@ -63,7 +75,8 @@ class AuditLogEntry {
         'userName': userName,
         'action': action,
         'details': details,
-        'timestamp': Timestamp.fromDate(timestamp),
+        // ختمُ الخادم لا ساعةُ الجهاز — راجع [timestamp] أعلاه.
+        'timestamp': FieldValue.serverTimestamp(),
         'type': type.key,
         if (actorUid != null) 'actorUid': actorUid,
         if (targetType != null) 'targetType': targetType,

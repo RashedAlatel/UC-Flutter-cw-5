@@ -676,6 +676,43 @@ want_in "lib/models/change_type.dart" "والفرق يُحسب لا يُخزَّ
 want_in "$STORE" "والفاعل يُكتب من المستخدم الحالي لا من المُنادي" "actorUid: currentUser?.id,"
 echo ""
 
+# ــــ الحدُّ بين القاعدة والنموذج ــــ
+#
+# هنا وقع عطلٌ كلّف المنصّة سجلَّها يوماً كاملاً: القاعدة اشترطت
+# `timestamp == request.time` (وقتَ الخادم)، والتطبيق ظلّ يكتب
+# `Timestamp.fromDate(DateTime.now())` (ساعةَ الجهاز). ولا يتطابقان أبداً —
+# فرُدّ **كلُّ** سطرٍ يكتبه المتصفّح، وظهر للمستخدم «تعذر حذف المشروع» على
+# حذفٍ تمّ فعلاً.
+#
+# ولم يمسكه شيء: اختبارُ القواعد يبني بيانَه بـ`serverTimestamp()`، فأثبت أن
+# القاعدة صحيحة ولم يسأل هل يكتب التطبيقُ ما تشترطه. **والحدُّ بين الاثنين
+# لم يعبره اختبار** — وهذا ما يحرسه ما يلي: الشرطان يتحرّكان معاً أو لا
+# يتحرّك أحدهما.
+echo "ووقتُ سطر التدقيق من الخادم لا من الجهاز:"
+MODEL="lib/models/audit_log_entry.dart"
+if grep -q "request.resource.data.timestamp == request.time" "$RULES"; then
+  want_in "$MODEL" "القاعدة تشترط وقت الخادم — والنموذج يكتبه" \
+    "'timestamp': FieldValue.serverTimestamp()"
+  reject_in "$MODEL" "ولا يكتب ساعةَ الجهاز" "'timestamp': Timestamp.fromDate"
+else
+  echo "  ✗ القاعدة لم تعد تشترط وقت الخادم"
+  echo "      سقط 'timestamp == request.time' من $RULES — فالوقت صار قابلاً للتزوير."
+  FAIL=$((FAIL + 1))
+fi
+
+# ــ وسطرٌ يُردّ لا يُسقِط الفعل الذي وقع ــ
+#
+# `_log` تُنادى **بعد** أن يقع الفعل. فرفعُ خطئها إلى مُناديها يجعل حذفاً
+# تمّ يُعرض فشلاً. وهذا حارسُ حذفٍ لا حارسُ صحّة: لا مُحاكي Firestore في
+# المشروع، فلا سبيل إلى اختبارٍ حقيقي لها بلا اعتماديّةٍ جديدة.
+want_in "$STORE" "ودالّة التسجيل تبتلع رفضَها ولا تُسقط الإجراء" \
+  "      noteAuditWriteFailure(action, e);"
+want_in "$STORE" "ولا تبتلعه صامتةً" "String? auditWriteFailure;"
+want_in "lib/widgets/audit_write_banner.dart" "واللافتة تقوله" "class AuditWriteBanner"
+want_in "lib/widgets/app_shell.dart" "وهي مركَّبة في الهيكل" \
+  "store.auditWriteFailure != null"
+echo ""
+
 # ــ التحويل بين مشروعٍ وعمل ــ
 #
 # ثلاثة يحرسها هذا القسم، وكلٌّ منها بابٌ لو انفتح لم يُلاحَظ:

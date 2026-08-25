@@ -90,6 +90,21 @@ describe("الكتابة في سجل التدقيق", () => {
     );
   });
 
+  // ــــ والعطلُ الذي كلّف المنصّة سجلَّها ــــ
+  //
+  // الاختبار أعلاه يكتب تاريخ ٢٠٢٠، فيُقرأ وكأن المردود هو **التزوير**
+  // وحده. وليس كذلك: الشرط `timestamp == request.time` يردّ ساعةَ الجهاز
+  // **ولو كانت صحيحة إلى الميلي‑ثانية** — إذ لا تُطابق وقتَ الخادم أبداً.
+  //
+  // وهذا بعينه ما كان التطبيق يكتبه (`Timestamp.fromDate(DateTime.now())`)،
+  // فرُدّ كلُّ سطرٍ يكتبه المتصفّح منذ نشر القاعدة. ولم يمسكه هذا الملف لأن
+  // كل حالاته تبني بيانَها بـ`serverTimestamp()` — فأثبتت أن **القاعدة**
+  // صحيحة، ولم تسأل قط: هل يكتب التطبيقُ ما تشترطه؟
+  test("ولا بساعةِ جهازه وهي مضبوطة — وهذا هو العطل الذي وقع", async () => {
+    const db = env.authenticatedContext(EMP, claims()).firestore();
+    await assertFails(addDoc(collection(db, "auditLog"), entry({timestamp: new Date()})));
+  });
+
   test("ولا سطرٌ بلا نوعٍ يُصفّى به", async () => {
     const db = env.authenticatedContext(EMP, claims()).firestore();
     const e = entry();

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test membership.rules.test.mjs scope.rules.test.mjs feedback.rules.test.mjs scoped_grants.rules.test.mjs daily_update.rules.test.mjs work_updates.rules.test.mjs assignment.rules.test.mjs closure.rules.test.mjs project_manager.rules.test.mjs daily_report.rules.test.mjs user_delete.rules.test.mjs decline.rules.test.mjs deleted_accounts.rules.test.mjs account_merge.rules.test.mjs"
+    "test": "node --test membership.rules.test.mjs scope.rules.test.mjs feedback.rules.test.mjs scoped_grants.rules.test.mjs daily_update.rules.test.mjs work_updates.rules.test.mjs assignment.rules.test.mjs closure.rules.test.mjs project_manager.rules.test.mjs daily_report.rules.test.mjs user_delete.rules.test.mjs decline.rules.test.mjs deleted_accounts.rules.test.mjs account_merge.rules.test.mjs member_read.rules.test.mjs"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.0",

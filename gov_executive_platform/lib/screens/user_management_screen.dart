@@ -29,6 +29,36 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     super.dispose();
   }
 
+  /// يختم عضوية المشاريع على توابعها، ويقول ماذا وقع.
+  Future<void> _stampMembership(BuildContext context) async {
+    final store = context.read<AppStore>();
+    final messenger = ScaffoldMessenger.of(context);
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ختم عضوية المشاريع على توابعها'),
+        content: const Text(
+          'ينسخ مديري كل مشروع ومنفّذيه على مهامّه وتحديثاته اليومية ومخاطره '
+          'وعوائقه، فيراها أعضاؤه. يلزم مرّةً واحدة بعد هذا التحديث، '
+          'وإعادتُه لا تضرّ — لا يُكتب على مستندٍ مطابقٍ سلفاً.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('ابدأ')),
+        ],
+      ),
+    );
+    if (go != true) return;
+    messenger.showSnackBar(const SnackBar(content: Text('جارٍ الختم…')));
+    final r = await store.stampChildMembership();
+    messenger.showSnackBar(SnackBar(
+      content: Text(r.error ??
+          'فُحص ${r.scanned} مستنداً تابعاً، وخُتم منها ${r.stamped}.'),
+      backgroundColor: r.error == null ? AppColors.success : AppColors.danger,
+      duration: const Duration(seconds: 8),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
@@ -60,6 +90,19 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 label: 'إشعار جماعي',
                 icon: Icons.forward_to_inbox_rounded,
                 onPressed: () => showDialog(context: context, builder: (_) => const NotifyDialog(initialUsers: [])),
+              ),
+              // ــ ختمُ العضوية على توابع المشاريع ــ
+              //
+              // `executorUids` لم تكن تُنسخ على المهام والتحديثات والمخاطر
+              // والعوائق قط. فمن كان منفّذاً في مشروع لا تعرفه القاعدةُ على
+              // تحديثاته ولا يجده الاستعلام — فلا يصله شيء. والحقل يُكتب من
+              // الآن على كل تابعٍ جديد، وهذا الزرّ لما كُتب قبل ذلك.
+              //
+              // يُضغط مرّةً بعد النشر، وإعادتُه بلا ضرر.
+              BandButton(
+                label: 'ختم عضوية المشاريع',
+                icon: Icons.published_with_changes_rounded,
+                onPressed: () => _stampMembership(context),
               ),
               BandButton(
                 label: 'إضافة مستخدم مباشرة',

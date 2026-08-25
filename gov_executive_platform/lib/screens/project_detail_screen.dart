@@ -383,9 +383,16 @@ class ProjectDetailScreen extends StatelessWidget {
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
             children: [
           if (updates.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Text('لا توجد تحديثات بعد', style: TextStyle(color: AppColors.textSecondary)),
+            // ــ الفراغ يُفسَّر ولا يُترك غامضاً ــ
+            //
+            // «لا توجد تحديثات» كانت تُعرض سواءٌ لم يُكتب شيء، أو كُتب ولم
+            // يصل، أو رُدّت القراءة. راجع `whyNoUpdates`.
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                store.whyNoUpdates(project) ?? 'لا توجد تحديثات بعد',
+                style: const TextStyle(color: AppColors.textSecondary, height: 1.7),
+              ),
             )
           else
             ...updates.map((u) => Card(

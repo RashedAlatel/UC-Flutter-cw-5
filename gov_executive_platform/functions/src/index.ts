@@ -14,6 +14,7 @@ import {
   pruneUidFromReportSettings,
 } from "./account_merge";
 import {storagePathsToDelete} from "./attachment_cleanup";
+import {childMembershipPatch} from "./child_membership";
 import {mayDeleteDailyUpdate} from "./daily_update_delete";
 
 admin.initializeApp();
@@ -1453,6 +1454,76 @@ export const adminRestampClaims = onCall(async (request) => {
     `أُعيد ختم بصمات الدخول للمستخدم ${uid} من سجله دون تغيير دوره`,
   );
   return {ok: true, claims};
+});
+
+// ــــــــــــــ ختم عضوية المشروع على توابعه ــــــــــــــ
+
+/**
+ * يختم `managerUids` و`executorUids` من كل مشروع على مستنداته التابعة.
+ *
+ * ــ لماذا يلزم هذا مرّةً واحدة؟ ــ
+ *
+ * توابعُ المشروع تحمل نسخةً من عضويته لتُفحص القراءة بحقلٍ عليها لا
+ * باستعلامٍ عن المشروع. لكن `executorUids` **لم تكن تُنسخ قط**: فمن كان
+ * منفّذاً في مشروع لا تعرفه القاعدةُ على توابعه، ولا يستطيع الاستعلام أن
+ * يسأل عن عضويته — فلا يصله تحديثٌ واحد على مشروعٍ هو منفّذُه.
+ *
+ * والحقل يُكتب من الآن على كل تابعٍ جديد. وهذه الدالّة لما كُتب قبل ذلك:
+ * يشغّلها مسؤول النظام مرّةً بعد النشر، ثم لا حاجة إليها.
+ *
+ * وهي **قابلة للإعادة بلا ضرر**: لا تكتب على مستندٍ مطابقٍ سلفاً — راجع
+ * `childMembershipPatch` — فإعادةُ تشغيلها بعد انقطاعٍ تُكمل ولا تُعيد.
+ */
+export const stampChildMembership = onCall(async (request) => {
+  const auth = requireAdmin(request);
+
+  const projects = await db().collection("projects").get();
+  const membership = new Map<string, {managerUids: unknown; executorUids: unknown}>();
+  for (const p of projects.docs) {
+    const d = p.data();
+    membership.set(p.id, {managerUids: d.managerUids, executorUids: d.executorUids});
+  }
+
+  const COLLECTIONS = ["tasks", "dailyUpdates", "risks", "blockers"];
+  const CHUNK = 400;
+  let scanned = 0;
+  let stamped = 0;
+  let orphaned = 0;
+
+  for (const name of COLLECTIONS) {
+    const snap = await db().collection(name).get();
+    const pending: {ref: FirebaseFirestore.DocumentReference; patch: Record<string, unknown>}[] = [];
+
+    for (const doc of snap.docs) {
+      scanned++;
+      const data = doc.data();
+      const project = membership.get(String(data.projectId ?? ""));
+      // تابعٌ لمشروعٍ لم يعد موجوداً: لا عضوية تُنسخ عنه، ولا يُخمَّن له
+      // شيء. يُعدّ ويُقال، ولا يُمسّ.
+      if (!project) {
+        orphaned++;
+        continue;
+      }
+      const patch = childMembershipPatch(data, project);
+      if (Object.keys(patch).length > 0) pending.push({ref: doc.ref, patch});
+    }
+
+    for (let i = 0; i < pending.length; i += CHUNK) {
+      const batch = db().batch();
+      for (const {ref, patch} of pending.slice(i, i + CHUNK)) batch.update(ref, patch);
+      await batch.commit();
+      stamped += Math.min(CHUNK, pending.length - i);
+    }
+  }
+
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "ختم عضوية المشروع على التوابع",
+    `فُحص ${scanned} مستنداً تابعاً، وخُتم منها ${stamped}` +
+      (orphaned > 0 ? `، و${orphaned} تابعٌ لمشروعٍ لم يعد موجوداً فتُرك` : "") + ".",
+  );
+
+  return {ok: true, scanned, stamped, orphaned};
 });
 
 // ــــــــــــــ حذف تحديثٍ يومي، ومحو ملفاته معه ــــــــــــــ

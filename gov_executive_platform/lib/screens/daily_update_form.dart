@@ -124,7 +124,7 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
     }
     setState(() => _busy = true);
     try {
-      await context.read<AppStore>().addDailyUpdate(
+      final result = await context.read<AppStore>().addDailyUpdate(
             project: widget.project,
             achievements: _achievementsCtrl.text.trim(),
             completedTasks: _completedTasks,
@@ -138,11 +138,31 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
           );
       if (!mounted) return;
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ التحديث اليومي بنجاح')));
-    } catch (_) {
+      // ــ النتيجة الجزئية تُقال ــ
+      //
+      // التحديث يُكتب أوّلاً وبمفرده، وما بعده قد يُردّ وحده. فلو قيل «تم
+      // الحفظ» وسكتنا، لبحث الكاتب عن عائقٍ سجّله ولم يجده، وظنّ التحديث
+      // نفسه ضائعاً.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result.notRecorded.isEmpty
+            ? 'تم حفظ التحديث اليومي بنجاح'
+            : 'حُفظ التحديث اليومي، ولم يُسجَّل: ${result.notRecorded.join(' · ')}'),
+        backgroundColor: result.notRecorded.isEmpty ? null : AppColors.warning,
+        duration: Duration(seconds: result.notRecorded.isEmpty ? 4 : 12),
+      ));
+    } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر حفظ التحديث، حاول مرة أخرى')));
+      // ــ السبب يُعرض كما ورد ــ
+      //
+      // كان `catch (_)` يرمي الخطأ ويعرض «حاول مرة أخرى». فإن ردّت القواعد
+      // الكتابة لم يُعرف لماذا — لا للكاتب ولا لمن يُصلح. والنمط قائم في
+      // هذا الملف نفسه: `uploadAttachment` تُعيد سببها ويُعرض.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('تعذّر حفظ التحديث: $e'),
+        backgroundColor: AppColors.danger,
+        duration: const Duration(seconds: 12),
+      ));
     }
   }
 

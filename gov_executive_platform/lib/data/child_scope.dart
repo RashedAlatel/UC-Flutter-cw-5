@@ -1,15 +1,23 @@
 /// نطاقُ قراءة المستندات التابعة للمشروع — مهامَّ وتحديثاتٍ ومخاطرَ وعوائق.
 ///
-/// ــــ لماذا وحدةٌ قائمة بذاتها؟ ــــ
+/// ــــ العطل الذي أوجد هذه الوحدة، ثم العطل الذي بقي بعدها ــــ
 ///
-/// لأن هذا النطاق كان يُبنى داخل `_subscribeAppData` سطراً واحداً لا يُقرأ
-/// ولا يُختبَر، وكان **خاطئاً**: يُصفّي لمدير المشروع بالحقل المفرد الموروث
-/// `managerUid` — أي أوّلِ المديرين وحده. فمن كان المديرَ الثاني فصاعداً لا
-/// يصله تحديثٌ واحد على مشروعه، ولو كان هو كاتبَه بيده.
+/// كان القرار سطراً داخل دالّة الاشتراك يُصفّي لصاحب دور **«مدير مشروع»**
+/// بالحقل المفرد الموروث `managerUid`. فأُخرج إلى هنا وصُحّح إلى القائمة.
 ///
-/// وهو نظيرُ العطل الذي عولج في دمج الحسابات بالضبط: حقلٌ مفردٌ موروث
-/// يُقرأ في موضعٍ تُقرأ فيه القائمة. فأُخرج القرار إلى هنا ليصير **قيمةً
-/// تُقاس** لا سطراً في دالّةٍ لا تعمل إلا بـFirestore حيّ.
+/// ثم تبيّن أن التصحيح **لا يمسّ أحداً**: دور «مدير مشروع» موروثٌ لا يُمنح
+/// لأحد — `GRANTABLE_ROLES` في الخادم ثلاثةٌ ليس هو منها — منذ أن فُصلت
+/// قيادةُ المشروع عن الدور الأساسي. فمديرو المشاريع أدوارُهم «موظف» أو
+/// «مدير إدارة»، ويُصفّى لهم **بالإدارة وحدها**.
+///
+/// ومستندُ المشروع نفسه يُقرأ بثلاثة تدفّقات: الإدارة، وعضويتي مديراً،
+/// وعضويتي منفّذاً. أما توابعه فبالإدارة وحدها. فمن كان عضواً في مشروعٍ
+/// خارج إدارته — أو لم تُختم إدارتُه في بطاقة دخوله بعد — لا يصله تحديثٌ
+/// واحد على مشروعه. والقاعدةُ على الخادم تعرف العضوية (`isProjectMember`)
+/// بينما الاستعلام لا يسأل عنها.
+///
+/// فصارت **العضوية بُعداً للقراءة** كما هي في المشاريع، ولم يُستبدل نطاق
+/// الإدارة بل أُضيف إليه.
 library;
 
 import 'package:flutter/foundation.dart';
@@ -72,48 +80,55 @@ const String noDepartmentSentinel = '__none__';
 /// التدفّقات التي تُقرأ بها مجموعةٌ تابعة للمشروع لهذا المستخدم.
 ///
 /// **قائمةٌ لا تصفيةٌ واحدة**: Firestore لا يجمع شرطين مختلفين في استعلام،
-/// وما يحتاج شرطين يُقرأ بتدفّقين ثم يُدمَجان بلا تكرار (`mergeById`).
-/// وقائمةٌ فارغة تعني «المجموعة كاملةً بلا تصفية».
+/// وما يحتاج شروطاً يُقرأ بتدفّقاتٍ ثم تُدمَج بلا تكرار (`mergeById`).
+/// وقائمةٌ فارغة تعني «المجموعة كاملةً بلا تصفية» — ولا تُرجَع إلا لمن يرى
+/// كل الإدارات فعلاً.
 ///
-/// ولمدير المشروع تدفّقان:
+/// ــ [viewsAll] معاملٌ صريح، ولا يُستنتج من غياب الإدارة ــ
 ///
-///   • `managerUids` بـ`arrayContains` — وهو **الصحيح**: كلُّ مديري المشروع
-///     منسوخون على المستند التابع يوم أُنشئ.
-///   • `managerUid` المفرد بـ`isEqualTo` — وهو **للمستندات القديمة وحدها**:
-///     ما كُتب قبل أن تُنسخ القائمة لا يحمل إلا المفرد، فإسقاطُ هذا التدفّق
-///     يُخفي تاريخ المشروع كلَّه عن أوّل مديريه. فهو تدفّقٌ للتوافق لا غير،
-///     ولا يُبنى عليه شيء جديد.
+/// كان «بلا إدارة» و«يرى كل الإدارات» يؤدّيان إلى الشيء نفسه: تصفيةٌ فارغة
+/// أي المجموعة كاملة. فمن لم تُختم إدارتُه في بطاقته بعدُ كان يطلب المجموعة
+/// كلَّها فتُردّ عليه بالكامل — فيرى منصةً خالية بلا سبب ظاهر، وهو **حالٌ
+/// يقع فعلاً** لأن ختم البطاقة لا يتزامن مع تعديل السجل.
 List<ChildFilter> childScopeFilters({
-  required bool officer,
   required bool manager,
+  bool viewsAll = false,
   String? uid,
   List<String> departmentIds = const [],
   String? scopedDept,
 }) {
-  if (officer) {
-    // بلا معرِّف حساب لا يُقرأ شيء — ولا تُفتح المجموعة كاملةً.
-    if (uid == null || uid.isEmpty) {
-      return const [ChildFilter.equals('departmentId', noDepartmentSentinel)];
-    }
-    return [
-      ChildFilter.arrayContains('managerUids', uid),
-      ChildFilter.equals('managerUid', uid),
-    ];
+  if (viewsAll) return const [];
+
+  final me = (uid ?? '').trim();
+  final streams = <ChildFilter>[];
+
+  // ــ العضوية أوّلاً: هي الصلة الحقيقية بالمشروع ــ
+  //
+  // والقاعدة تقبل الثلاثة أصلاً: `isProjectMember` تقرأ القائمتين على
+  // المستند، و`canAccessProjectDoc` تقرأ المفرد الموروث.
+  if (me.isNotEmpty) {
+    streams.add(ChildFilter.arrayContains('managerUids', me));
+    streams.add(ChildFilter.arrayContains('executorUids', me));
+    // المفرد الموروث للمستندات التي كُتبت قبل أن تُنسخ القائمة عليها.
+    streams.add(ChildFilter.equals('managerUid', me));
   }
 
+  // ــ ثم نطاق الإدارة، مُضافاً لا بديلاً ــ
   if (manager) {
-    if (departmentIds.isEmpty) {
-      return const [ChildFilter.equals('departmentId', noDepartmentSentinel)];
-    }
-    // Firestore يحدّ `whereIn` بثلاثين قيمة، فتُقتطع.
-    return [
-      ChildFilter.whereIn(
+    if (departmentIds.isNotEmpty) {
+      // Firestore يحدّ `whereIn` بثلاثين قيمة، فتُقتطع.
+      streams.add(ChildFilter.whereIn(
         'departmentId',
         departmentIds.length > 30 ? departmentIds.sublist(0, 30) : departmentIds,
-      ),
-    ];
+      ));
+    }
+  } else if (scopedDept != null && scopedDept.isNotEmpty) {
+    streams.add(ChildFilter.equals('departmentId', scopedDept));
   }
 
-  if (scopedDept == null) return const [];
-  return [ChildFilter.equals('departmentId', scopedDept)];
+  // لا عضويةَ ولا إدارة: لا يُقرأ شيء — ولا تُفتح المجموعة كاملةً.
+  if (streams.isEmpty) {
+    return const [ChildFilter.equals('departmentId', noDepartmentSentinel)];
+  }
+  return streams;
 }

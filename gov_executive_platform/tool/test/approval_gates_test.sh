@@ -535,15 +535,6 @@ echo ""
 # اشتراك المستندات التابعة كان يُصفّي لمدير المشروع بالحقل المفرد الموروث
 # `managerUid` — أي أوّل المديرين وحده — فلا يصل المديرَ الثاني فصاعداً
 # تحديثٌ واحد على مشروعه. وهو نظير عطل دمج الحسابات حرفاً بحرف.
-echo "واشتراك المستندات التابعة يقرأ القائمة لا المفرد:"
-want_in "lib/data/child_scope.dart" "القائمة أوّلاً" \
-  "ChildFilter.arrayContains('managerUids', uid)"
-want_in "lib/data/app_store.dart" "والاشتراك يمرّ بالقرار المُختبَر" \
-  "childScopeFilters("
-reject_in "lib/data/app_store.dart" "ولا تصفيةٌ يدوية بالمفرد وحده" \
-  "col.where('managerUid', isEqualTo: currentUser?.id)"
-echo ""
-
 # ــ الحذف يُفتح، والتعديل يبقى مغلقاً ــ
 #
 # التحديث اليومي أثرٌ لا يُنقّح بأثر رجعي: التصحيح حذفٌ مُسجَّل ثم إضافةٌ
@@ -595,6 +586,58 @@ reject_in "$SRC" "ولا استيراد لوحدة المُشغِّلات" "fire
 # يمحو موظفٌ ملفَ غيره بأن يضع مساره في مرفق تحديثٍ يحذفه.
 want_in "functions/src/attachment_cleanup.ts" "والبادئة مبنيّةٌ على مشروع التحديث" \
   "path.startsWith(prefix)"
+echo ""
+
+# ــ عضوية المشروع بُعدٌ للقراءة، لا الدورُ الموروث ــ
+#
+# اشتراكُ توابع المشروع كان يُصفّي بدور «مدير مشروع» — وهو دورٌ **لا يُمنح
+# لأحد**: `GRANTABLE_ROLES` ثلاثةٌ ليس هو منها. فأُصلح فرعٌ لا يمرّ به أحد،
+# ولم يتغيّر شيء عند صاحب الشكوى. والعضوية هي الصلة الحقيقية.
+echo "وتوابع المشروع تُقرأ بالعضوية:"
+want_in "$STORE" "والاشتراك يمرّ بالقرار المُختبَر" "childScopeFilters("
+want_in "lib/data/child_scope.dart" "قائمة المديرين" \
+  "ChildFilter.arrayContains('managerUids', me)"
+want_in "lib/data/child_scope.dart" "وقائمة المنفّذين" \
+  "ChildFilter.arrayContains('executorUids', me)"
+reject_in "lib/data/child_scope.dart" "ولا شرطَ دورٍ موروث" "officer"
+# «بلا إدارة» و«يرى كل الإدارات» كانا يؤدّيان إلى تصفيةٍ فارغة — أي طلبِ
+# المجموعة كاملةً، فتردّها القواعد بالكامل. وهما حالان مختلفان تماماً.
+want_in "lib/data/child_scope.dart" "ويرى الكلَّ معاملٌ صريح" "if (viewsAll) return const"
+echo ""
+
+echo "والعضوية تُنسخ على التوابع لتقرأها القاعدة:"
+# `isProjectMember` تقرأ القائمتين من المستند نفسه. و`executorUids` لم تكن
+# تُنسخ قط، فكان المنفّذ ممنوعاً بالقاعدة لا بالاستعلام وحده.
+if [ "$(grep -c "'executorUids': project" "$STORE")" -ge 4 ]; then
+  echo "  ✔ تُكتب على التحديثات والمخاطر والعوائق والمهام"
+  PASS=$((PASS + 1))
+else
+  echo "  ✗ تُكتب على التحديثات والمخاطر والعوائق والمهام"
+  echo "      المتوقَّع أربعة مواضع على الأقل، والموجود: $(grep -c "'executorUids': project" "$STORE")"
+  FAIL=$((FAIL + 1))
+fi
+want_in "$SRC" "وختمٌ لمرّةٍ واحدة للسجلات القديمة" \
+  "export const stampChildMembership = onCall("
+want_in "lib/screens/user_management_screen.dart" "وزرُّه في متناول مسؤول النظام" \
+  "ختم عضوية المشاريع"
+echo ""
+
+# ــ العطل لا يبقى صامتاً ــ
+echo "وسبب التعذّر يُقال، والفراغ يُفسَّر:"
+reject_in "lib/screens/daily_update_form.dart" "لا ابتلاع للخطأ" "} catch (_) {"
+want_in "lib/screens/daily_update_form.dart" "بل يُعرض نصُّه" "تعذّر حفظ التحديث: \$e"
+want_in "$STORE" "والفراغ يفرّق بين أسبابه" "String? whyNoUpdates(Project project)"
+want_in "lib/screens/project_detail_screen.dart" "والشاشة تقرؤه" "store.whyNoUpdates(project)"
+echo ""
+
+# ــ الدفعة الذرّية فُكّت ــ
+#
+# كانت خمس مجموعات في `batch` واحدة: رفضُ أيّها يُسقط التحديث اليومي نفسه،
+# فيضيع عملُ يومٍ كامل بسبب طلب قرارٍ رُدّ.
+echo "والتحديث اليومي لا يسقط بسقوط تابعٍ له:"
+want_in "$STORE" "يُكتب أوّلاً وبمفرده" "await updateRef.set({"
+want_in "$STORE" "وما تعذّر يُجمع ويُقال" "notRecorded.add("
+want_in "lib/screens/daily_update_form.dart" "والواجهة تعرضه" "result.notRecorded"
 echo ""
 
 echo "══════════════════════════════"

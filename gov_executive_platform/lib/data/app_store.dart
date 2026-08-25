@@ -152,6 +152,53 @@ class AppStore extends ChangeNotifier {
   /// هل رُفضت قراءة أي مجموعة؟ يُستخدم لإظهار اللافتة.
   bool get hasDataErrors => dataErrors.isNotEmpty;
 
+  /// لماذا لا يرى هذا المستخدمُ تحديثاتِ هذا المشروع — أو `null` إن كان
+  /// الغياب حقيقياً (لا تحديثات بعد).
+  ///
+  /// ــــ لماذا يلزم هذا التمييز؟ ــــ
+  ///
+  /// «لا توجد تحديثات» كانت تُعرض في ثلاث حالاتٍ مختلفة: لم يُكتب شيء، أو
+  /// كُتب ولم يصل، أو رُدّت القراءة على الخادم. فلا سبيل من الشاشة إلى
+  /// معرفة أيِّها وقع — وقد ضاعت جولةٌ كاملة في تخمين ذلك.
+  String? whyNoUpdates(Project project) {
+    if (updatesForProject(project.id).isNotEmpty) return null;
+
+    // ــ أوّلاً: هل رُدّت القراءة أصلاً؟ ــ
+    final rejected = dataErrors.keys.where((k) => k.startsWith('dailyUpdates')).toList();
+    if (rejected.isNotEmpty) {
+      return 'رُدّت قراءة التحديثات اليومية من الخادم — '
+          '${dataErrors[rejected.first]}';
+    }
+
+    final uid = currentUser?.id;
+    if (uid == null) return null;
+
+    // ــ ثانياً: هل يصل هذا المشروعُ نطاقَ اشتراكي أصلاً؟ ــ
+    //
+    // العضوية تُقرأ من **مستند المشروع**، والتوابع تحمل نسخةً منها. فإن كان
+    // عضواً ولم تحمل التوابعُ نسختَه، فهي مستنداتٌ قديمة تحتاج ختماً.
+    final member = project.hasMember(uid);
+    final myDept = currentUser?.departmentId;
+    final inMyDept = myDept != null && myDept == project.departmentId;
+    final managesDept = isManager && myDepartmentIds.contains(project.departmentId);
+
+    if (!member && !inMyDept && !managesDept && !canViewAllDepartments) {
+      return 'لستَ عضواً في هذا المشروع، وإدارتُه (${departmentById(project.departmentId)?.name ?? project.departmentId}) '
+          'غير إدارتك — فلا تصلك تحديثاته.';
+    }
+
+    // ــ ثالثاً: عضوٌ ولا يصله شيء ــ
+    //
+    // إمّا أن التوابع قديمة لا تحمل نسخة العضوية (يلزمها ختمٌ من شاشة
+    // مسؤول النظام)، وإمّا أنه لا تحديثات فعلاً. ولا يُجزم بالأول.
+    if (member && !inMyDept && !canViewAllDepartments) {
+      return 'أنت عضوٌ في هذا المشروع وإدارتُه غير إدارتك. إن كانت له تحديثات '
+          'قديمة ولا تظهر، فهي سجلاتٌ كُتبت قبل أن تُنسخ عليها العضوية — '
+          'يختمها مسؤول النظام بضغطة واحدة.';
+    }
+    return null;
+  }
+
   /// هل يبدو الرفض ناتجاً عن صلاحيات ناقصة (لا عن انقطاع شبكة)؟ يحدّد نصّ
   /// اللافتة: نقص الصلاحيات له علاج (مزامنة بطاقة الدخول)، والانقطاع لا.
   bool get hasPermissionErrors =>
@@ -1330,9 +1377,7 @@ class AppStore extends ChangeNotifier {
 
   void _subscribeAppData() {
     final myUid = currentUser?.id;
-    final officer = isOfficer;
     final manager = isManager;
-    final scopedDept = (canViewAllDepartments || officer || manager) ? null : currentUser?.departmentId;
 
     // أقسام الإدارات: مجموعة صغيرة تُقرأ كاملةً — الفلترة بالإدارة تتم في
     // الذاكرة لأن الشجرة تُعرض كاملةً على أي حال.
@@ -1354,11 +1399,11 @@ class AppStore extends ChangeNotifier {
     // الصحيحة، والمفرد الموروث للمستندات القديمة وحدها. وكان المفرد وحده،
     // فلا يصل المديرَ الثاني فصاعداً شيء.
     final childFilters = childScopeFilters(
-      officer: officer,
       manager: manager,
+      viewsAll: canViewAllDepartments,
       uid: myUid,
       departmentIds: myDepartmentIds,
-      scopedDept: scopedDept,
+      scopedDept: currentUser?.departmentId,
     );
 
     Query<Map<String, dynamic>> applyFilter(
@@ -2211,6 +2256,29 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  /// يختم عضويةَ كل مشروع على مستنداته التابعة — مرّةً واحدة بعد النشر.
+  ///
+  /// `executorUids` لم تكن تُنسخ على التوابع قط، فمن كان منفّذاً في مشروع
+  /// لا تعرفه القاعدةُ على تحديثاته ولا يجده الاستعلام. والحقل يُكتب من
+  /// الآن على كل تابعٍ جديد؛ وهذه للسجلات التي كُتبت قبل ذلك.
+  ///
+  /// وإعادتُها بلا ضرر: لا تُكتب على مستندٍ مطابقٍ سلفاً.
+  Future<({String? error, int scanned, int stamped})> stampChildMembership() async {
+    try {
+      final res = await _functions.httpsCallable('stampChildMembership').call();
+      final data = Map<String, dynamic>.from(res.data as Map);
+      return (
+        error: null,
+        scanned: (data['scanned'] as num?)?.toInt() ?? 0,
+        stamped: (data['stamped'] as num?)?.toInt() ?? 0,
+      );
+    } on FirebaseFunctionsException catch (e) {
+      return (error: e.message ?? 'تعذّر ختم العضوية', scanned: 0, stamped: 0);
+    } catch (e) {
+      return (error: e.toString(), scanned: 0, stamped: 0);
+    }
+  }
+
   bool get canViewAllDepartments => isAdmin || hasPermission(RolePermission.viewAllDepartments);
   bool get canManageUsers => isAdmin;
   // سجل التدقيق، الموافقة على تسجيل الأعضاء/المشاريع/المواعيد النهائية، وإضافة
@@ -2991,7 +3059,7 @@ class AppStore extends ChangeNotifier {
     }
   }
 
-  Future<void> addDailyUpdate({
+  Future<({List<String> notRecorded})> addDailyUpdate({
     required Project project,
     required String achievements,
     required List<String> completedTasks,
@@ -3013,32 +3081,48 @@ class AppStore extends ChangeNotifier {
     final stamp = forDay == null || _isSameDay(forDay, now)
         ? now
         : DateTime(forDay.year, forDay.month, forDay.day, 12);
-    final batch = _db.batch();
-
+    // ــ التحديث اليومي يُكتب أوّلاً وبمفرده ــ
+    //
+    // كان هذا كلُّه دفعةً واحدة على خمس مجموعات: التحديث، والمشروع،
+    // والمخاطر، والعوائق، وطلبات القرار. ودفعةُ Firestore **ذرّية**: رفضُ
+    // أيّ واحدةٍ منها يُسقط التحديثَ اليومي معها — فيضيع عملُ يومٍ كامل
+    // بسبب طلب قرارٍ رُدّ، ولا يُقال للكاتب أيُّها رُدّ.
+    //
+    // فصار التحديث يُكتب وحده أوّلاً: إن نجح فقد نجح ما يهمّ. ثم يُحاوَل
+    // الباقي كلٌّ على حدة، ويُجمع ما تعذّر ليُقال صراحةً.
     final updateRef = _db.collection('dailyUpdates').doc();
-    batch.set(
-      updateRef,
-      {
-        ...DailyUpdate(
-          id: updateRef.id,
-          projectId: project.id,
-          departmentId: project.departmentId,
-          authorUid: currentUser?.id ?? '',
-          authorName: currentUser?.name ?? 'غير معروف',
-          date: stamp,
-          achievements: achievements,
-          completedTasks: completedTasks,
-          newRisks: newRisks,
-          blockers: blockersText,
-          decisionsRequired: decisionsRequired,
-          progressPercent: progressPercent,
-          notes: notes,
-          attachments: attachments,
-        ).toMap(),
-        'managerUid': project.managerUid,
-        'managerUids': project.managerUids,
-      },
-    );
+    await updateRef.set({
+      ...DailyUpdate(
+        id: updateRef.id,
+        projectId: project.id,
+        departmentId: project.departmentId,
+        authorUid: currentUser?.id ?? '',
+        authorName: currentUser?.name ?? 'غير معروف',
+        date: stamp,
+        achievements: achievements,
+        completedTasks: completedTasks,
+        newRisks: newRisks,
+        blockers: blockersText,
+        decisionsRequired: decisionsRequired,
+        progressPercent: progressPercent,
+        notes: notes,
+        attachments: attachments,
+      ).toMap(),
+      'managerUid': project.managerUid,
+      'managerUids': project.managerUids,
+      'executorUids': project.executorUids,
+    });
+
+    final notRecorded = <String>[];
+
+    /// يُجري كتابةً تابعة ويجمع سببَ تعذّرها بدل أن يُسقط ما قبلها.
+    Future<void> tryWrite(String what, Future<void> Function() write) async {
+      try {
+        await write();
+      } catch (e) {
+        notRecorded.add('$what ($e)');
+      }
+    }
 
     ProjectStatus newStatus = project.status;
     if (progressPercent >= 100) {
@@ -3050,16 +3134,17 @@ class AppStore extends ChangeNotifier {
     } else if (progressPercent > project.progressPercent) {
       newStatus = ProjectStatus.onTrack;
     }
-    batch.update(_db.collection('projects').doc(project.id), {
-      'progressPercent': progressPercent,
-      'status': newStatus.name,
+    await tryWrite('تحديث نسبة إنجاز المشروع وحالته', () async {
+      await _db.collection('projects').doc(project.id).update({
+        'progressPercent': progressPercent,
+        'status': newStatus.name,
+      });
     });
 
     for (final r in newRisks) {
-      final ref = _db.collection('risks').doc();
-      batch.set(
-        ref,
-        {
+      await tryWrite('تسجيل الخطر «$r»', () async {
+        final ref = _db.collection('risks').doc();
+        await ref.set({
           ...ProjectRisk(
             id: ref.id,
             projectId: project.id,
@@ -3071,14 +3156,14 @@ class AppStore extends ChangeNotifier {
           ).toMap(),
           'managerUid': project.managerUid,
           'managerUids': project.managerUids,
-        },
-      );
+          'executorUids': project.executorUids,
+        });
+      });
     }
     for (final b in blockersText) {
-      final ref = _db.collection('blockers').doc();
-      batch.set(
-        ref,
-        {
+      await tryWrite('تسجيل العائق «$b»', () async {
+        final ref = _db.collection('blockers').doc();
+        await ref.set({
           ...ProjectBlocker(
             id: ref.id,
             projectId: project.id,
@@ -3089,14 +3174,14 @@ class AppStore extends ChangeNotifier {
           ).toMap(),
           'managerUid': project.managerUid,
           'managerUids': project.managerUids,
-        },
-      );
+          'executorUids': project.executorUids,
+        });
+      });
     }
     for (final d in decisionsRequired) {
-      final ref = _db.collection('approvalRequests').doc();
-      batch.set(
-        ref,
-        ApprovalRequest(
+      await tryWrite('رفع القرار المطلوب «$d»', () async {
+        final ref = _db.collection('approvalRequests').doc();
+        await ref.set(ApprovalRequest(
           id: ref.id,
           type: ApprovalType.decision,
           status: DecisionStatus.pending,
@@ -3109,12 +3194,12 @@ class AppStore extends ChangeNotifier {
           requestedByUid: currentUser?.id ?? '',
           requestedByName: currentUser?.name ?? '',
           requestedDate: now,
-        ).toMap(),
-      );
+        ).toMap());
+      });
     }
 
-    await batch.commit();
     await _log('تحديث يومي', 'أضاف ${currentUser?.name} تحديثاً يومياً لمشروع "${project.name}"');
+    return (notRecorded: notRecorded);
   }
 
   /// ينقل مهمة المشروع بين الحالات — **ولا يُغلقها لمن لا يملك اعتمادها**.
@@ -3248,6 +3333,7 @@ class AppStore extends ChangeNotifier {
       ...task.toMap(),
       'managerUid': project?.managerUid,
       'managerUids': project?.managerUids ?? const <String>[],
+      'executorUids': project?.executorUids ?? const <String>[],
     });
     await _log('إضافة مهمة', 'تمت إضافة مهمة جديدة "${task.title}"');
   }

@@ -570,9 +570,27 @@ echo ""
 # ــ ملفات المرفقات: العميل لا يمحوها، والخادم يمحوها بفحص ــ
 echo "وملفات المرفقات لا يمحوها العميل:"
 want_in "storage.rules" "قاعدة التخزين تبقى مغلقة" "allow update, delete: if false;"
-want_in "$SRC" "والمُشغِّل الخلفي يمحوها بعد حذف المستند" \
-  "export const cleanupDailyUpdateFiles = onDocumentDeleted("
+want_in "$SRC" "والخادم يحذف التحديث ويمحوها معه" \
+  "export const deleteDailyUpdate = onCall("
+want_in "$SRC" "بعد فحص حقّ الحاذف على الخادم" "if (!mayDeleteDailyUpdate("
 want_in "$SRC" "بمسارات تُفحص أولاً" "storagePathsToDelete(data.attachments"
+want_in "lib/data/app_store.dart" "والعميل يمرّ بالدالّة لا بحذفٍ مباشر" \
+  "httpsCallable('deleteDailyUpdate')"
+reject_in "lib/data/app_store.dart" "ولا يحذف المستند بيده" \
+  "collection('dailyUpdates').doc(update.id).delete()"
+
+# ــ ولا يعود مُشغِّل Firestore إلى المنصة بلا قصد ــ
+#
+# كان محوُ الملفات في مُشغِّل `onDocumentDeleted`، فسقط نشرُه وحده من بين
+# تسع عشرة دالّة — نُشرت البقية كلها بنجاح. ومُشغِّلات Firestore تحتاج
+# **Eventarc** مفعَّلةً في المشروع بصلاحيات على حسابها الخدمي، وتحتاج أن
+# تكون منطقة الدالّة مطابقة لموقع قاعدة البيانات. وليس شيءٌ من ذلك مهيّأً.
+#
+# فمن أراد مُشغِّلاً يوماً فليهيّئ ذلك أولاً **عن قصد**، لا أن يكتشفه في
+# نشرٍ فاشل. والمنصة اليوم دوالُّ استدعاء ومجدولةٌ واحدة، لا غير.
+echo "ولا مُشغِّل Firestore في المنصة — يحتاج Eventarc ومنطقةً مطابقة:"
+reject_in "$SRC" "لا مُشغِّل حذف" "onDocumentDeleted("
+reject_in "$SRC" "ولا استيراد لوحدة المُشغِّلات" "firebase-functions/v2/firestore"
 # المسار يكتبه العميل، والمُشغِّل يعمل بصلاحية المدير. فبلا فحصٍ للبادئة
 # يمحو موظفٌ ملفَ غيره بأن يضع مساره في مرفق تحديثٍ يحذفه.
 want_in "functions/src/attachment_cleanup.ts" "والبادئة مبنيّةٌ على مشروع التحديث" \

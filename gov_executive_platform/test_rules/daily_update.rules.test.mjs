@@ -217,6 +217,21 @@ describe('ومن يحذف التحديث اليومي', () => {
     await assertFails(deleteDoc(doc(db, `dailyUpdates/${id}`)));
   });
 
+  // ــ والمستخدم التنفيذي لا يحذف، ولو كان هو الكاتب ــ
+  //
+  // «يرى كل شيء ولا يغيّر شيئاً» قاعدةٌ قائمة في المنصة. وهو لا يكتب
+  // تحديثاً أصلاً، لكن اسمَه يبقى على تحديثاتٍ كتبها **قبل** أن يُنقل إلى
+  // هذا الدور. وكانت القاعدة تُجيز له محوَها لأن فرع الكاتب لم يستثنه —
+  // بينما يمنعه العميلُ ودالّةُ الخادم. فكان النصّ الواحد ثلاثةَ نصوص.
+  test('ولا المستخدم التنفيذي، ولو كان هو كاتبَ التحديث', async () => {
+    const VIEWER = 'u-viewer';
+    const id = await seedUpdate({ authorUid: VIEWER });
+    const db = env
+      .authenticatedContext(VIEWER, claims(VIEWER, { role: 'executiveViewer' }))
+      .firestore();
+    await assertFails(deleteDoc(doc(db, `dailyUpdates/${id}`)));
+  });
+
   // السجل أثرٌ لا يُنقّح بأثر رجعي: التصحيح حذفٌ مُسجَّل ثم إضافةٌ جديدة.
   test('والتعديل يبقى مردوداً — حتى على كاتبه ومالك المشروع', async () => {
     const id = await seedUpdate({ authorUid: FIRST });

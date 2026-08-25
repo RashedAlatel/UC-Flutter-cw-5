@@ -194,6 +194,14 @@ void main() {
       expect(store.canDeleteDailyUpdate(_update(authorUid: 'm1'), null), isFalse);
     });
 
+    // الحالة التي بها وحدها يُقاس استثناءُ المستخدم التنفيذي: هو لا يمرّ
+    // بالفروع الأخرى أصلاً، فإسقاطُ شرطه لا يُغيّر شيئاً — إلا إن كان هو
+    // الكاتب. وذلك يقع حين يُنقل موظفٌ إلى هذا الدور بعد أن كتب تحديثاته.
+    test('والمستخدم التنفيذي لا يحذف ولو كان هو الكاتب', () {
+      final store = _store(_user('v', UserRole.executiveViewer, dept: null));
+      expect(store.canDeleteDailyUpdate(_update(authorUid: 'v'), _project()), isFalse);
+    });
+
     test('ومديرُ إدارةٍ أخرى لا يحذف', () {
       final store = _store(_user('h', UserRole.departmentManager, dept: 'd-9'));
       expect(store.canDeleteDailyUpdate(_update(), _project()), isFalse);

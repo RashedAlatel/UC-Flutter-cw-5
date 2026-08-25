@@ -2521,36 +2521,34 @@ class AppStore extends ChangeNotifier {
     return isManager && myDepartmentIds.contains(project.departmentId);
   }
 
-  /// يحذف تحديثاً يومياً ويُسجّل الحذف.
+  /// يحذف تحديثاً يومياً — بدالّةٍ على الخادم، لا بحذفٍ مباشر.
   ///
-  /// وملفات المرفقات لا تُمحى من هنا: قواعد التخزين لا تقرأ Firestore فلا
-  /// تعرف من يملك المشروع، وفتحُ الحذف للعميل يفتحه لكل موظفٍ معتمد على كل
-  /// مرفقٍ في الوزارة متى عرف مساره. فيمحوها مُشغِّلٌ خلفي بعد حذف المستند
-  /// (`cleanupDailyUpdateFiles` في functions/src/index.ts).
+  /// ــ لماذا لا يحذفه المتصفّح بنفسه وقد أذنت له القاعدة؟ ــ
   ///
-  /// ويُعيد رسالةً عربية عند الرفض بدل رمي استثناء — أشيع أسبابه أن القاعدة
-  /// ردّت الحذف، وهي معلومةٌ تُقال لا خطأٌ غامض.
+  /// لأن مع الحذف محوَ ملفات المرفقات، وقواعدُ التخزين **لا تقرأ
+  /// Firestore**: لا سبيل فيها إلى معرفة من يملك المشروع. ففتحُ المحو
+  /// للعميل يفتحه لكل موظفٍ معتمد على كل مرفقٍ في الوزارة متى عرف مساره.
+  ///
+  /// وسجلُّ التدقيق يُكتب هناك كذلك — باسم من نفّذ، من الخادم. وكان يُكتب
+  /// هنا، فمن حذف من خارج الواجهة لم يكن يُسجَّل عليه شيء.
+  ///
+  /// والفحص أدناه يبقى مع ذلك: ردٌّ فوريّ بلا رحلةٍ إلى الخادم لمن لا يملك
+  /// الصلاحية أصلاً. والخادم هو الحَكَم — راجع `mayDeleteDailyUpdate`.
+  ///
+  /// ويُعيد رسالةً عربية عند الفشل بدل رمي استثناء، كما في `deleteUserAccount`.
   Future<String?> deleteDailyUpdate(DailyUpdate update, {Project? project}) async {
     final proj = project ?? projectById(update.projectId);
     if (!canDeleteDailyUpdate(update, proj)) {
       return 'لا تملك صلاحية حذف هذا التحديث — يحذفه كاتبُه أو مالك المشروع.';
     }
     try {
-      await _db.collection('dailyUpdates').doc(update.id).delete();
+      await _functions.httpsCallable('deleteDailyUpdate').call({'updateId': update.id});
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر حذف التحديث';
     } catch (e) {
       return 'تعذّر حذف التحديث: $e';
     }
-    // ــ السجل يُكتب بعد الحذف لا قبله ــ
-    //
-    // فلا يُسجَّل حذفٌ لم يقع: لو رُدّت الكتابة الأولى لبقي في سجل التدقيق
-    // أثرُ فعلٍ لم يحدث، وهو أسوأ من غياب الأثر.
-    await _log(
-      'حذف تحديث يومي',
-      'حُذف تحديث ${Formatters.shortDate(update.date)} على مشروع '
-          '«${proj?.name ?? update.projectId}» بقلم ${update.authorName}'
-          '${update.attachments.isEmpty ? '' : ' (ومعه ${update.attachments.length} مرفقاً)'}',
-    );
-    return null;
   }
 
   /// هل يستطيع المستخدم **طلب** إضافة مشروع في هذه الإدارة؟

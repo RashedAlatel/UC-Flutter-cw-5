@@ -1,7 +1,6 @@
 import * as admin from "firebase-admin";
 import {HttpsError, onCall, CallableRequest} from "firebase-functions/v2/https";
 import {onSchedule} from "firebase-functions/v2/scheduler";
-import {onDocumentDeleted} from "firebase-functions/v2/firestore";
 import {setGlobalOptions} from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
 
@@ -15,6 +14,7 @@ import {
   pruneUidFromReportSettings,
 } from "./account_merge";
 import {storagePathsToDelete} from "./attachment_cleanup";
+import {mayDeleteDailyUpdate} from "./daily_update_delete";
 
 admin.initializeApp();
 
@@ -1455,43 +1455,96 @@ export const adminRestampClaims = onCall(async (request) => {
   return {ok: true, claims};
 });
 
-// ــــــــــــــ تنظيف مرفقات تحديثٍ يومي بعد حذفه ــــــــــــــ
+// ــــــــــــــ حذف تحديثٍ يومي، ومحو ملفاته معه ــــــــــــــ
 
 /**
- * يمحو ملفات التحديث اليومي من التخزين بعد حذف مستنده.
+ * يحذف تحديثاً يومياً، ويمحو مرفقاته من التخزين، ويُسجّل ذلك.
  *
- * ــ لماذا مُشغِّلٌ لا استدعاءٌ من العميل؟ ــ
+ * ــ لماذا على الخادم وقد أذنت القاعدة للعميل بالحذف؟ ــ
  *
- * لأن قواعد التخزين لا تقرأ Firestore، فلا تعرف من يملك المشروع. وفتحُ
- * الحذف للعميل يفتحه لكل موظفٍ معتمد على كل مرفقٍ في الوزارة متى عرف
- * مساره. فبقيت `delete: if false` في `storage.rules`، ووقع المحو هنا —
- * **بعد** أن تكون قاعدة Firestore قد بتّت في حقّ الحذف بحذف المستند. فحقُّ
- * الحذف يُفحص مرّةً واحدة في مكانٍ واحد، ولا يُنسخ منطقُه إلى التخزين.
+ * لأن مع الحذف محوَ ملفاتٍ من التخزين، وقواعدُ التخزين **لا تقرأ
+ * Firestore**: لا سبيل فيها إلى معرفة من يملك المشروع. ففتحُ المحو للعميل
+ * يعني فتحَه لكل موظفٍ معتمد على كل مرفقٍ في الوزارة متى عرف مساره. فبقيت
+ * `allow update, delete: if false` في `storage.rules`، ووقع المحو هنا.
  *
- * والفشل هنا لا يُرمى: المستند حُذف فعلاً وانتهى ما يراه المستخدم. وملفٌّ
- * بقي في التخزين بلا مرجعٍ إليه أثرٌ خاملٌ يُسجَّل ويُراجَع، لا سببٌ
- * لإعادة محاولةٍ لا نهائية على مُشغِّل.
+ * ــ ولماذا استدعاءٌ لا مُشغِّل `onDocumentDeleted`؟ ــ
+ *
+ * كان مُشغِّلاً فسقط نشرُه وحده من بين تسع عشرة دالّة. ومُشغِّلات Firestore
+ * تحتاج Eventarc مفعَّلةً في المشروع، وتحتاج أن تكون منطقة الدالّة مطابقة
+ * لموقع قاعدة البيانات — وكلاهما خارج ما هيّأه مسؤول النظام. أما
+ * الاستدعاء فيمرّ بما تمرّ به بقيةُ دوال المنصة، ولا يطلب شيئاً جديداً.
+ *
+ * وربحُ ذلك أن **سجل التدقيق صار غير قابل للتجاوز** في هذا الفعل: كان
+ * العميل يكتبه بنفسه بعد الحذف، فمن حذف من خارج الواجهة لم يُسجَّل عليه
+ * شيء. وصار الخادم يكتبه باسم من نفّذ.
  */
-export const cleanupDailyUpdateFiles = onDocumentDeleted(
-  "dailyUpdates/{updateId}",
-  async (event) => {
-    const data = event.data?.data();
-    if (!data) return;
+export const deleteDailyUpdate = onCall(async (request) => {
+  const auth = requireAuth(request);
+  const updateId = String((request.data ?? {}).updateId ?? "").trim();
+  if (!updateId) throw new HttpsError("invalid-argument", "معرّف التحديث مطلوب");
 
-    const paths = storagePathsToDelete(data.attachments, String(data.projectId ?? ""));
-    if (paths.length === 0) return;
+  const ref = db().collection("dailyUpdates").doc(updateId);
+  const snap = await ref.get();
+  // حذفُ ما لا وجود له ليس خطأً يُبلَّغ به المستخدم: النتيجة المطلوبة قائمة.
+  // وقد يقع فعلاً حين يضغط اثنان على الزرّ نفسه.
+  if (!snap.exists) return {ok: true, alreadyGone: true};
+  const data = snap.data() ?? {};
 
-    const bucket = admin.storage().bucket();
-    for (const path of paths) {
-      try {
-        await bucket.file(path).delete({ignoreNotFound: true});
-      } catch (e) {
-        logger.error(`تعذّر محو مرفق التحديث اليومي: ${path}`, e);
+  const projectId = String(data.projectId ?? "");
+  const projSnap = projectId ? await db().collection("projects").doc(projectId).get() : null;
+  const project = projSnap?.exists ? (projSnap.data() ?? {}) : null;
+
+  if (!mayDeleteDailyUpdate(
+    {
+      uid: auth.uid,
+      role: auth.token.role,
+      departmentIds: auth.token.departmentIds,
+    },
+    data,
+    project,
+  )) {
+    throw new HttpsError(
+      "permission-denied",
+      "لا تملك صلاحية حذف هذا التحديث — يحذفه كاتبُه أو مالك المشروع.",
+    );
+  }
+
+  // ــ المسارات تُقرأ قبل الحذف، والمحو بعده ــ
+  //
+  // المستند أولاً: هو ما يراه المستخدم، ونجاحُ فعله لا يُعلَّق على التخزين —
+  // وقد لا يكون مفعَّلاً في المشروع أصلاً. ثم الملفات بأفضل جهد.
+  const paths = storagePathsToDelete(data.attachments, projectId);
+  await ref.delete();
+
+  let purged = 0;
+  if (paths.length > 0) {
+    try {
+      const bucket = admin.storage().bucket();
+      for (const path of paths) {
+        try {
+          await bucket.file(path).delete({ignoreNotFound: true});
+          purged++;
+        } catch (e) {
+          logger.error(`تعذّر محو مرفق التحديث اليومي: ${path}`, e);
+        }
       }
+    } catch (e) {
+      // التخزين غير مفعَّل في المشروع، أو لا حزمة له. والمستند حُذف فعلاً.
+      logger.error("تعذّر الوصول إلى التخزين لمحو مرفقات التحديث اليومي", e);
     }
-    logger.info(`مُحيت ${paths.length} مرفقاً بعد حذف التحديث ${event.params.updateId}`);
-  },
-);
+  }
+
+  const projectName = project ? String(project.name ?? projectId) : projectId;
+  await logAudit(
+    auth.token.name ?? "مستخدم",
+    "حذف تحديث يومي",
+    `حُذف تحديثٌ يومي على مشروع "${projectName}" بقلم ` +
+      `"${String(data.authorName ?? data.authorUid ?? "غير معروف")}"` +
+      (paths.length > 0 ? ` — ومُحي ${purged} من ${paths.length} مرفقاً.` : "."),
+  );
+
+  return {ok: true, purged, attachments: paths.length};
+});
 
 // ــــــــــــــــــــ التقرير التنفيذي اليومي ــــــــــــــــــــ
 //

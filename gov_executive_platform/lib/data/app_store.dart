@@ -951,6 +951,173 @@ class AppStore extends ChangeNotifier {
     return mine && (isManager || canDeleteRecords);
   }
 
+  // ــــــــــــــــــ تعديل البيانات والتحويل ــــــــــــــــــ
+
+  /// من يعدّل **بيانات** المشروع (اسمه ووصفه وأولويته وقسمه وتصنيفاته)؟
+  ///
+  /// **مرآةٌ لـ`canAccessProjectDocOrMember` في firestore.rules، والحَكَم هي.**
+  /// وهي أضيق من [canEditProject]: تلك تفتح كتابةَ التحديث اليومي لكل عضو،
+  /// وهذه تعديلُ السجل نفسه — لمسؤول النظام، ولمدير الإدارة صاحبته،
+  /// ولقادة المشروع. والمنفّذ ليس منهم.
+  bool canEditProjectDetails(Project project) {
+    final uid = currentUser?.id;
+    if (uid == null) return false;
+    if (isAdmin) return true;
+    if (isExecutive) return false;
+    if (project.isManager(uid)) return true;
+    return isManager && myDepartmentIds.contains(project.departmentId);
+  }
+
+  /// من يعدّل **بيانات** العمل؟
+  ///
+  /// **مرآةٌ لقاعدة `works` في firestore.rules، والحَكَم هي.** ومديرُ الإدارة
+  /// فيها **بدوره** لا بعلَمٍ يُطفأ: كان الطريق الوحيد صلاحية «إدارة
+  /// الأعمال»، وهي مبدئياً مفتوحة له لكنها تُطفأ من شاشة صلاحيات الأدوار —
+  /// فكان يملك حذف العمل من إدارته ولا يملك تصحيح سطرٍ فيه.
+  ///
+  /// وهذه أضيق من [canEditWork]: تلك تُدخل المُسنَد إليه ليحرّك تقدّمه،
+  /// وهذه تعديلُ البيانات نفسها.
+  bool canEditWorkDetails(WorkItem work) {
+    if (currentUser == null) return false;
+    if (isAdmin) return true;
+    if (isExecutive) return false;
+    if (isManager && myDepartmentIds.contains(work.departmentId)) return true;
+    if (!canManageWorks) return false;
+    if (canViewAllDepartments) return true;
+    return myDepartmentIds.contains(work.departmentId) ||
+        currentUser!.departmentId == work.departmentId;
+  }
+
+  /// من يحوّل سجلاً في هذه الإدارة بين مشروعٍ وعمل؟
+  ///
+  /// **مرآةٌ لـ`mayConvertIn` في `functions/src/convert_record.ts`، والحَكَم
+  /// هي.** ولا تفتحها صلاحية مفوَّضة: التحويل يُنشئ سجلاً ويؤرشف آخر ويغيّر
+  /// من يظهر له في القوائم — فهو لمسؤول النظام ولمدير الإدارة صاحبتِه.
+  bool canConvertIn(String departmentId) {
+    if (currentUser == null) return false;
+    if (isAdmin) return true;
+    if (!isManager) return false;
+    return departmentId.isNotEmpty && myDepartmentIds.contains(departmentId);
+  }
+
+  /// يحفظ تعديل بيانات المشروع — ويُسجّله بـ«قبل/بعد».
+  ///
+  /// ــ ولا يُكتب المستند كاملاً ــ
+  ///
+  /// `toMap()` تكتب الموعد النهائي والإدارة والعضوية معها. وهي بقيمها
+  /// نفسها فلا ترفضها القاعدة نظرياً، لكن `Timestamp` يمرّ بـ`DateTime`
+  /// ذهاباً وإياباً فيفقد ما دون الميكروثانية — فيراه الخادم **تغييراً في
+  /// الموعد النهائي** ويردّ الحفظ كلَّه. فتُكتب الحقول المقصودة وحدها.
+  Future<String?> updateProjectDetails(
+    Project project, {
+    required String name,
+    required String description,
+    required PriorityLevel priority,
+    String? sectionId,
+    required List<String> categoryIds,
+  }) async {
+    if (!canEditProjectDetails(project)) {
+      return 'لا تملك صلاحية تعديل بيانات هذا المشروع.';
+    }
+    if (name.trim().isEmpty) return 'اسم المشروع مطلوب.';
+    final before = <String, dynamic>{
+      'name': project.name,
+      'description': project.description,
+      'priority': project.priority.name,
+      'sectionId': project.sectionId,
+      'categoryIds': project.categoryIds,
+    };
+    final after = <String, dynamic>{
+      'name': name.trim(),
+      'description': description.trim(),
+      'priority': priority.name,
+      'sectionId': (sectionId ?? '').isEmpty ? null : sectionId,
+      'categoryIds': categoryIds,
+    };
+    try {
+      await _db.collection('projects').doc(project.id).update(after);
+    } catch (e) {
+      return 'تعذّر الحفظ: $e';
+    }
+    await _logChange(
+      'تعديل مشروع',
+      'عدّل ${currentUser?.name ?? ''} بيانات المشروع "${after['name']}"',
+      targetType: 'project',
+      targetId: project.id,
+      targetName: after['name'] as String,
+      before: before,
+      after: after,
+    );
+    return null;
+  }
+
+  /// يحوّل مشروعاً إلى عمل أو عملاً إلى مشروع — **عبر الخادم وحده**.
+  ///
+  /// العملية خطوتان لا يجوز أن تقع نصفُها: إنشاءُ النظير وأرشفةُ الأصل. ولو
+  /// وقعتا من العميل في كتابتين لبقي السجل الواحد سجلَّين حيَّين إن انقطع
+  /// الاتصال بينهما. فهما في دفعةٍ ذرّية واحدة في `convertRecord`.
+  ///
+  /// وتُعيد معرّف السجل الجديد عند النجاح — لتُفتح صفحتُه مباشرةً.
+  Future<({String? error, String? id, String? kind})> convertRecord({
+    required String kind,
+    required String id,
+    required String ownerUid,
+  }) async {
+    try {
+      final res = await _functions.httpsCallable('convertRecord').call({
+        'kind': kind,
+        'id': id,
+        'ownerUid': ownerUid,
+      });
+      final data = Map<String, dynamic>.from(res.data as Map);
+      return (error: null, id: data['id'] as String?, kind: data['kind'] as String?);
+    } on FirebaseFunctionsException catch (e) {
+      return (error: e.message ?? 'تعذّر التحويل', id: null, kind: null);
+    } catch (e) {
+      return (error: e.toString(), id: null, kind: null);
+    }
+  }
+
+  /// يفكّ ارتباط التحويل عن أصلٍ مؤرشف ثم يستعيده — **لمسؤول النظام وحده**.
+  ///
+  /// ــ ولماذا خطوتان لا زرٌّ واحد؟ ــ
+  ///
+  /// الأصلُ المحوَّل له نسخةٌ حيّة تحمل بياناته، فاستعادتُه تُنتج الشيء
+  /// الواحد مرّتين في كل قائمة وتقرير. والقاعدة تمنع استعادته ما دام
+  /// الارتباط قائماً — فيُفكّ أولاً في كتابةٍ مستقلّة يبقى بعدها محذوفاً،
+  /// ثم يُستعاد. ومن أراد نسختين فليقُل ذلك مرّتين.
+  Future<String?> detachAndRestore({
+    required String collection,
+    required String id,
+    required String targetType,
+    required String targetName,
+  }) async {
+    if (!isAdmin) return 'الاستعادة لمسؤول النظام وحده.';
+    try {
+      await _db.collection(collection).doc(id).update({
+        'convertedToType': null,
+        'convertedToId': null,
+      });
+    } catch (e) {
+      return 'تعذّر فكّ ارتباط التحويل: $e';
+    }
+    await _log(
+      'فكّ ارتباط تحويل',
+      'فكّ ${currentUser?.name ?? ''} ارتباط التحويل عن "$targetName" تمهيداً لاستعادته '
+      '— وتبقى النسخة المحوَّلة قائمة.',
+      type: ChangeType.convert,
+      targetType: targetType,
+      targetId: id,
+      targetName: targetName,
+    );
+    return restoreItem(
+      collection: collection,
+      id: id,
+      targetType: targetType,
+      targetName: targetName,
+    );
+  }
+
   /// يحذف عملاً **حذفاً منطقياً** — يختفي ويبقى قابلاً للاستعادة.
   Future<String?> softDeleteWork(WorkItem work, {required String reason}) async {
     if (!canSoftDeleteWork(work)) {
@@ -2525,6 +2692,23 @@ class AppStore extends ChangeNotifier {
     } catch (e) {
       return (error: e.toString(), scanned: 0, stamped: 0);
     }
+  }
+
+  /// اسمُ السجل الذي حُوّل إليه أصلٌ مؤرشف — أو نصٌّ يُقرأ حين لا يُعرف.
+  ///
+  /// و«سجلٌّ لم يعد موجوداً» ليس عطلاً بل الحالةَ التي يُتراجَع فيها عن
+  /// التحويل: من حذف النسخة المحوَّلة نهائياً صار الأصل قابلاً للاستعادة
+  /// بلا ازدواج.
+  String convertedTargetName(String? type, String? id) {
+    if (id == null || id.isEmpty) return '';
+    if (type == 'work') {
+      final w = works.where((e) => e.id == id).firstOrNull ??
+          archivedWorks.where((e) => e.id == id).firstOrNull;
+      return w == null ? 'عملٌ لم يعد موجوداً' : 'عمل "${w.title}"';
+    }
+    final p = projects.where((e) => e.id == id).firstOrNull ??
+        archivedProjects.where((e) => e.id == id).firstOrNull;
+    return p == null ? 'مشروعٌ لم يعد موجوداً' : 'مشروع "${p.name}"';
   }
 
   /// اسمُ صاحب هذا المعرِّف — أو نصٌّ يُقرأ حين لا يُعرف.

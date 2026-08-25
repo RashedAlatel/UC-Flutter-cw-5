@@ -41,6 +41,7 @@ deleteUserAccount
 restampUserClaims
 stampChildMembership
 deleteDailyUpdate
+convertRecord
 applyRolePermissions
 generateDailyReportNow
 bootstrapFirstAdmin
@@ -118,9 +119,13 @@ fi
 #
 # قائمةٌ تُضاف إليها الدوالُّ كلما ضاق الحارس تُبطله بلا أن يُلغى. فالعدد
 # نفسه محروس: من زاده يُقرَأ سببه في المراجعة.
+#
+# ورُفع الحدّ من ٢٠ إلى ٢١ مرّةً واحدة، لـ`convertRecord`: التحويل عمليةٌ
+# ذرّية من خطوتين لا تصحّ من العميل أصلاً، وسطرُها يُكتب على الخادم بصلاحية
+# المدير — وهو مفحوصٌ في القسم الأخير من هذا الحارس.
 ALLOWED_COUNT="$(printf '%s\n' "$ALLOWED" | grep -c .)"
-if [ "$ALLOWED_COUNT" -le 20 ]; then
-  report "وقائمة الاستثناء لم تتضخّم ($ALLOWED_COUNT من ٢٠)" 1
+if [ "$ALLOWED_COUNT" -le 21 ]; then
+  report "وقائمة الاستثناء لم تتضخّم ($ALLOWED_COUNT من ٢١)" 1
 else
   report "وقائمة الاستثناء لم تتضخّم" 0 \
     "صارت $ALLOWED_COUNT استثناءً — راجعها قبل رفع الحدّ."

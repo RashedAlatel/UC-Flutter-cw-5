@@ -626,7 +626,12 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
     final isRequest = widget.editing == null &&
         !store.canCreateWorkIn(
             _departmentId.isEmpty ? store.currentUser?.departmentId : _departmentId);
-    final canEdit = canManage || widget.editing == null;
+    // ــ ومن يعدّل سجلاً قائماً يُسأل عن السجل نفسه ــ
+    //
+    // كان الشرط `canManage` وحدها، وهي صلاحية «إدارة الأعمال» تُطفأ من شاشة
+    // صلاحيات الأدوار. فمديرُ الإدارة يفتح نموذج عملٍ في إدارته فيجد كل
+    // حقوله مقفلة — وهو يملك حذفَه.
+    final canEdit = widget.editing == null || store.canEditWorkDetails(widget.editing!);
     final canSetProgress = canManage || !isRequest;
     // ــــ كل الإدارات، لا التي «أراها» ــــ
     //

@@ -19,6 +19,7 @@ import '../widgets/progress_bar.dart';
 import '../models/notify_templates.dart';
 import '../widgets/focus_assignment_dialog.dart';
 import '../widgets/notify_dialog.dart';
+import '../widgets/convert_dialog.dart';
 import '../widgets/project_actions.dart';
 import '../models/daily_update.dart';
 import '../widgets/month_calendar.dart' show dayOnly;
@@ -26,6 +27,7 @@ import '../widgets/updates_calendar.dart';
 import '../widgets/section_picker.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
+import 'project_form_dialog.dart';
 import 'request_deadline_change_dialog.dart';
 
 class ProjectDetailScreen extends StatelessWidget {
@@ -162,6 +164,35 @@ class ProjectDetailScreen extends StatelessWidget {
                             context: context,
                             builder: (_) => FocusAssignmentDialog(projectId: project.id, title: project.name),
                           ),
+                        ),
+                      // ــ تعديل بيانات المشروع ــ
+                      //
+                      // ولم يكن له نموذجٌ قبل اليوم إطلاقاً، ولا لمسؤول
+                      // النظام: خطأٌ مطبعي في اسم مشروع يبقى سنة.
+                      if (store.canEditProjectDetails(project))
+                        IconButton(
+                          icon: Icon(Icons.edit_outlined, size: 20, color: AppColors.primary),
+                          tooltip: 'تعديل بيانات المشروع',
+                          onPressed: () => showProjectFormDialog(context, project),
+                        ),
+                      if (store.canConvertIn(project.departmentId))
+                        IconButton(
+                          icon: const Icon(Icons.swap_horiz_rounded,
+                              size: 20, color: AppColors.textSecondary),
+                          tooltip: 'تحويل المشروع إلى عمل',
+                          onPressed: () async {
+                            final navigator = Navigator.of(context);
+                            final messenger = ScaffoldMessenger.of(context);
+                            final newId = await showConvertProjectDialog(context, project);
+                            if (newId == null) return;
+                            messenger.showSnackBar(const SnackBar(
+                              content: Text('حُوّل المشروع إلى عمل — تجده في «الأعمال»، '
+                                  'والأصل بتاريخه في «المحذوفات».'),
+                              backgroundColor: AppColors.success,
+                            ));
+                            // لم يعد لهذه الصفحة مشروعٌ حيّ تعرضه.
+                            if (navigator.canPop()) navigator.pop();
+                          },
                         ),
                       if (store.canSoftDeleteProject(project))
                         IconButton(

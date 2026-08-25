@@ -25,31 +25,60 @@ class ArchivedItemsScreen extends StatelessWidget {
     required String id,
     required String targetType,
     required String name,
+    /// اسمُ النسخة التي حُوّل إليها هذا الأصل — أو null إن كان محذوفاً لا
+    /// محوَّلاً. والفرق يغيّر النافذة كلَّها لا نصَّها.
+    String? convertedTo,
   }) async {
     final store = context.read<AppStore>();
     final messenger = ScaffoldMessenger.of(context);
+    final converted = convertedTo != null;
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('استعادة السجل؟'),
+        title: Text(converted ? 'استعادة أصلٍ محوَّل؟' : 'استعادة السجل؟'),
         content: Text(
-          'سيعود "$name" إلى مكانه، ومعه كل ما يتبعه من مهامّ وتحديثات '
-          'ومرفقات — فهي لم تُمحَ، بل اختفت باختفائه.',
+          converted
+              ? 'هذا السجل لم يُحذف، بل حُوّل إلى "$convertedTo" — وتلك '
+                  'نسخةٌ حيّة تحمل بياناته.\n\n'
+                  'واستعادتُه تُبقي الاثنين معاً، فيظهر الشيء الواحد مرّتين في '
+                  'كل قائمة وتقرير، ولا شيء في الشاشة يقول إن أحدهما صورةٌ عن '
+                  'الآخر.\n\n'
+                  'فإن أردتَ التراجع عن التحويل: احذف النسخة المحوَّلة أولاً، '
+                  'ثم استعِد هذا الأصل.'
+              : 'سيعود "$name" إلى مكانه، ومعه كل ما يتبعه من مهامّ وتحديثات '
+                  'ومرفقات — فهي لم تُمحَ، بل اختفت باختفائه.',
+          style: const TextStyle(fontSize: 13, height: 1.75),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('استعادة')),
+          if (converted)
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('استعِده رغم ذلك'),
+            )
+          else
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('استعادة')),
         ],
       ),
     );
     if (yes != true) return;
 
-    final error = await store.restoreItem(
-      collection: collection,
-      id: id,
-      targetType: targetType,
-      targetName: name,
-    );
+    // والمحوَّل يمرّ بفكّ الارتباط أولاً: القاعدة تمنع استعادته ما دام
+    // قائماً، فزرٌّ يستدعي الاستعادة مباشرةً يُردّ عند الضغط.
+    final error = converted
+        ? await store.detachAndRestore(
+            collection: collection,
+            id: id,
+            targetType: targetType,
+            targetName: name,
+          )
+        : await store.restoreItem(
+            collection: collection,
+            id: id,
+            targetType: targetType,
+            targetName: name,
+          );
     messenger.showSnackBar(SnackBar(
       content: Text(error ?? 'استُعيد "$name".'),
       backgroundColor: error == null ? AppColors.success : AppColors.danger,
@@ -86,7 +115,7 @@ class ArchivedItemsScreen extends StatelessWidget {
             title: 'المحذوفات',
             subtitle: total == 0
                 ? 'لا يوجد شيء محذوف'
-                : '$total سجلاً محذوفاً منطقياً — لم يُمحَ شيء، ويُستعاد بضغطة',
+                : '$total سجلاً مؤرشفاً — محذوفاً أو محوَّلاً. ولم يُمحَ شيء.',
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 56),
@@ -108,39 +137,49 @@ class ArchivedItemsScreen extends StatelessWidget {
                 if (projects.isNotEmpty) ...[
                   const _SectionTitle('المشاريع المحذوفة'),
                   for (final p in projects)
-                    _ArchivedCard(
-                      name: p.name,
-                      subtitle: store.departmentById(p.departmentId)?.name ?? '',
-                      deletedAt: p.deletedAt,
-                      deletedByName: store.userNameOf(p.deletedBy),
-                      reason: p.deletedReason,
-                      onRestore: () => _restore(
-                        context,
-                        collection: 'projects',
-                        id: p.id,
-                        targetType: 'project',
+                    Builder(builder: (_) {
+                      final to = store.convertedTargetName(p.convertedToType, p.convertedToId);
+                      return _ArchivedCard(
                         name: p.name,
-                      ),
-                    ),
+                        subtitle: store.departmentById(p.departmentId)?.name ?? '',
+                        deletedAt: p.deletedAt,
+                        deletedByName: store.userNameOf(p.deletedBy),
+                        reason: p.deletedReason,
+                        convertedTo: p.wasConverted ? to : null,
+                        onRestore: () => _restore(
+                          context,
+                          collection: 'projects',
+                          id: p.id,
+                          targetType: 'project',
+                          name: p.name,
+                          convertedTo: p.wasConverted ? to : null,
+                        ),
+                      );
+                    }),
                   const SizedBox(height: 18),
                 ],
                 if (works.isNotEmpty) ...[
                   const _SectionTitle('الأعمال المحذوفة'),
                   for (final w in works)
-                    _ArchivedCard(
-                      name: w.title,
-                      subtitle: store.departmentById(w.departmentId)?.name ?? '',
-                      deletedAt: w.deletedAt,
-                      deletedByName: store.userNameOf(w.deletedBy),
-                      reason: w.deletedReason,
-                      onRestore: () => _restore(
-                        context,
-                        collection: 'works',
-                        id: w.id,
-                        targetType: 'work',
+                    Builder(builder: (_) {
+                      final to = store.convertedTargetName(w.convertedToType, w.convertedToId);
+                      return _ArchivedCard(
                         name: w.title,
-                      ),
-                    ),
+                        subtitle: store.departmentById(w.departmentId)?.name ?? '',
+                        deletedAt: w.deletedAt,
+                        deletedByName: store.userNameOf(w.deletedBy),
+                        reason: w.deletedReason,
+                        convertedTo: w.wasConverted ? to : null,
+                        onRestore: () => _restore(
+                          context,
+                          collection: 'works',
+                          id: w.id,
+                          targetType: 'work',
+                          name: w.title,
+                          convertedTo: w.wasConverted ? to : null,
+                        ),
+                      );
+                    }),
                 ],
               ],
             ),
@@ -168,6 +207,10 @@ class _ArchivedCard extends StatelessWidget {
   final DateTime? deletedAt;
   final String deletedByName;
   final String? reason;
+
+  /// اسم ما حُوّل إليه هذا السجل — null إن كان محذوفاً لا محوَّلاً.
+  final String? convertedTo;
+
   final VoidCallback onRestore;
 
   const _ArchivedCard({
@@ -176,6 +219,7 @@ class _ArchivedCard extends StatelessWidget {
     required this.deletedAt,
     required this.deletedByName,
     required this.reason,
+    required this.convertedTo,
     required this.onRestore,
   });
 
@@ -205,7 +249,26 @@ class _ArchivedCard extends StatelessWidget {
                     '${deletedAt == null ? '' : ' في ${Formatters.date(deletedAt!)}'}',
                     style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                   ),
-                  if ((reason ?? '').trim().isNotEmpty) ...[
+                  if (convertedTo != null) ...[
+                    const SizedBox(height: 5),
+                    // ــ والمحوَّل يُعرض محوَّلاً لا محذوفاً ــ
+                    //
+                    // عرضُه كمحذوفٍ بزرّ استعادةٍ عاديّ يجعل ضغطةً واحدة
+                    // تُنتج الشيء الواحد مرّتين في كل قائمة وتقرير.
+                    Row(
+                      children: [
+                        const Icon(Icons.swap_horiz_rounded, size: 15, color: AppColors.info),
+                        const SizedBox(width: 5),
+                        Flexible(
+                          child: Text(
+                            'حُوّل إلى: $convertedTo',
+                            style: const TextStyle(
+                                fontSize: 12, color: AppColors.info, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ] else if ((reason ?? '').trim().isNotEmpty) ...[
                     const SizedBox(height: 3),
                     Text('السبب: ${reason!}',
                         style: const TextStyle(fontSize: 12, height: 1.6)),
@@ -216,8 +279,9 @@ class _ArchivedCard extends StatelessWidget {
             const SizedBox(width: 10),
             OutlinedButton.icon(
               onPressed: onRestore,
-              icon: const Icon(Icons.restore_rounded, size: 17),
-              label: const Text('استعادة'),
+              icon: Icon(convertedTo == null ? Icons.restore_rounded : Icons.info_outline_rounded,
+                  size: 17),
+              label: Text(convertedTo == null ? 'استعادة' : 'الاستعادة؟'),
             ),
           ],
         ),

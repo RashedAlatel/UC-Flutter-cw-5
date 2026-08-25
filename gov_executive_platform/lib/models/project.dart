@@ -72,6 +72,10 @@ class Project {
     this.deletedAt,
     this.deletedBy,
     this.deletedReason,
+    this.convertedFromType,
+    this.convertedFromId,
+    this.convertedToType,
+    this.convertedToId,
   });
 
   /// ــ الحذف المنطقي ــ
@@ -86,6 +90,25 @@ class Project {
   final String? deletedReason;
 
   bool get isDeleted => deletedAt != null;
+
+  /// ــ التحويل بين مشروعٍ وعمل ــ
+  ///
+  /// التحويل لا يَنقُل السجل بل **يُنشئ نظيره ويؤرشف الأصل**: المهام
+  /// والتحديثات والمرفقات والمخاطر والعوائق كلُّها معلّقة بمعرّف الأصل، ونقلُها
+  /// إلى معرّفٍ جديد يعني إعادة كتابة كل واحدٍ منها — وأيُّ سطرٍ يسقط في
+  /// المنتصف يترك تاريخاً مبتوراً لا يُعرف أين ذهب.
+  ///
+  /// فيبقى التاريخ كلُّه على الأصل المؤرشف، ويُوصَل الاثنان بحقلين في
+  /// الاتجاهين: من الجديد إلى ما جاء منه، ومن الأصل إلى ما صار إليه. ومن
+  /// دون الاتجاه الثاني لا تعرف شاشةُ المحذوفات أن هذا الأصل **حُوّل** لا
+  /// حُذف، فتعرض له زرَّ استعادةٍ يُحيي نسخةً ثانية من الشيء نفسه.
+  final String? convertedFromType;
+  final String? convertedFromId;
+  final String? convertedToType;
+  final String? convertedToId;
+
+  /// هل أُرشِف هذا السجل لأنه **حُوّل** لا لأنه حُذف؟
+  bool get wasConverted => convertedToId != null && convertedToId!.isNotEmpty;
 
   /// أول مديري المشروع — للتوافق مع المواضع التي تتعامل مع مدير واحد.
   String? get managerUid => managerUids.isEmpty ? null : managerUids.first;
@@ -196,6 +219,18 @@ class Project {
       sectionId: clearSection ? null : (sectionId ?? this.sectionId),
       categoryIds: categoryIds ?? this.categoryIds,
       createdAt: createdAt,
+      // ــ علامات الحذف والتحويل تُنقَل، ولا تُترك للنسيان ــ
+      //
+      // `toMap` تكتب المستند كاملاً، و`copyWith` بلا هذه الحقول تُنتج نسخةً
+      // «غير محذوفة» من سجلٍّ محذوف — فأيُّ حفظٍ عليها يُحييه بلا أن يقصد
+      // ذلك أحد ولا أن يُكتب في سجل التدقيق.
+      deletedAt: deletedAt,
+      deletedBy: deletedBy,
+      deletedReason: deletedReason,
+      convertedFromType: convertedFromType,
+      convertedFromId: convertedFromId,
+      convertedToType: convertedToType,
+      convertedToId: convertedToId,
     );
   }
 
@@ -224,6 +259,10 @@ class Project {
         'deletedAt': deletedAt == null ? null : Timestamp.fromDate(deletedAt!),
         'deletedBy': deletedBy,
         'deletedReason': deletedReason,
+        'convertedFromType': convertedFromType,
+        'convertedFromId': convertedFromId,
+        'convertedToType': convertedToType,
+        'convertedToId': convertedToId,
       };
 
   factory Project.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) =>
@@ -269,6 +308,10 @@ class Project {
       deletedAt: (json['deletedAt'] as Timestamp?)?.toDate(),
       deletedBy: json['deletedBy'] as String?,
       deletedReason: json['deletedReason'] as String?,
+      convertedFromType: json['convertedFromType'] as String?,
+      convertedFromId: json['convertedFromId'] as String?,
+      convertedToType: json['convertedToType'] as String?,
+      convertedToId: json['convertedToId'] as String?,
     );
   }
 

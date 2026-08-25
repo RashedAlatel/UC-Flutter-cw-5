@@ -16,6 +16,16 @@ import {
 import {storagePathsToDelete} from "./attachment_cleanup";
 import {childMembershipPatch} from "./child_membership";
 import {mayDeleteDailyUpdate} from "./daily_update_delete";
+import {
+  claimDepartments,
+  mayConvertIn,
+  projectToWork,
+  RecordKind,
+  targetCollection,
+  targetKind,
+  titleOf,
+  workToProject,
+} from "./convert_record";
 
 admin.initializeApp();
 
@@ -56,8 +66,22 @@ function requireAdmin(request: CallableRequest) {
 // بمسؤول النظام. فأسوأ ما يصنعه من كتب طلباً بلا `ntf` أن يرى مسؤولُ النظام
 // طلباً يرفضه.
 
-async function logAudit(userName: string, action: string, details: string): Promise<void> {
-  await db().collection("auditLog").add({userName, action, details, timestamp: now()});
+/**
+ * سطرٌ في سجل التدقيق.
+ *
+ * و[extra] لما صار السجل يحمله بعد توسعته: نوعُ التغيير الذي يُصفَّى به،
+ * وهوية الفاعل، والسجل المقصود. اختياريٌّ لأن في الخادم عشرات النداءات
+ * القائمة بحقلين — وتغييرُها دفعةً واحدة أسوأ ما يُفعل بسجلٍّ أمني.
+ */
+async function logAudit(
+  userName: string,
+  action: string,
+  details: string,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  await db().collection("auditLog").add({
+    userName, action, details, timestamp: now(), ...extra,
+  });
 }
 
 // "val" (الاطلاع على سجل التدقيق) أُزيلت عمداً من الصلاحيات القابلة للتفويض:
@@ -1615,6 +1639,115 @@ export const deleteDailyUpdate = onCall(async (request) => {
   );
 
   return {ok: true, purged, attachments: paths.length};
+});
+
+// ــــــــــــــــــــ التحويل بين مشروعٍ وعمل ــــــــــــــــــــ
+
+/**
+ * يحوّل مشروعاً إلى عمل أو عملاً إلى مشروع.
+ *
+ * ــــ ولماذا دالّةٌ على الخادم، والقواعد تكفي للتعديل؟ ــــ
+ *
+ * لأنها **عمليةٌ من خطوتين لا يجوز أن تقع نصفُها**: إنشاءُ النظير وأرشفةُ
+ * الأصل. فلو وقع الأول وحده لبقي السجل الواحد سجلَّين حيَّين في كل قائمة
+ * وتقرير، ولو وقع الثاني وحده لاختفى العمل بلا بديل. وهما هنا في دفعةٍ
+ * واحدة ذرّية.
+ *
+ * وهي كذلك ما يجعل سطر التدقيق غير قابلٍ للتجاوز: لا سبيل إلى تحويلٍ لا
+ * يُكتب، لأن الكتابة والتسجيل في مكانٍ واحد.
+ *
+ * والمقابلةُ نفسها في `convert_record.ts` — وحدةٌ نقيّة تُختبر بلا Firestore.
+ */
+export const convertRecord = onCall(async (request) => {
+  const auth = requireAuth(request);
+  const {kind: rawKind, id, ownerUid: rawOwner} = (request.data ?? {}) as {
+    kind?: string; id?: string; ownerUid?: string;
+  };
+  if (rawKind !== "project" && rawKind !== "work") {
+    throw new HttpsError("invalid-argument", "نوع السجل المطلوب تحويله غير معروف");
+  }
+  const kind = rawKind as RecordKind;
+  if (!id) throw new HttpsError("invalid-argument", "معرّف السجل مطلوب");
+  const ownerUid = (rawOwner ?? "").trim();
+  // ــ ولا يُحوَّل سجلٌّ إلى فراغ ــ
+  //
+  // العمل بلا مُسنَدٍ إليه لا يظهر في «المُسنَد إليّ» لأحد، والمشروع بلا
+  // قائد لا يكتب تحديثه اليومي أحد. فالتحويل بلا صاحبٍ يُنتج سجلاً لا يراه
+  // إلا من يقرأ الإدارة كلها — وهو ما يُسمّى ضياعاً لا تحويلاً.
+  if (!ownerUid) {
+    throw new HttpsError(
+      "invalid-argument",
+      kind === "project" ?
+        "اختر المسؤول عن العمل بعد التحويل." :
+        "اختر قائد المشروع بعد التحويل.",
+    );
+  }
+
+  const sourceCollection = kind === "project" ? "projects" : "works";
+  const sourceRef = db().collection(sourceCollection).doc(id);
+  const snap = await sourceRef.get();
+  if (!snap.exists) throw new HttpsError("not-found", "السجل غير موجود");
+  const source = snap.data() ?? {};
+
+  if (source.deletedAt != null) {
+    throw new HttpsError("failed-precondition", "هذا السجل محذوف — استعِده قبل تحويله.");
+  }
+
+  const departmentId = typeof source.departmentId === "string" ? source.departmentId : "";
+  const role = auth.token.role as string | undefined;
+  if (!mayConvertIn(role, claimDepartments(auth.token), departmentId)) {
+    throw new HttpsError(
+      "permission-denied",
+      "التحويل لمسؤول النظام ولمدير الإدارة صاحبة السجل.",
+    );
+  }
+
+  // رتبةُ من يتولّى النظير تُفحص كما تُفحص في أي إسناد — فلا يُسنِد مديرُ
+  // إدارةٍ عملاً إلى المسؤول التنفيذي من باب التحويل.
+  await assertAssignable([ownerUid], auth.uid, role, departmentId);
+  const ownerSnap = await db().collection("users").doc(ownerUid).get();
+  if (!ownerSnap.exists) throw new HttpsError("not-found", "لا يوجد حساب بهذا المعرّف");
+  const ownerName = String(ownerSnap.data()?.name ?? "");
+
+  const stamp = now();
+  const options = {sourceId: id, ownerUid, ownerName, now: stamp};
+  const payload = kind === "project" ?
+    projectToWork(source, options) :
+    workToProject(source, options);
+
+  const targetRef = db().collection(targetCollection(kind)).doc();
+  const batch = db().batch();
+  batch.set(targetRef, payload);
+  batch.update(sourceRef, {
+    deletedAt: stamp,
+    deletedBy: auth.uid,
+    deletedReason: kind === "project" ?
+      `حُوّل إلى عمل (${targetRef.id})` :
+      `حُوّل إلى مشروع (${targetRef.id})`,
+    convertedToType: targetKind(kind),
+    convertedToId: targetRef.id,
+  });
+  await batch.commit();
+
+  const name = titleOf(kind, source);
+  await logAudit(
+    auth.token.name as string ?? "مستخدم",
+    kind === "project" ? "تحويل مشروع إلى عمل" : "تحويل عمل إلى مشروع",
+    `حوّل ${auth.token.name ?? "مستخدم"} ${kind === "project" ? "المشروع" : "العمل"} ` +
+      `"${name}" إلى ${kind === "project" ? "عمل" : "مشروع"} باسم "${ownerName}". ` +
+      "وبقي الأصل مؤرشفاً بكل مهامّه وتحديثاته ومرفقاته.",
+    {
+      type: "convert",
+      actorUid: auth.uid,
+      targetType: kind,
+      targetId: id,
+      targetName: name,
+      before: {kind, id},
+      after: {kind: targetKind(kind), id: targetRef.id},
+    },
+  );
+
+  return {ok: true, id: targetRef.id, kind: targetKind(kind)};
 });
 
 // ــــــــــــــــــــ التقرير التنفيذي اليومي ــــــــــــــــــــ

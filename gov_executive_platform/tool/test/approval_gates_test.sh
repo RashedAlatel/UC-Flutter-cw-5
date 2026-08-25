@@ -647,8 +647,7 @@ echo ""
 # والعوائق مع المشروع. ولا سبيل إلى استعادة شيء — ولا لمسؤول النظام.
 echo "الحذف المنطقي وثوابته الثلاث:"
 want_in "$RULES" "من يحذف: داخل الإدارة وحدها" "function mayDeleteIn(deptId)"
-want_in "$RULES" "والاستعادة لمسؤول النظام وحده" \
-  "function isRestoring() { return wasDeleted() && !isDeleted() && isAdmin(); }"
+want_in "$RULES" "والاستعادة لمسؤول النظام وحده" "&& isAdmin() && !wasConvertedDoc()"
 want_in "$RULES" "والمحذوف مجمَّد" "function frozenWhileDeleted()"
 # وهذا ما كشفه اختبارٌ عند أول تشغيل: مسارُ «المُسنَد إليه يحرّك تقدّم
 # عمله» كان يمرّ بكتابة `deletedAt` — فيحذف الموظفُ عملَه بنفسه.
@@ -675,6 +674,53 @@ want_in "lib/models/audit_log_entry.dart" "والفاعل بمعرّفه" "final
 want_in "lib/models/audit_log_entry.dart" "و«قبل/بعد»" "final Map<String, dynamic>? before;"
 want_in "lib/models/change_type.dart" "والفرق يُحسب لا يُخزَّن كاملاً" "diffMaps("
 want_in "$STORE" "والفاعل يُكتب من المستخدم الحالي لا من المُنادي" "actorUid: currentUser?.id,"
+echo ""
+
+# ــ التحويل بين مشروعٍ وعمل ــ
+#
+# ثلاثة يحرسها هذا القسم، وكلٌّ منها بابٌ لو انفتح لم يُلاحَظ:
+#
+#   • الموعد النهائي ليس في نموذج تعديل المشروع. وهو بوابةُ اعتمادٍ لا
+#     يفتحها شيء — والقاعدة تردّه، فعرضُ حقلٍ له يَعِد بما سيُردّ.
+#   • والتحويل يمرّ بالخادم: عمليةٌ ذرّية من خطوتين، لو وقعت من العميل في
+#     كتابتين لبقي السجل الواحد سجلَّين حيَّين عند انقطاع الاتصال.
+#   • والمحوَّل لا يُستعاد بضغطة: له نسخةٌ حيّة، فاستعادتُه تُنتج الشيء
+#     الواحد مرّتين في كل قائمة وتقرير.
+echo "التحويل بين مشروعٍ وعمل:"
+FORM="lib/screens/project_form_dialog.dart"
+want_in "$FORM" "نموذج تعديل المشروع قائم" "class ProjectFormDialog"
+reject_in "$FORM" "والموعد النهائي ليس فيه" "dueDate"
+# ولا حقلَ حالةٍ للإدارة في النموذج: نقلُ مشروعٍ بين الإدارات يُخرجه من
+# نطاق من ينقله، وله مسارُه القائم (نقل الأقسام).
+reject_in "$FORM" "ولا نقلُ الإدارة" "_departmentId"
+# والمتجر يكتب الحقول المقصودة وحدها لا المستند كاملاً: `toMap()` تحمل
+# معها الموعد والإدارة والعضوية، و`Timestamp` يفقد ما دون الميكروثانية في
+# رحلته إلى `DateTime` وإيابه — فيراه الخادم تغييراً في الموعد فيردّ الحفظ.
+want_in "$STORE" "ودالّة الحفظ تكتب الحقول المقصودة وحدها" \
+  "doc(project.id).update(after);"
+want_in "$STORE" "والتحويل يمرّ بدالّة على الخادم" \
+  "httpsCallable('convertRecord')"
+want_in "functions/src/index.ts" "وهي تكتب وتؤرشف في دفعةٍ واحدة" "await batch.commit();"
+want_in "functions/src/convert_record.ts" "ومقابلةُ الحقول وحدةٌ نقيّة" \
+  "export function projectToWork("
+want_in "functions/src/convert_record.ts" "والتحويل لمدير الإدارة ومسؤول النظام" \
+  "export function mayConvertIn("
+# والنمط مأخوذٌ من قائمة `deletionUntouched` بعينها لا من أي ذكرٍ للحقلين:
+# `isDetachingConversion` تذكرهما أيضاً، فنمطٌ عامّ يمرّ على حذفهما من هنا.
+want_in "$RULES" "وحقول التحويل خارج التعديل العادي" \
+  "'convertedFromType', 'convertedFromId',"
+want_in "$RULES" "ولا تُوسَم من باب الحذف" "function convertedLinkUnchanged()"
+want_in "lib/screens/archived_items_screen.dart" "والمحوَّل يُعرض محوَّلاً" \
+  "حُوّل إلى: \$convertedTo"
+want_in "$STORE" "وفكُّ الارتباط خطوةٌ مستقلّة" "Future<String?> detachAndRestore("
+echo ""
+
+# ــ وتعديل العمل حقُّ الدور لا علَمٌ يُطفأ ــ
+echo "وتعديل العمل حقٌّ لمدير الإدارة:"
+want_in "$RULES" "في القاعدة" "(isDeptManager() || perm('mw'))"
+want_in "$STORE" "وفي المتجر" "bool canEditWorkDetails(WorkItem work)"
+want_in "lib/screens/works_list_screen.dart" "والنموذج يسأل عن السجل لا عن العلَم" \
+  "store.canEditWorkDetails(widget.editing!)"
 echo ""
 
 echo "══════════════════════════════"

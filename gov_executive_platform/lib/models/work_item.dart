@@ -48,6 +48,15 @@ class WorkItem {
 
   bool get isDeleted => deletedAt != null;
 
+  /// ــ التحويل بين عملٍ ومشروع ــ راجع نظيرها في `Project`.
+  final String? convertedFromType;
+  final String? convertedFromId;
+  final String? convertedToType;
+  final String? convertedToId;
+
+  /// هل أُرشِف هذا السجل لأنه **حُوّل** لا لأنه حُذف؟
+  bool get wasConverted => convertedToId != null && convertedToId!.isNotEmpty;
+
   /// سجلّ الإغلاق: من يعتمده، ومن أعلن إتمامه، ومن اعتمده ومتى.
   ///
   /// وفارغٌ في كل عملٍ كُتب قبل هذه الدورة — فيبقى إغلاقه مباشراً كما كان.
@@ -72,6 +81,10 @@ class WorkItem {
     this.deletedAt,
     this.deletedBy,
     this.deletedReason,
+    this.convertedFromType,
+    this.convertedFromId,
+    this.convertedToType,
+    this.convertedToId,
   });
 
   /// **مغلَقٌ فعلاً** — لا «أفادت الإدارة بإتمامه».
@@ -128,6 +141,14 @@ class WorkItem {
       createdByUid: createdByUid,
       createdAt: createdAt,
       closure: closure ?? this.closure,
+      // تُنقَل ولا تُترك للنسيان — راجع نظيرها في `Project.copyWith`.
+      deletedAt: deletedAt,
+      deletedBy: deletedBy,
+      deletedReason: deletedReason,
+      convertedFromType: convertedFromType,
+      convertedFromId: convertedFromId,
+      convertedToType: convertedToType,
+      convertedToId: convertedToId,
     );
   }
 
@@ -150,6 +171,10 @@ class WorkItem {
         'deletedAt': deletedAt == null ? null : Timestamp.fromDate(deletedAt!),
         'deletedBy': deletedBy,
         'deletedReason': deletedReason,
+        'convertedFromType': convertedFromType,
+        'convertedFromId': convertedFromId,
+        'convertedToType': convertedToType,
+        'convertedToId': convertedToId,
       };
 
   factory WorkItem.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -173,6 +198,10 @@ class WorkItem {
       deletedAt: (j['deletedAt'] as Timestamp?)?.toDate(),
       deletedBy: j['deletedBy'] as String?,
       deletedReason: j['deletedReason'] as String?,
+      convertedFromType: j['convertedFromType'] as String?,
+      convertedFromId: j['convertedFromId'] as String?,
+      convertedToType: j['convertedToType'] as String?,
+      convertedToId: j['convertedToId'] as String?,
     );
   }
 }

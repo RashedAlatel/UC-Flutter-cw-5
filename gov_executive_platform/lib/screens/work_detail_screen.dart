@@ -9,6 +9,7 @@ import '../models/work_item.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import '../utils/platform_url.dart';
+import '../widgets/convert_dialog.dart';
 import '../widgets/meta_row.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
@@ -227,7 +228,12 @@ class WorkDetailScreen extends StatelessWidget {
                           icon: const Icon(Icons.edit_note_rounded, size: 18),
                           label: const Text('تحديث يومي'),
                         ),
-                      if (store.canManageWorks || store.isAdmin)
+                      // ــ التعديل حقُّ الدور لا علَمٌ يُطفأ ــ
+                      //
+                      // كان الشرط `canManageWorks`، وهي صلاحيةٌ تُطفأ من شاشة
+                      // صلاحيات الأدوار. فكان مديرُ الإدارة يملك **حذف**
+                      // العمل من إدارته ولا يملك تصحيح سطرٍ فيه.
+                      if (store.canEditWorkDetails(work))
                         OutlinedButton.icon(
                           onPressed: () => showDialog(
                             context: context,
@@ -235,6 +241,23 @@ class WorkDetailScreen extends StatelessWidget {
                           ),
                           icon: const Icon(Icons.tune_rounded, size: 18),
                           label: const Text('تعديل بيانات العمل'),
+                        ),
+                      if (store.canConvertIn(work.departmentId))
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            final navigator = Navigator.of(context);
+                            final messenger = ScaffoldMessenger.of(context);
+                            final newId = await showConvertWorkDialog(context, work);
+                            if (newId == null) return;
+                            messenger.showSnackBar(const SnackBar(
+                              content: Text('حُوّل العمل إلى مشروع — تجده في «المشاريع»، '
+                                  'والأصل بتاريخه في «المحذوفات».'),
+                              backgroundColor: AppColors.success,
+                            ));
+                            if (navigator.canPop()) navigator.pop();
+                          },
+                          icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                          label: const Text('تحويل إلى مشروع'),
                         ),
                     ],
                   ),

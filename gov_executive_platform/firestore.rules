@@ -125,15 +125,55 @@ service cloud.firestore {
     // (٢) الحذف يقع، والاستعادة لمسؤول النظام وحده. فمن حذف لا يُعيد ما
     //     حذف بنفسه ولا يمحو أثر قراره.
     function isSoftDeleting(deptId) {
-      return !wasDeleted() && isDeleted() && mayDeleteIn(deptId)
+      return !wasDeleted() && isDeleted() && convertedLinkUnchanged() && mayDeleteIn(deptId)
              && request.resource.data.get('deletedBy', null) == request.auth.uid;
     }
-    function isRestoring() { return wasDeleted() && !isDeleted() && isAdmin(); }
+    // ــ والمحوَّل ليس كالمحذوف ــ
+    //
+    // السجل الذي أُرشِف لأنه **حُوّل** له نسخةٌ حيّة تحمل بياناته. فاستعادته
+    // كما هي تُنتج الشيءَ الواحد مرّتين في كل قائمة وتقرير — ولا يظهر في
+    // الشاشة ما يقول إن أحدهما صورةٌ عن الآخر.
+    //
+    // فالاستعادة ممنوعةٌ ما دام الارتباط قائماً، ولمسؤول النظام أن يفكّه
+    // أولاً في كتابةٍ مستقلّة تبقى محذوفةً بعدها. خطوتان بقصد: من أراد
+    // نسختين فليقُل ذلك مرّتين.
+    function wasConvertedDoc() { return resource.data.get('convertedToId', null) != null; }
+    // ــ ولا يُوسَم سجلٌّ «محوَّلاً» من باب الحذف ــ
+    //
+    // كشف اختبارٌ عند أول تشغيل أن مديرَ الإدارة يستطيع أن يحذف سجلاً
+    // **ويَسِمه محوَّلاً** في الكتابة نفسها — فيمتنع على مسؤول النظام
+    // استعادتُه، ويُعرض في «المحذوفات» بتحويلٍ لم يقع.
+    //
+    // ومقارنةُ الحقل نفسه لا `diff().affectedKeys()`: لغةُ القواعد لها سقفُ
+    // تعبيراتٍ لكل طلب، وقاعدةُ الأعمال بلغته فعلاً حين جُرّبت بـ`diff`
+    // ثالثة — فصار سطرٌ يُسجَّل عند كل كتابة. والمقارنة تكفي: `convertedToId`
+    // وحده هو ما تقرؤه `wasConvertedDoc`، فهو وحده ما يمنع الاستعادة.
+    function convertedLinkUnchanged() {
+      return request.resource.data.get('convertedToId', null)
+          == resource.data.get('convertedToId', null);
+    }
+    function isRestoring() {
+      return wasDeleted() && !isDeleted() && convertedLinkUnchanged()
+             && isAdmin() && !wasConvertedDoc();
+    }
+    // ويبقى محذوفاً بعدها بلا شرطٍ صريح: `hasOnly` تمنع أن تتغيّر معها
+    // حقولُ الحذف أصلاً. وكان الشرط مكتوباً فحُذف بعد أن أثبتت طفرةٌ أنه لا
+    // يغيّر جواباً — وشرطٌ لا يُقاس يُقرأ حمايةً وليس بحماية.
+    function isDetachingConversion() {
+      return isAdmin() && wasDeleted()
+             && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['convertedToType', 'convertedToId'])
+             && request.resource.data.get('convertedToId', null) == null;
+    }
 
     // (٣) والمحذوف مجمَّد: لا يُعدَّل عليه شيء ما دام محذوفاً — إلا
     //     استعادةً. وإلا صار الحذف باباً لتعديلٍ لا يراه أحد، إذ لا تُعرض
     //     المستندات المحذوفة في شيء.
-    function frozenWhileDeleted() { return !wasDeleted() || isRestoring() || isAdmin(); }
+    // و`isRestoring()` كانت هنا فرعاً ثالثاً، وهي **زائدة**: الاستعادة
+    // مشروطةٌ بـ`isAdmin()` أصلاً، فالفرع الثاني يبتلع الأول. وحذفُها ليس
+    // تجميلاً: لغةُ القواعد لها سقفُ تعبيراتٍ لكل طلب، وشجرةُ `isRestoring`
+    // كانت تُقيَّم في كل كتابةٍ على كل عملٍ ومشروع بلا أن تُغيّر جواباً.
+    function frozenWhileDeleted() { return !wasDeleted() || isAdmin(); }
 
     // ــ ولا يُعلَّم الحذف من باب التعديل العادي ــ
     //
@@ -143,9 +183,19 @@ service cloud.firestore {
     //
     // فحقولُ الحذف لا تُمسّ إلا من فرعَي الحذف والاستعادة أعلاه، وهما
     // وحدهما يفحصان من يملك ذلك.
+    // وحقولُ التحويل معها: التحويل عمليةٌ من خطوتين — إنشاءُ النظير
+    // وأرشفةُ الأصل — تقع كلُّها في دالّة `convertRecord` على الخادم. فلو
+    // كتبها العميل لَادّعى سجلٌّ حيٌّ أنه محوَّلٌ عن آخر لا وجود له.
+    // والاستثناء الوحيد فكُّ الارتباط أعلاه، وهو لمسؤول النظام وحده.
+    //
+    // والسبعة في `diff` واحد لا اثنين بقصد: لغةُ القواعد لها سقفُ تعبيراتٍ
+    // لكل طلب، وقاعدةُ الأعمال بلغته فعلاً حين قُسِّمت — فرُدّت كتاباتٌ
+    // مشروعة بسبب الكلفة لا بسبب الصلاحية.
     function deletionUntouched() {
       return !request.resource.data.diff(resource.data).affectedKeys()
-                .hasAny(['deletedAt', 'deletedBy', 'deletedReason']);
+                .hasAny(['deletedAt', 'deletedBy', 'deletedReason',
+                         'convertedFromType', 'convertedFromId',
+                         'convertedToType', 'convertedToId']);
     }
 
     // ــــ تسجيل الموظف نفسه على مشروع ــــ
@@ -389,8 +439,16 @@ service cloud.firestore {
       // فقط، دون المساس بالموعد النهائي أو نقل المشروع لإدارة أخرى أو تغيير
       // مديره - أي تغيير في الموعد النهائي يمر عبر طلب موافقة منفصل، وتغيير
       // مدير المشروع لا يقوم به إلا مسؤول النظام.
-      allow update: if (isSoftDeleting(deptOf(resource.data)) || isRestoring())
-                    || (frozenWhileDeleted() && deletionUntouched() && (isAdmin()
+      // ــ وحقولُ التحويل خارج كل مسار إلا فكَّ الارتباط ــ
+      //
+      // وموضعُها هنا لا داخل الفرع العادي: اختبارٌ عند أول تشغيل كشف أن
+      // مسار **الحذف المنطقي** كان يمرّرها، فيستطيع مديرُ الإدارة أن يحذف
+      // سجلاً ويَسِمه «محوَّلاً» في الكتابة نفسها — فيمتنع على مسؤول النظام
+      // استعادتُه، ويُعرض في «المحذوفات» بتحويلٍ لم يقع.
+      allow update: if (isSoftDeleting(deptOf(resource.data)) || isRestoring()
+                        || isDetachingConversion())
+                    || (frozenWhileDeleted() && deletionUntouched()
+                    && (isAdmin()
                     // ومديرُ المشروع — أيّاً كان دوره الأساسي — يحرّك تقدّمه
                     // وحالته. و`canAccessProjectDocOrMember` لا
                     // `canAccessProjectDoc`: الثانية تقرأ الحقل المفرد وحده،
@@ -578,11 +636,22 @@ service cloud.firestore {
                     && mayAssign(request.resource.data.get('assigneeUid', ''));
       // الموظف المُسنَد إليه يحدّث تقدّم عمله وحالته فقط، دون إعادة إسناده
       // لنفسه أو نقله لإدارة أخرى.
-      allow update: if (isSoftDeleting(deptOf(resource.data)) || isRestoring())
+      // حقولُ التحويل خارج كل مسار إلا فكَّ الارتباط — راجع نظيرَها في
+      // قاعدة المشاريع أعلاه، وسببَ موضعها.
+      allow update: if (isSoftDeleting(deptOf(resource.data)) || isRestoring()
+                        || isDetachingConversion())
                     || (frozenWhileDeleted()
                     && deletionUntouched()
                     && (isAdmin()
-                    || (perm('mw') && (canViewAll() || isMyDeptAny(deptOf(resource.data))))
+                    // ــ وتعديل العمل حقُّ مدير الإدارة بدوره لا بعلَمٍ يُطفأ ــ
+                    //
+                    // كان الطريق الوحيد `perm('mw')`، وهي مبدئياً مفتوحة له —
+                    // لكنها تُطفأ من شاشة صلاحيات الأدوار، والمستندُ المخزَّن
+                    // يُقدَّم على المبدئي. فكان مديرُ الإدارة يملك حذف العمل من
+                    // إدارته ولا يملك تصحيح سطرٍ فيه، بحسب علَمٍ قد يكون أُطفئ
+                    // قبل شهور لسببٍ آخر.
+                    || (isMyDeptAny(deptOf(resource.data)) && (isDeptManager() || perm('mw')))
+                    || (perm('mw') && canViewAll())
                     || (resource.data.get('assigneeUid', '') == request.auth.uid
                         && !request.resource.data.diff(resource.data).affectedKeys()
                               .hasAny(['departmentId', 'createdByUid'])

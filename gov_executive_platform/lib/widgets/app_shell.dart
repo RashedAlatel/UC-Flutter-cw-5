@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
 import '../screens/appearance_settings_screen.dart';
+import '../screens/archived_items_screen.dart';
 import '../screens/audit_log_screen.dart';
 import '../screens/daily_report_screen.dart';
 import '../screens/dashboard_screen.dart';
@@ -56,6 +57,7 @@ const Map<NavKey, IconData> _navIcons = {
   NavKey.feedback: Icons.forum_outlined,
   NavKey.people: Icons.groups_rounded,
   NavKey.auditLog: Icons.history_rounded,
+  NavKey.archived: Icons.restore_from_trash_rounded,
   NavKey.users: Icons.manage_accounts_rounded,
   NavKey.roles: Icons.badge_outlined,
   NavKey.rolePermissions: Icons.key_rounded,
@@ -177,6 +179,8 @@ class _AppShellState extends State<AppShell> {
         return const PeopleTrackingScreen();
       case NavKey.auditLog:
         return const AuditLogScreen();
+      case NavKey.archived:
+        return const ArchivedItemsScreen();
       case NavKey.users:
         return const UserManagementScreen();
       case NavKey.roles:

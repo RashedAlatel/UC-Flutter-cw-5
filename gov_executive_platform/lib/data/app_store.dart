@@ -13,6 +13,7 @@ import '../models/app_user.dart';
 import '../models/attachment.dart';
 import '../models/approval_request.dart';
 import '../models/audit_log_entry.dart';
+import '../models/change_type.dart';
 import '../models/blocker.dart';
 import '../models/daily_report.dart';
 import '../models/daily_report_settings.dart';
@@ -102,6 +103,17 @@ class AppStore extends ChangeNotifier {
   List<ProjectBlocker> blockers = [];
   List<DailyUpdate> dailyUpdates = [];
   List<ApprovalRequest> approvalRequests = [];
+  /// كم سطراً من سجل التدقيق يُحمَّل.
+  ///
+  /// كان ثلاثمئة. وبعد أن صار **كل تغيير** مُسجَّلاً صارت الثلاثمئة تغطّي
+  /// أياماً لا شهوراً، والتصفية تقع على ما حُمّل — فمن صفّى بنوعٍ قديم لم
+  /// يجده. ورُفع الحدّ ليغطّي مدىً معقولاً.
+  ///
+  /// وحين يتجاوز السجلُّ هذا المدى فالخطوة التالية تصفيةٌ على الخادم
+  /// باستعلامٍ لكل نوع (يلزمها فهرس `type` + `timestamp`)، لا رفعُ الحدّ
+  /// أكثر: تحميلُ عشرة آلاف سطرٍ إلى المتصفّح ليُصفّى فيه ليس حلاً.
+  static const int auditLogWindow = 1000;
+
   List<AuditLogEntry> auditLog = [];
   List<ReportSnapshot> reports = [];
   List<AppUser> users = []; // يُملأ فقط لمسؤول النظام (إدارة المستخدمين)
@@ -133,6 +145,41 @@ class AppStore extends ChangeNotifier {
   /// تُجمع هنا فتُعرض في لافتة أعلى المنصة، فيصير الرفض معلومة تُقرأ وتُصوَّر
   /// بدل شاشة فارغة غامضة.
   final Map<String, String> dataErrors = {};
+
+  /// المحذوفة منطقياً — لا تظهر في شيء، ويقرؤها مسؤول النظام ليستعيدها.
+  ///
+  /// ــ لماذا قائمةٌ مستقلة لا مُرشِّحٌ في كل شاشة؟ ــ
+  ///
+  /// `projects` يقرؤها أكثر من عشرين موضعاً في المتجر والشاشات. فلو كانت
+  /// التصفية في كل موضع لَسقطت من واحدٍ منها يوماً، فظهر مشروعٌ محذوف في
+  /// لوحة قيادةٍ أو تقرير — ولا يصيح شيء. والقسمة تقع في `publishProjects`
+  /// و`publishWorks` وحدهما، فيصير كلُّ قارئٍ صحيحاً بلا أن يُمسّ.
+  List<Project> archivedProjects = [];
+  List<WorkItem> archivedWorks = [];
+
+  /// ما يصل من توابع المشاريع قبل إسقاط تابعي المحذوف.
+  ///
+  /// ــ لماذا نسختان؟ ــ
+  ///
+  /// تابعُ مشروعٍ محذوف يجب ألّا يظهر — وإلا رأى الموظف مهمّةً في «المُسنَد
+  /// إليّ» لمشروعٍ لم يعد موجوداً، وحُسبت في مؤشّرات اللوحة. لكن التوابع
+  /// تصل قبل المشاريع أحياناً، فالتصفية وقتَ الوصول تُسقط ما لا يجب.
+  ///
+  /// فيُحتفظ بالخام، ويُعاد النشر متى تغيّر أحدُ الطرفين — راجع
+  /// [_republishChildren].
+  List<ProjectTask> _tasksRaw = [];
+  List<ProjectRisk> _risksRaw = [];
+  List<ProjectBlocker> _blockersRaw = [];
+  List<DailyUpdate> _dailyUpdatesRaw = [];
+
+  /// يُسقط توابعَ المشاريع المحذوفة منطقياً من القوائم المعروضة.
+  void _republishChildren() {
+    final archived = archivedProjects.map((p) => p.id).toSet();
+    tasks = withoutArchivedParents(_tasksRaw, archived, (t) => t.projectId);
+    risks = withoutArchivedParents(_risksRaw, archived, (r) => r.projectId);
+    blockers = withoutArchivedParents(_blockersRaw, archived, (b) => b.projectId);
+    dailyUpdates = withoutArchivedParents(_dailyUpdatesRaw, archived, (u) => u.projectId);
+  }
 
   /// المشاريع من مصادرها الثلاثة قبل الدمج — راجع `publishProjects`.
   List<Project> _projectsByScope = [];
@@ -594,8 +641,27 @@ class AppStore extends ChangeNotifier {
     await _log('الأعمال التشغيلية', 'أضاف ${currentUser?.name} العمل "${work.title}"');
   }
 
+  /// يحفظ تعديل بيانات العمل — **ويُسجّله بـ«قبل/بعد»**.
+  ///
+  /// وكان لا يُسجَّل إطلاقاً: يُكتب المستند كاملاً فوق سابقه بلا أثر. وهو
+  /// المسار الذي ستفتحه الجولة القادمة لمدير الإدارة على كل عمل في
+  /// إدارته — ففتحُه بلا سجلٍّ يجعل تعديل بيانات أي عملٍ فعلاً بلا صاحب.
+  ///
+  /// والقيمةُ السابقة تُقرأ من المتجر لا من الخادم: هي التي كانت معروضةً
+  /// أمام من عدّل، فهي «قبل» الصحيحة — وتوفّر قراءةً إضافية.
   Future<void> updateWork(WorkItem work) async {
+    final before = works.where((w) => w.id == work.id).firstOrNull?.toMap();
     await _db.collection('works').doc(work.id).update(work.toMap());
+    if (before == null) return;
+    await _logChange(
+      'تعديل عمل',
+      'عدّل ${currentUser?.name ?? ''} بيانات العمل "${work.title}"',
+      targetType: 'work',
+      targetId: work.id,
+      targetName: work.title,
+      before: before,
+      after: work.toMap(),
+    );
   }
 
   // ــــــــــــــــــ دورة الإغلاق على مرحلتين ــــــــــــــــــ
@@ -865,6 +931,126 @@ class AppStore extends ChangeNotifier {
     await _log('الأعمال التشغيلية', 'حدّث ${currentUser?.name} العمل "${work.title}"');
   }
 
+  /// من يحذف هذا العمل حذفاً منطقياً؟
+  ///
+  /// **مرآةٌ لقاعدة `works` في firestore.rules، والحَكَم هي.**
+  bool canSoftDeleteWork(WorkItem work) {
+    if (currentUser == null) return false;
+    if (isAdmin) return true;
+    if (isExecutive) return false;
+    final mine = myDepartmentIds.contains(work.departmentId);
+    return mine && (isManager || canDeleteRecords);
+  }
+
+  /// من يحذف هذا المشروع حذفاً منطقياً؟
+  bool canSoftDeleteProject(Project project) {
+    if (currentUser == null) return false;
+    if (isAdmin) return true;
+    if (isExecutive) return false;
+    final mine = myDepartmentIds.contains(project.departmentId);
+    return mine && (isManager || canDeleteRecords);
+  }
+
+  /// يحذف عملاً **حذفاً منطقياً** — يختفي ويبقى قابلاً للاستعادة.
+  Future<String?> softDeleteWork(WorkItem work, {required String reason}) async {
+    if (!canSoftDeleteWork(work)) {
+      return 'لا تملك صلاحية حذف هذا العمل — الحذف داخل إدارتك وحدها.';
+    }
+    return _markDeleted(
+      collection: 'works',
+      id: work.id,
+      targetType: 'work',
+      targetName: work.title,
+      reason: reason,
+      action: 'حذف عمل',
+      details: 'حذف ${currentUser?.name ?? ''} العمل "${work.title}" حذفاً منطقياً — السبب: $reason',
+    );
+  }
+
+  /// ويحذف مشروعاً كذلك — وتوابعُه تختفي معه بلا أن تُمسّ.
+  ///
+  /// ــ ولا تُحذف المهام والتحديثات ــ
+  ///
+  /// الحذف النهائي القديم كان يمحوها متسلسلاً بلا رجعة. أما هنا فتبقى كما
+  /// هي وتُخفى بتبعيّتها للمشروع (راجع `_republishChildren`). فالاستعادة
+  /// تُعيد المشروع بكل تاريخه، لا هيكلاً فارغاً.
+  Future<String?> softDeleteProject(Project project, {required String reason}) async {
+    if (!canSoftDeleteProject(project)) {
+      return 'لا تملك صلاحية حذف هذا المشروع — الحذف داخل إدارتك وحدها.';
+    }
+    return _markDeleted(
+      collection: 'projects',
+      id: project.id,
+      targetType: 'project',
+      targetName: project.name,
+      reason: reason,
+      action: 'حذف مشروع',
+      details:
+          'حذف ${currentUser?.name ?? ''} المشروع "${project.name}" حذفاً منطقياً — السبب: $reason',
+    );
+  }
+
+  Future<String?> _markDeleted({
+    required String collection,
+    required String id,
+    required String targetType,
+    required String targetName,
+    required String reason,
+    required String action,
+    required String details,
+  }) async {
+    try {
+      await _db.collection(collection).doc(id).update({
+        'deletedAt': Timestamp.fromDate(DateTime.now()),
+        'deletedBy': currentUser?.id,
+        'deletedReason': reason,
+      });
+    } catch (e) {
+      return 'تعذّر الحذف: $e';
+    }
+    await _log(
+      action,
+      details,
+      type: ChangeType.softDelete,
+      targetType: targetType,
+      targetId: id,
+      targetName: targetName,
+    );
+    return null;
+  }
+
+  /// يستعيد ما حُذف منطقياً — **لمسؤول النظام وحده**.
+  ///
+  /// ومن حذف لا يستعيد ما حذف بنفسه: وإلا صار الحذف والاستعادة معاً بيدٍ
+  /// واحدة، فيُمحى الأثرُ ويُعاد بلا أن يمرّ بأحد.
+  Future<String?> restoreItem({
+    required String collection,
+    required String id,
+    required String targetType,
+    required String targetName,
+  }) async {
+    if (!isAdmin) return 'الاستعادة لمسؤول النظام وحده.';
+    try {
+      await _db.collection(collection).doc(id).update({
+        'deletedAt': null,
+        'deletedBy': null,
+        'deletedReason': null,
+      });
+    } catch (e) {
+      return 'تعذّرت الاستعادة: $e';
+    }
+    await _log(
+      'استعادة سجل',
+      'استعاد ${currentUser?.name ?? ''} "$targetName" بعد حذفه منطقياً',
+      type: ChangeType.restore,
+      targetType: targetType,
+      targetId: id,
+      targetName: targetName,
+    );
+    return null;
+  }
+
+  /// الحذف النهائي — لمسؤول النظام وحده، ولا رجعة فيه.
   Future<String?> deleteWork(WorkItem work) async {
     try {
       // تحديثات العمل تُحذف معه: قاعدة قراءتها تعتمد على إدارة العمل
@@ -876,7 +1062,14 @@ class AppStore extends ChangeNotifier {
         await doc.reference.delete();
       }
       await _db.collection('works').doc(work.id).delete();
-      await _log('الأعمال التشغيلية', 'حذف ${currentUser?.name} العمل "${work.title}"');
+      await _log(
+        'الأعمال التشغيلية',
+        'حذف ${currentUser?.name} العمل "${work.title}" حذفاً نهائياً',
+        type: ChangeType.hardDelete,
+        targetType: 'work',
+        targetId: work.id,
+        targetName: work.title,
+      );
       return null;
     } catch (e) {
       return 'تعذر حذف العمل: $e';
@@ -1249,6 +1442,8 @@ class AppStore extends ChangeNotifier {
     // أخطاء الاشتراك السابق لا تصف الاشتراك الجديد، فتُمسح معه — وإلا بقيت
     // لافتة خطأ معلّقة بعد أن صُحّحت صلاحيات الحساب فعلاً.
     dataErrors.clear();
+    archivedProjects = [];
+    archivedWorks = [];
     _projectsByScope = [];
     _projectsByMembership = [];
     _projectsByExecution = [];
@@ -1368,6 +1563,40 @@ class AppStore extends ChangeNotifier {
     return byId.values.toList();
   }
 
+  /// يقسم ما وصل إلى حيٍّ ومحذوفٍ منطقياً.
+  ///
+  /// ــ لماذا دالّةٌ لا سطران في مكانها؟ ــ
+  ///
+  /// لأن هذه القسمة هي **كلُّ** ما يمنع ظهور مشروعٍ محذوف في لوحة قيادةٍ
+  /// أو تقرير. وهي تقع داخل دالّة الاشتراك التي لا تعمل إلا بـFirestore
+  /// حيّ — أي خارج مدى أي اختبار. فأُخرجت لتُقاس.
+  @visibleForTesting
+  static ({List<T> live, List<T> archived}) splitDeleted<T>(
+    List<T> all,
+    bool Function(T) deleted,
+  ) {
+    final live = <T>[];
+    final archived = <T>[];
+    for (final item in all) {
+      (deleted(item) ? archived : live).add(item);
+    }
+    return (live: live, archived: archived);
+  }
+
+  /// يُسقط توابعَ المشاريع المحذوفة.
+  ///
+  /// وإلا رأى الموظف مهمّةً في «المُسنَد إليّ» لمشروعٍ لم يعد موجوداً،
+  /// وحُسبت في مؤشّرات اللوحة كأنها قائمة.
+  @visibleForTesting
+  static List<T> withoutArchivedParents<T>(
+    List<T> children,
+    Set<String> archivedIds,
+    String Function(T) parentOf,
+  ) {
+    if (archivedIds.isEmpty) return children;
+    return children.where((c) => !archivedIds.contains(parentOf(c))).toList();
+  }
+
   /// تصفية بقائمة إدارات. Firestore يحدّ `whereIn` بثلاثين قيمة، فتُقتطع.
   Query<Map<String, dynamic>> _whereDeptIn(
     CollectionReference<Map<String, dynamic>> col,
@@ -1476,10 +1705,22 @@ class AppStore extends ChangeNotifier {
     // التدفّقان في نفس القائمة لداس أحدهما الآخر عند كل لقطة، فتظهر
     // المشاريع وتختفي بلا سبب — لذلك لكلٍّ قائمته وتُدمجان في `projects`.
     void publishProjects() {
-      projects = mergeById<Project>(
+      final all = mergeById<Project>(
         (p) => p.id,
         [_projectsByScope, _projectsByMembership, _projectsByExecution],
       );
+      // ــ القسمة هنا وحدها ــ
+      //
+      // والتصفية في الذاكرة لا في الاستعلام بقصد: `where('deletedAt',
+      // isNull)` في Firestore **لا يُرجع المستندات التي لا تحمل الحقل
+      // أصلاً** — وهي كلُّ مشاريع الوزارة اليوم. فالاستعلام يمحو المنصة عن
+      // أعين الجميع بدل أن يُخفي المحذوف وحده.
+      final split = splitDeleted<Project>(all, (p) => p.isDeleted);
+      projects = split.live;
+      archivedProjects = split.archived
+        ..sort((a, b) => b.deletedAt!.compareTo(a.deletedAt!));
+      // الأرشيف تغيّر، فتوابعُه تتبعه.
+      _republishChildren();
       notifyListeners();
     }
 
@@ -1502,19 +1743,23 @@ class AppStore extends ChangeNotifier {
       });
     }
     listenChild<ProjectTask>('tasks', ProjectTask.fromDoc, (t) => t.id, (v) {
-      tasks = v;
+      _tasksRaw = v;
+      _republishChildren();
       notifyListeners();
     });
     listenChild<ProjectRisk>('risks', ProjectRisk.fromDoc, (r) => r.id, (v) {
-      risks = v;
+      _risksRaw = v;
+      _republishChildren();
       notifyListeners();
     });
     listenChild<ProjectBlocker>('blockers', ProjectBlocker.fromDoc, (b) => b.id, (v) {
-      blockers = v;
+      _blockersRaw = v;
+      _republishChildren();
       notifyListeners();
     });
     listenChild<DailyUpdate>('dailyUpdates', DailyUpdate.fromDoc, (u) => u.id, (v) {
-      dailyUpdates = v;
+      _dailyUpdatesRaw = v;
+      _republishChildren();
       notifyListeners();
     });
     // طلبات الاعتماد كانت تُطلب كاملةً بلا نطاق، وقاعدتها تعتمد على محتوى
@@ -1597,8 +1842,11 @@ class AppStore extends ChangeNotifier {
     // (إدارتي، أو مُسنَد إليّ). فالطلب المفتوح يُرفض لكل من لا يرى كل
     // الإدارات — **بمن فيهم مدراء الإدارات** — فتظهر صفحة الأعمال فارغة.
     void publishWorks() {
-      works = mergeById<WorkItem>((w) => w.id, [_worksByScope, _worksByAssignment])
-        ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+      final all = mergeById<WorkItem>((w) => w.id, [_worksByScope, _worksByAssignment]);
+      final split = splitDeleted<WorkItem>(all, (w) => w.isDeleted);
+      works = split.live..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+      archivedWorks = split.archived
+        ..sort((a, b) => b.deletedAt!.compareTo(a.deletedAt!));
       notifyListeners();
     }
 
@@ -1716,7 +1964,7 @@ class AppStore extends ChangeNotifier {
     });
 
     if (canViewAuditLog) {
-      _listen('auditLog', _db.collection('auditLog').orderBy('timestamp', descending: true).limit(300).snapshots(), (snap) {
+      _listen('auditLog', _db.collection('auditLog').orderBy('timestamp', descending: true).limit(auditLogWindow).snapshots(), (snap) {
         auditLog = snap.docs.map(AuditLogEntry.fromDoc).toList();
         notifyListeners();
       });
@@ -2277,6 +2525,16 @@ class AppStore extends ChangeNotifier {
     } catch (e) {
       return (error: e.toString(), scanned: 0, stamped: 0);
     }
+  }
+
+  /// اسمُ صاحب هذا المعرِّف — أو نصٌّ يُقرأ حين لا يُعرف.
+  ///
+  /// السجل يُقرأ بعد شهور وقد حُذف الحساب، فلا يُترك المعرِّفُ الخام أمام
+  /// قارئٍ لا يعنيه.
+  String userNameOf(String? uid) {
+    if (uid == null || uid.isEmpty) return 'غير معروف';
+    final match = users.where((u) => u.id == uid);
+    return match.isEmpty ? 'حسابٌ محذوف' : match.first.name;
   }
 
   bool get canViewAllDepartments => isAdmin || hasPermission(RolePermission.viewAllDepartments);
@@ -4063,7 +4321,14 @@ class AppStore extends ChangeNotifier {
   Future<String?> deleteProject(Project project) async {
     try {
       await _deleteProjectDocs(project);
-      await _log('إدارة المشاريع', 'تم حذف المشروع "${project.name}" وكل تابعيه');
+      await _log(
+        'إدارة المشاريع',
+        'تم حذف المشروع "${project.name}" وكل تابعيه حذفاً نهائياً',
+        type: ChangeType.hardDelete,
+        targetType: 'project',
+        targetId: project.id,
+        targetName: project.name,
+      );
       return null;
     } catch (e) {
       return 'تعذر حذف المشروع: $e';
@@ -4295,7 +4560,27 @@ class AppStore extends ChangeNotifier {
 
   // ------------------------- سجل التدقيق -------------------------
 
-  Future<void> _log(String action, String details) async {
+  /// يكتب سطراً في سجل التدقيق.
+  ///
+  /// ــ المعاملات الجديدة كلُّها اختيارية بقصد ــ
+  ///
+  /// في الشيفرة خمسةٌ وخمسون نداءً قائماً بحقلين نصّيين. فلو صارت مطلوبةً
+  /// لَوجب تعديلُها دفعةً واحدة في تغييرٍ واحد — وهو أسوأ ما يُفعل بسجلٍّ
+  /// أمني: تغييرٌ عريضٌ لا يُراجَع سطراً سطراً. فتُثرى النداءات على مهل،
+  /// ويحرس `tool/test/audit_coverage_test.sh` ألّا تسقط واحدةٌ منها.
+  ///
+  /// و[actorUid] يُكتب دائماً من المستخدم الحالي لا من المُنادي: القاعدة
+  /// تشترط مطابقتَه لهوية الكاتب، فلا يُترك لموضعٍ ينساه.
+  Future<void> _log(
+    String action,
+    String details, {
+    ChangeType type = ChangeType.other,
+    String? targetType,
+    String? targetId,
+    String? targetName,
+    Map<String, dynamic>? before,
+    Map<String, dynamic>? after,
+  }) async {
     final ref = _db.collection('auditLog').doc();
     await ref.set(AuditLogEntry(
       id: ref.id,
@@ -4303,6 +4588,41 @@ class AppStore extends ChangeNotifier {
       action: action,
       details: details,
       timestamp: DateTime.now(),
+      type: type,
+      actorUid: currentUser?.id,
+      targetType: targetType,
+      targetId: targetId,
+      targetName: targetName,
+      before: before,
+      after: after,
     ).toMap());
+  }
+
+  /// يكتب سطر تعديلٍ بـ«قبل/بعد» — ولا يكتب شيئاً إن لم يتغيّر شيء.
+  ///
+  /// فتحُ نموذجٍ وحفظُه بلا تعديل يقع كثيراً، وسطرُ «تعديل» بلا فرقٍ يملأ
+  /// السجل بما لا معنى له.
+  Future<void> _logChange(
+    String action,
+    String details, {
+    required String targetType,
+    required String targetId,
+    String? targetName,
+    required Map<String, dynamic> before,
+    required Map<String, dynamic> after,
+    ChangeType type = ChangeType.update$,
+  }) async {
+    final d = diffMaps(before, after);
+    if (d == null) return;
+    await _log(
+      action,
+      details,
+      type: type,
+      targetType: targetType,
+      targetId: targetId,
+      targetName: targetName,
+      before: d.before,
+      after: d.after,
+    );
   }
 }

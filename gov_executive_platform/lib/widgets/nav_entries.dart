@@ -32,6 +32,7 @@ enum NavKey {
   feedback('الشكاوى والاقتراحات'),
   people('متابعة الأشخاص'),
   auditLog('سجل التدقيق'),
+  archived('المحذوفات'),
   users('المستخدمون'),
   roles('إدارة الأدوار'),
   rolePermissions('صلاحيات الأدوار'),
@@ -117,6 +118,7 @@ List<NavKey> navKeysFor(AppStore store) {
   }
   if (store.canTrackPeople) keys.add(NavKey.people);
   if (store.canViewAuditLog) keys.add(NavKey.auditLog);
+  if (store.isAdmin) keys.add(NavKey.archived);
   if (store.canManageUsers) {
     keys
       ..add(NavKey.users)

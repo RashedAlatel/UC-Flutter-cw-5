@@ -69,7 +69,23 @@ class Project {
     this.sectionId,
     this.categoryIds = const [],
     this.createdAt,
+    this.deletedAt,
+    this.deletedBy,
+    this.deletedReason,
   });
+
+  /// ــ الحذف المنطقي ــ
+  ///
+  /// المشروع لا يُمحى من قاعدة البيانات، بل يُعلَّم محذوفاً فيختفي من كل
+  /// قائمة ويبقى قابلاً للاستعادة. وحذفُه قبل ذلك كان **نهائياً متسلسلاً**
+  /// يمحو مهامّه وتحديثاته ومخاطره وعوائقه معه بلا رجعة.
+  ///
+  /// والحقول ثلاثةٌ لأن «متى» وحدها لا تكفي في سجلٍّ حكومي: من قرّر، ولماذا.
+  final DateTime? deletedAt;
+  final String? deletedBy;
+  final String? deletedReason;
+
+  bool get isDeleted => deletedAt != null;
 
   /// أول مديري المشروع — للتوافق مع المواضع التي تتعامل مع مدير واحد.
   String? get managerUid => managerUids.isEmpty ? null : managerUids.first;
@@ -203,6 +219,11 @@ class Project {
         'sectionId': sectionId,
         'categoryIds': categoryIds,
         if (createdAt != null) 'createdAt': Timestamp.fromDate(createdAt!),
+        // تُكتب دائماً ولو فارغة: `toMap` تُستعمل في تحديثٍ يكتب المستند
+        // كاملاً، فحذفُ المفتاح عند الفراغ يُبقي علامةَ حذفٍ قديمة عالقة.
+        'deletedAt': deletedAt == null ? null : Timestamp.fromDate(deletedAt!),
+        'deletedBy': deletedBy,
+        'deletedReason': deletedReason,
       };
 
   factory Project.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) =>
@@ -245,6 +266,9 @@ class Project {
               .where((e) => e.isNotEmpty)
               .toList() ??
           const [],
+      deletedAt: (json['deletedAt'] as Timestamp?)?.toDate(),
+      deletedBy: json['deletedBy'] as String?,
+      deletedReason: json['deletedReason'] as String?,
     );
   }
 

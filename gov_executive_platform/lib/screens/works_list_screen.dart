@@ -378,21 +378,42 @@ class _WorkRow extends StatelessWidget {
                         builder: (_) => FocusAssignmentDialog(workId: work.id, title: work.title),
                       ),
                     ),
-                  if (store.isAdmin || store.canDeleteRecords)
+                  if (store.canSoftDeleteWork(work))
                     IconButton(
                       icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
                       tooltip: 'حذف العمل',
                       onPressed: () async {
                         final messenger = ScaffoldMessenger.of(context);
+                        final reasonCtrl = TextEditingController();
                         final ok = await showDialog<bool>(
                           context: context,
                           builder: (ctx) => AlertDialog(
                             title: const Text('حذف العمل'),
-                            content: Text('سيُحذف "${work.title}" نهائياً.'),
+                            content: SizedBox(
+                              width: 420,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'سيختفي "${work.title}" من كل القوائم. ولا يُمحى شيء: '
+                                    'يستعيده مسؤول النظام متى شاء.',
+                                    style: const TextStyle(fontSize: 13, height: 1.7),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  TextField(
+                                    controller: reasonCtrl,
+                                    autofocus: true,
+                                    decoration: const InputDecoration(
+                                      labelText: 'سبب الحذف (مطلوب)',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                             actions: [
                               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+                              FilledButton(
                                 onPressed: () => Navigator.pop(ctx, true),
                                 child: const Text('حذف'),
                               ),
@@ -400,10 +421,19 @@ class _WorkRow extends StatelessWidget {
                           ),
                         );
                         if (ok != true) return;
-                        final error = await store.deleteWork(work);
-                        if (error != null) {
-                          messenger.showSnackBar(SnackBar(content: Text(error), backgroundColor: AppColors.danger));
+                        final reason = reasonCtrl.text.trim();
+                        if (reason.isEmpty) {
+                          messenger.showSnackBar(const SnackBar(
+                            content: Text('سبب الحذف مطلوب — يُقرأ في سجل التدقيق بعد شهور.'),
+                            backgroundColor: AppColors.warning,
+                          ));
+                          return;
                         }
+                        final error = await store.softDeleteWork(work, reason: reason);
+                        messenger.showSnackBar(SnackBar(
+                          content: Text(error ?? 'حُذف "${work.title}" — يمكن استعادته من «المحذوفات».'),
+                          backgroundColor: error == null ? AppColors.success : AppColors.danger,
+                        ));
                       },
                     ),
                 ],

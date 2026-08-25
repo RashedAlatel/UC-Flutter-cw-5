@@ -132,12 +132,13 @@ echo "والخادم يرفض الإغلاق من غير معتمِده:"
 want_in "$RULES" "دالّة الحراسة موجودة" 'function closureRespected()'
 want_in "$RULES" "وتقرأ المعتمِد من المستند نفسه" "function approverOf(data)"
 # مرّتان: في الأعمال وفي مهام المشاريع. وواحدةٌ تعني أن أحد الكيانين بلا حارس.
-if [ "$(grep -c '&& closureRespected();' "$RULES")" = "2" ]; then
+APPLIED="$(grep -c '&& closureRespected()' "$RULES")"
+if [ "$APPLIED" = "2" ]; then
   echo "  ✔ ومطبَّقة على الأعمال ومهام المشاريع معاً"
   PASS=$((PASS + 1))
 else
   echo "  ✗ ومطبَّقة على الأعمال ومهام المشاريع معاً"
-  echo "      المتوقَّع تطبيقان، والموجود: $(grep -c '&& closureRespected();' "$RULES")"
+  echo "      المتوقَّع تطبيقان، والموجود: $APPLIED"
   FAIL=$((FAIL + 1))
 fi
 echo ""
@@ -638,6 +639,42 @@ echo "والتحديث اليومي لا يسقط بسقوط تابعٍ له:"
 want_in "$STORE" "يُكتب أوّلاً وبمفرده" "await updateRef.set({"
 want_in "$STORE" "وما تعذّر يُجمع ويُقال" "notRecorded.add("
 want_in "lib/screens/daily_update_form.dart" "والواجهة تعرضه" "result.notRecorded"
+echo ""
+
+# ــ الحذف صار منطقياً، والنهائي استثناء ــ
+#
+# وكان الحذف نهائياً متسلسلاً بلا رجعة: يمحو المهام والتحديثات والمخاطر
+# والعوائق مع المشروع. ولا سبيل إلى استعادة شيء — ولا لمسؤول النظام.
+echo "الحذف المنطقي وثوابته الثلاث:"
+want_in "$RULES" "من يحذف: داخل الإدارة وحدها" "function mayDeleteIn(deptId)"
+want_in "$RULES" "والاستعادة لمسؤول النظام وحده" \
+  "function isRestoring() { return wasDeleted() && !isDeleted() && isAdmin(); }"
+want_in "$RULES" "والمحذوف مجمَّد" "function frozenWhileDeleted()"
+# وهذا ما كشفه اختبارٌ عند أول تشغيل: مسارُ «المُسنَد إليه يحرّك تقدّم
+# عمله» كان يمرّ بكتابة `deletedAt` — فيحذف الموظفُ عملَه بنفسه.
+want_in "$RULES" "ولا تُمسّ حقول الحذف من التعديل العادي" "function deletionUntouched()"
+# و`del` كانت بلا نطاق: حاملُها يمحو أعمال أي إدارة في الوزارة.
+reject_in "$RULES" "و«حذف السجلات» لم تعد تفتح الحذف النهائي" \
+  "allow delete: if isAdmin() || perm('del');"
+echo ""
+
+echo "والقسمة تقع في مَخرجٍ واحد لا في كل شاشة:"
+want_in "$STORE" "دالّة القسمة موجودة ومُختبَرة" "static ({List<T> live, List<T> archived}) splitDeleted<T>("
+want_in "$STORE" "وتوابعُ المحذوف تُسقَط" "static List<T> withoutArchivedParents<T>("
+want_in "$STORE" "والمحذوف يُعلَّم لا يُمحى" "Future<String?> softDeleteProject("
+want_in "$STORE" "والاستعادة تُردّ لغير مسؤول النظام" \
+  "if (!isAdmin) return 'الاستعادة لمسؤول النظام وحده.';"
+want_in "lib/screens/archived_items_screen.dart" "وشاشةُ الاستعادة قائمة" \
+  "class ArchivedItemsScreen"
+echo ""
+
+# ــ سجل التدقيق: بنيةٌ تُصفّى، وكتابةٌ لا تُزوَّر ــ
+echo "وسجل التدقيق يحمل نوعه وفاعله وفرقه:"
+want_in "lib/models/audit_log_entry.dart" "النوع محفوظ" "final ChangeType type;"
+want_in "lib/models/audit_log_entry.dart" "والفاعل بمعرّفه" "final String? actorUid;"
+want_in "lib/models/audit_log_entry.dart" "و«قبل/بعد»" "final Map<String, dynamic>? before;"
+want_in "lib/models/change_type.dart" "والفرق يُحسب لا يُخزَّن كاملاً" "diffMaps("
+want_in "$STORE" "والفاعل يُكتب من المستخدم الحالي لا من المُنادي" "actorUid: currentUser?.id,"
 echo ""
 
 echo "══════════════════════════════"

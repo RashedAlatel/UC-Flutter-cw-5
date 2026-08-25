@@ -163,7 +163,7 @@ class ProjectDetailScreen extends StatelessWidget {
                             builder: (_) => FocusAssignmentDialog(projectId: project.id, title: project.name),
                           ),
                         ),
-                      if (store.isAdmin)
+                      if (store.canSoftDeleteProject(project))
                         IconButton(
                           icon: const Icon(Icons.delete_outline_rounded, size: 20, color: AppColors.danger),
                           tooltip: 'حذف المشروع',

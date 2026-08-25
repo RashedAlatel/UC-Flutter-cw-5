@@ -104,6 +104,50 @@ service cloud.firestore {
     // سبب مفهوم. والقراءة داخل الإدارة لا تحتاج هذا التعليق أصلاً.
     function canBrowseDeptProjects(deptId) { return perm('sap') && isMyDeptAny(deptId); }
 
+    // ــــ الحذف المنطقي: ثلاث ثوابت ــــ
+    //
+    // السجل لا يُمحى بل يُعلَّم محذوفاً، فيختفي من كل قائمة ويبقى قابلاً
+    // للاستعادة. وحذفُه قبل ذلك كان **نهائياً متسلسلاً** يمحو المهام
+    // والتحديثات والمخاطر والعوائق معه بلا رجعة.
+    function deletedAtOf(data) { return data.get('deletedAt', null); }
+    function wasDeleted() { return deletedAtOf(resource.data) != null; }
+    function isDeleted() { return deletedAtOf(request.resource.data) != null; }
+
+    // (١) مَن يحذف: مسؤول النظام، ومدير الإدارة صاحبتِها، وحاملُ `del`
+    //     **داخل إداراته وحدها**. وكانت `del` بلا نطاق إطلاقاً: حاملُها
+    //     يمحو أعمال أي إدارة في الوزارة محواً لا رجعة فيه.
+    function mayDeleteIn(deptId) {
+      return isAdmin()
+          || (isDeptManager() && isMyDeptOfManager(deptId))
+          || (perm('del') && isMyDeptAny(deptId));
+    }
+
+    // (٢) الحذف يقع، والاستعادة لمسؤول النظام وحده. فمن حذف لا يُعيد ما
+    //     حذف بنفسه ولا يمحو أثر قراره.
+    function isSoftDeleting(deptId) {
+      return !wasDeleted() && isDeleted() && mayDeleteIn(deptId)
+             && request.resource.data.get('deletedBy', null) == request.auth.uid;
+    }
+    function isRestoring() { return wasDeleted() && !isDeleted() && isAdmin(); }
+
+    // (٣) والمحذوف مجمَّد: لا يُعدَّل عليه شيء ما دام محذوفاً — إلا
+    //     استعادةً. وإلا صار الحذف باباً لتعديلٍ لا يراه أحد، إذ لا تُعرض
+    //     المستندات المحذوفة في شيء.
+    function frozenWhileDeleted() { return !wasDeleted() || isRestoring() || isAdmin(); }
+
+    // ــ ولا يُعلَّم الحذف من باب التعديل العادي ــ
+    //
+    // وهذا ما كشفه اختبارٌ عند أول تشغيل: مسارُ «المُسنَد إليه يحرّك تقدّم
+    // عمله» لا يمسّ الإدارة ولا المنشئ ولا الإسناد، فكتابةُ `deletedAt`
+    // خلاله كانت **تمرّ** — فيحذف الموظفُ العملَ المُسنَد إليه بنفسه.
+    //
+    // فحقولُ الحذف لا تُمسّ إلا من فرعَي الحذف والاستعادة أعلاه، وهما
+    // وحدهما يفحصان من يملك ذلك.
+    function deletionUntouched() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['deletedAt', 'deletedBy', 'deletedReason']);
+    }
+
     // ــــ تسجيل الموظف نفسه على مشروع ــــ
     //
     // الفرق بين القائمة قبل التحديث وبعده يجب ألا يحوي إلا **معرّف المتصل**،
@@ -345,7 +389,8 @@ service cloud.firestore {
       // فقط، دون المساس بالموعد النهائي أو نقل المشروع لإدارة أخرى أو تغيير
       // مديره - أي تغيير في الموعد النهائي يمر عبر طلب موافقة منفصل، وتغيير
       // مدير المشروع لا يقوم به إلا مسؤول النظام.
-      allow update: if isAdmin()
+      allow update: if (isSoftDeleting(deptOf(resource.data)) || isRestoring())
+                    || (frozenWhileDeleted() && deletionUntouched() && (isAdmin()
                     // ومديرُ المشروع — أيّاً كان دوره الأساسي — يحرّك تقدّمه
                     // وحالته. و`canAccessProjectDocOrMember` لا
                     // `canAccessProjectDoc`: الثانية تقرأ الحقل المفرد وحده،
@@ -361,7 +406,8 @@ service cloud.firestore {
                     // وصار الطريق دالّة `setProjectTeam` وحدها.
                     //
                     // والموظف يسجّل **نفسه فقط** — راجع selfOnlyDelta.
-                    || isSelfMembershipChange();
+                    || isSelfMembershipChange()));
+      // والحذف النهائي لمسؤول النظام وحده — والطريق المعتاد هو المنطقي.
       allow delete: if isAdmin();
     }
 
@@ -532,7 +578,10 @@ service cloud.firestore {
                     && mayAssign(request.resource.data.get('assigneeUid', ''));
       // الموظف المُسنَد إليه يحدّث تقدّم عمله وحالته فقط، دون إعادة إسناده
       // لنفسه أو نقله لإدارة أخرى.
-      allow update: if (isAdmin()
+      allow update: if (isSoftDeleting(deptOf(resource.data)) || isRestoring())
+                    || (frozenWhileDeleted()
+                    && deletionUntouched()
+                    && (isAdmin()
                     || (perm('mw') && (canViewAll() || isMyDeptAny(deptOf(resource.data))))
                     || (resource.data.get('assigneeUid', '') == request.auth.uid
                         && !request.resource.data.diff(resource.data).affectedKeys()
@@ -542,8 +591,13 @@ service cloud.firestore {
                     && (assigneeUnchanged()
                         || mayAssign(request.resource.data.get('assigneeUid', '')))
                     // ولا يُغلقه إلا معتمِده — راجع closureRespected أعلاه.
-                    && closureRespected();
-      allow delete: if isAdmin() || perm('del');
+                    && closureRespected());
+      // ــ الحذف النهائي لمسؤول النظام وحده ــ
+      //
+      // وكانت `perm('del')` هنا **بلا نطاق**: حاملُها يمحو أعمال أي إدارة
+      // في الوزارة محواً لا رجعة فيه. وصارت تعني الحذف المنطقي داخل
+      // إداراته — راجع `mayDeleteIn`.
+      allow delete: if isAdmin();
     }
 
     // ------------------------- الشكاوى والاقتراحات -------------------------
@@ -587,9 +641,28 @@ service cloud.firestore {
 
     // ------------------------- سجل التدقيق -------------------------
     // القراءة حصراً لمسؤول النظام؛ لا يملك أي دور مخصص أو دور آخر الاطلاع عليه.
+    // ــــ سجل التدقيق ــــ
+    //
+    // كان `allow create: if isApproved()` بلا أيّ تحقّق: أيُّ موظفٍ معتمد
+    // يكتب سطراً **باسم مسؤول النظام وبأي تاريخ يختاره**. وسجلٌّ يُكتب فيه
+    // ما شاء من شاء ليس سجل تدقيق.
+    //
+    // فيُشترط: أن يكون الفاعلُ هو المتصل نفسه، وأن يكون الوقتُ وقتَ الخادم
+    // لا وقتَ جهاز الكاتب، وأن تكون الحقول الأساسية موجودة.
+    //
+    // **وحدُّ ذلك يُقال صراحةً**: الفاعلُ والوقت يصيران غير قابلين
+    // للتزوير، أما نصُّ «قبل/بعد» فيبقى ممّا يكتبه العميل — لأن التسجيل
+    // يقع في المتصفّح. وما تكتبه الدوالُّ الخلفية (ستَّ عشرة دالّة) موثوقٌ
+    // كاملاً، إذ تتجاوز هذه القاعدة بصلاحية المدير.
     match /auditLog/{id} {
       allow read: if isAdmin();
-      allow create: if isApproved();
+      allow create: if isApproved()
+                    && request.resource.data.get('actorUid', null) == request.auth.uid
+                    && request.resource.data.timestamp == request.time
+                    && request.resource.data.keys().hasAll(['userName', 'action', 'details', 'type'])
+                    && request.resource.data.type is string
+                    && request.resource.data.type.size() > 0;
+      // ولا يُعدَّل ولا يُحذف — ولا لمسؤول النظام. سجلٌّ يُنقَّح لا يشهد.
       allow update, delete: if false;
     }
 

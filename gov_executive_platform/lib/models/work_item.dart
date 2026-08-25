@@ -38,6 +38,16 @@ class WorkItem {
   final String createdByUid;
   final DateTime createdAt;
 
+  /// ــ الحذف المنطقي ــ
+  ///
+  /// العمل لا يُمحى، بل يُعلَّم محذوفاً فيختفي من كل قائمة ويبقى قابلاً
+  /// للاستعادة. وحذفُه قبل ذلك كان نهائياً يمحو تحديثاته معه بلا رجعة.
+  final DateTime? deletedAt;
+  final String? deletedBy;
+  final String? deletedReason;
+
+  bool get isDeleted => deletedAt != null;
+
   /// سجلّ الإغلاق: من يعتمده، ومن أعلن إتمامه، ومن اعتمده ومتى.
   ///
   /// وفارغٌ في كل عملٍ كُتب قبل هذه الدورة — فيبقى إغلاقه مباشراً كما كان.
@@ -59,6 +69,9 @@ class WorkItem {
     required this.createdByUid,
     required this.createdAt,
     this.closure = ClosureTrail.none,
+    this.deletedAt,
+    this.deletedBy,
+    this.deletedReason,
   });
 
   /// **مغلَقٌ فعلاً** — لا «أفادت الإدارة بإتمامه».
@@ -133,6 +146,10 @@ class WorkItem {
         'createdByUid': createdByUid,
         'createdAt': Timestamp.fromDate(createdAt),
         'closure': closure.toMap(),
+        // تُكتب دائماً ولو فارغة — راجع نظيرها في `Project.toMap`.
+        'deletedAt': deletedAt == null ? null : Timestamp.fromDate(deletedAt!),
+        'deletedBy': deletedBy,
+        'deletedReason': deletedReason,
       };
 
   factory WorkItem.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -153,6 +170,9 @@ class WorkItem {
       createdByUid: j['createdByUid'] as String? ?? '',
       createdAt: (j['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       closure: ClosureTrail.fromMap(j['closure']),
+      deletedAt: (j['deletedAt'] as Timestamp?)?.toDate(),
+      deletedBy: j['deletedBy'] as String?,
+      deletedReason: j['deletedReason'] as String?,
     );
   }
 }

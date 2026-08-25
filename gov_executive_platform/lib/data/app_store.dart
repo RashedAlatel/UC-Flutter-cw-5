@@ -39,6 +39,7 @@ import '../utils/file_picker.dart';
 import '../utils/formatters.dart';
 import '../utils/safe_file_name.dart';
 import '../utils/storage_ready.dart';
+import 'child_scope.dart';
 import 'default_departments.dart';
 import 'demo_data.dart';
 import 'ministry_import_data.dart';
@@ -1344,17 +1345,63 @@ class AppStore extends ChangeNotifier {
       notifyListeners();
     });
 
-    // مدير المشروع (officer) تُقرأ له مستندات مشروعه التابعة عبر managerUid.
-    // مدير الإدارة (manager) قد يدير أكثر من إدارة، فيُقيَّد بقائمة departmentIds
-    // كاملة (whereIn) بدل مطابقة إدارة واحدة فقط.
-    Query<Map<String, dynamic>> scoped(String collection) {
-      final col = _db.collection(collection);
-      if (officer) return col.where('managerUid', isEqualTo: currentUser?.id);
-      if (manager) {
-        final ids = myDepartmentIds;
-        return ids.isEmpty ? col.where('departmentId', isEqualTo: '__none__') : _whereDeptIn(col, ids);
+    // ــ نطاق المستندات التابعة للمشروع ــ
+    //
+    // القرارُ نفسُه في `childScopeFilters` (lib/data/child_scope.dart) —
+    // قيمةٌ تُختبَر بلا Firestore. وهنا تُترجَم تلك القيمة إلى استعلامات.
+    //
+    // ولمدير المشروع **تدفّقان** لا واحد: القائمة `managerUids` وهي
+    // الصحيحة، والمفرد الموروث للمستندات القديمة وحدها. وكان المفرد وحده،
+    // فلا يصل المديرَ الثاني فصاعداً شيء.
+    final childFilters = childScopeFilters(
+      officer: officer,
+      manager: manager,
+      uid: myUid,
+      departmentIds: myDepartmentIds,
+      scopedDept: scopedDept,
+    );
+
+    Query<Map<String, dynamic>> applyFilter(
+      CollectionReference<Map<String, dynamic>> col,
+      ChildFilter f,
+    ) {
+      switch (f.op) {
+        case ChildFilterOp.equals:
+          return col.where(f.field, isEqualTo: f.value);
+        case ChildFilterOp.arrayContains:
+          return col.where(f.field, arrayContains: f.value);
+        case ChildFilterOp.whereIn:
+          return col.where(f.field, whereIn: f.value as List<String>);
       }
-      return scopedDept == null ? col : col.where('departmentId', isEqualTo: scopedDept);
+    }
+
+    /// يشترك على مجموعةٍ تابعة بكل تدفّقاتها، ويُنشر الدمجَ لا آخرَ لقطة.
+    ///
+    /// ولكل تدفّقٍ قائمتُه: التدفّقان يصل كلٌّ منهما بلقطةٍ كاملة، فلو كتبا
+    /// في قائمةٍ واحدة لَداس أحدهما الآخر — فتظهر التحديثات وتختفي بلا سبب.
+    void listenChild<T>(
+      String collection,
+      T Function(QueryDocumentSnapshot<Map<String, dynamic>>) fromDoc,
+      String Function(T) idOf,
+      void Function(List<T>) publish,
+    ) {
+      final col = _db.collection(collection);
+      if (childFilters.isEmpty) {
+        _listen(collection, col.snapshots(), (snap) {
+          publish(snap.docs.map(fromDoc).toList());
+        });
+        return;
+      }
+      final buckets = List<List<T>>.generate(childFilters.length, (_) => <T>[]);
+      for (var i = 0; i < childFilters.length; i++) {
+        final slot = i;
+        final f = childFilters[slot];
+        final label = childFilters.length == 1 ? collection : '$collection/${f.field}';
+        _listen(label, applyFilter(col, f).snapshots(), (snap) {
+          buckets[slot] = snap.docs.map(fromDoc).toList();
+          publish(mergeById<T>(idOf, buckets));
+        });
+      }
     }
 
     // المشاريع وحدها لا تتبع `scoped`: نطاقها **الإدارة** لكل من لا يرى كل
@@ -1409,20 +1456,20 @@ class AppStore extends ChangeNotifier {
         publishProjects();
       });
     }
-    _listen('tasks', scoped('tasks').snapshots(), (snap) {
-      tasks = snap.docs.map(ProjectTask.fromDoc).toList();
+    listenChild<ProjectTask>('tasks', ProjectTask.fromDoc, (t) => t.id, (v) {
+      tasks = v;
       notifyListeners();
     });
-    _listen('risks', scoped('risks').snapshots(), (snap) {
-      risks = snap.docs.map(ProjectRisk.fromDoc).toList();
+    listenChild<ProjectRisk>('risks', ProjectRisk.fromDoc, (r) => r.id, (v) {
+      risks = v;
       notifyListeners();
     });
-    _listen('blockers', scoped('blockers').snapshots(), (snap) {
-      blockers = snap.docs.map(ProjectBlocker.fromDoc).toList();
+    listenChild<ProjectBlocker>('blockers', ProjectBlocker.fromDoc, (b) => b.id, (v) {
+      blockers = v;
       notifyListeners();
     });
-    _listen('dailyUpdates', scoped('dailyUpdates').snapshots(), (snap) {
-      dailyUpdates = snap.docs.map(DailyUpdate.fromDoc).toList();
+    listenChild<DailyUpdate>('dailyUpdates', DailyUpdate.fromDoc, (u) => u.id, (v) {
+      dailyUpdates = v;
       notifyListeners();
     });
     // طلبات الاعتماد كانت تُطلب كاملةً بلا نطاق، وقاعدتها تعتمد على محتوى
@@ -2448,6 +2495,63 @@ class AppStore extends ChangeNotifier {
   }
 
   bool canSubmitDailyUpdate(Project project) => canEditProject(project);
+
+  /// هل يستطيع هذا المستخدم حذف هذا التحديث اليومي؟
+  ///
+  /// **مرآةٌ لقاعدة `dailyUpdates` في firestore.rules، والحَكَم هي.** وما
+  /// هنا ترتيبٌ للواجهة: زرٌّ لا يُعرض لمن سيُردّ عند الضغط.
+  ///
+  /// ولا تُستعمل [canEditProject] هنا وإن بدت أقرب: هي تُرجع `true` لكل
+  /// موظفٍ في إدارة المشروع، فيصير لزميلٍ في الإدارة أن يمحو تحديثاً كتبه
+  /// مديرُ المشروع. والحذف ليس تحريراً — فله دائرةٌ أضيق:
+  ///
+  ///   • **كاتبُه** — يمحو ما كتبه هو.
+  ///   • **مالكُ المشروع**: مسؤول النظام، ومدير الإدارة صاحبتِه، ومديرو
+  ///     المشروع (القائمة لا المفرد، فيعمل المدير الثاني فصاعداً).
+  ///
+  /// ولا يشمل **منفّذي** المشروع: العضوية تنفيذاً ليست ملكاً.
+  bool canDeleteDailyUpdate(DailyUpdate update, Project? project) {
+    final uid = currentUser?.id;
+    if (uid == null) return false;
+    if (isAdmin) return true;
+    if (isExecutive) return false;
+    if (update.authorUid == uid) return true;
+    if (project == null) return false;
+    if (project.isManager(uid)) return true;
+    return isManager && myDepartmentIds.contains(project.departmentId);
+  }
+
+  /// يحذف تحديثاً يومياً ويُسجّل الحذف.
+  ///
+  /// وملفات المرفقات لا تُمحى من هنا: قواعد التخزين لا تقرأ Firestore فلا
+  /// تعرف من يملك المشروع، وفتحُ الحذف للعميل يفتحه لكل موظفٍ معتمد على كل
+  /// مرفقٍ في الوزارة متى عرف مساره. فيمحوها مُشغِّلٌ خلفي بعد حذف المستند
+  /// (`cleanupDailyUpdateFiles` في functions/src/index.ts).
+  ///
+  /// ويُعيد رسالةً عربية عند الرفض بدل رمي استثناء — أشيع أسبابه أن القاعدة
+  /// ردّت الحذف، وهي معلومةٌ تُقال لا خطأٌ غامض.
+  Future<String?> deleteDailyUpdate(DailyUpdate update, {Project? project}) async {
+    final proj = project ?? projectById(update.projectId);
+    if (!canDeleteDailyUpdate(update, proj)) {
+      return 'لا تملك صلاحية حذف هذا التحديث — يحذفه كاتبُه أو مالك المشروع.';
+    }
+    try {
+      await _db.collection('dailyUpdates').doc(update.id).delete();
+    } catch (e) {
+      return 'تعذّر حذف التحديث: $e';
+    }
+    // ــ السجل يُكتب بعد الحذف لا قبله ــ
+    //
+    // فلا يُسجَّل حذفٌ لم يقع: لو رُدّت الكتابة الأولى لبقي في سجل التدقيق
+    // أثرُ فعلٍ لم يحدث، وهو أسوأ من غياب الأثر.
+    await _log(
+      'حذف تحديث يومي',
+      'حُذف تحديث ${Formatters.shortDate(update.date)} على مشروع '
+          '«${proj?.name ?? update.projectId}» بقلم ${update.authorName}'
+          '${update.attachments.isEmpty ? '' : ' (ومعه ${update.attachments.length} مرفقاً)'}',
+    );
+    return null;
+  }
 
   /// هل يستطيع المستخدم **طلب** إضافة مشروع في هذه الإدارة؟
   ///

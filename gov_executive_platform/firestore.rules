@@ -407,10 +407,28 @@ service cloud.firestore {
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
                         || isMemberOfRealProject(request.resource.data.projectId))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
-      // السجل غير قابل للتعديل إطلاقاً. الحذف مسموح لمسؤول النظام فقط، وهو
-      // لازم لحذف مشروع أو إدارة حذفاً متسلسلاً دون ترك تحديثات يتيمة.
+      // ــ السجل لا يُعدَّل، ويُحذف بشرط ــ
+      //
+      // `update: if false` باقيةٌ على حالها: التحديث اليومي أثرٌ لا يُنقّح
+      // بأثر رجعي، والتصحيح يكون بحذفٍ مُسجَّل ثم إضافةٍ جديدة. ولو فُتح
+      // التعديل مع الحذف لَصار السجلُّ نصّاً يُعاد كتابته بعد شهر.
+      //
+      // أما الحذف فكان لمسؤول النظام وحده، فلم يكن لمن كتب تحديثاً بالخطأ
+      // سبيلٌ إلى محوه — وهذا ما طُلب فتحه. ويُفتح لطرفين لا أكثر:
+      //
+      //   • **كاتبُه** — يمحو ما كتبه هو، لا ما كتبه غيره.
+      //   • **مالكُ المشروع** عبر `canAccessProjectDocOrMember`: مسؤول
+      //     النظام، ومدير الإدارة صاحبتِه، ومديرو المشروع (القائمة لا
+      //     المفرد، فيعمل المدير الثاني فصاعداً).
+      //
+      // ولا يشمل ذلك **منفّذي** المشروع: العضوية تنفيذاً ليست ملكاً، فلا
+      // يمحو منفّذٌ تحديثَ مديره. ولذلك لم تُستعمل `isProjectMember` هنا.
+      //
+      // وملفات المرفقات يمحوها مُشغِّلٌ خلفي بعد حذف المستند
+      // (`cleanupDailyUpdateFiles`)، فقاعدة التخزين تبقى مغلقة أمام العميل.
       allow update: if false;
-      allow delete: if isAdmin();
+      allow delete: if canAccessProjectDocOrMember(resource.data)
+                    || (isApproved() && resource.data.get('authorUid', '') == request.auth.uid);
     }
 
     // ------------------------- المخاطر والعوائق -------------------------

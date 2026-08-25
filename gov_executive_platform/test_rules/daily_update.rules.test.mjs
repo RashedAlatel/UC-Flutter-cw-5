@@ -11,7 +11,7 @@ import {
   assertFails,
   assertSucceeds,
 } from '@firebase/rules-unit-testing';
-import { addDoc, collection, doc, setDoc } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
 
 const DEPT = 'd-justice';
 const OTHER = 'd-other';
@@ -136,5 +136,94 @@ describe('والعوائق والمخاطر والمهام كذلك', () => {
   test('ومن ليس عضواً لا يسجّل', async () => {
     const db = env.authenticatedContext(STRANGER, claims(STRANGER, { role: 'employee' })).firestore();
     await assertFails(addDoc(collection(db, 'blockers'), child()));
+  });
+});
+
+// ــــــــــــــــــــ حذف التحديث اليومي ــــــــــــــــــــ
+//
+// كان الحذف لمسؤول النظام وحده، فمن كتب تحديثاً بالخطأ لا سبيل له إلى
+// محوه — وهذا ما طُلب فتحه. وفُتح لطرفين لا أكثر: **كاتبُه**، و**مالك
+// المشروع** (مسؤول النظام، ومدير الإدارة صاحبتِه، ومديرو المشروع).
+//
+// وما يُقاس هنا هو **حدُّ الفتح** لا الفتح نفسه: أن المنفّذ المُسنَد لا
+// يمحو تحديث مديره، وأن الغريب لا يمحو شيئاً، وأن `update` بقيت مردودة
+// على الجميع — فلا يُفتح التعديل سهواً في أثناء فتح الحذف.
+describe('ومن يحذف التحديث اليومي', () => {
+  let seq = 0;
+
+  /// يزرع تحديثاً خارج القواعد ويعيد مرجعه — بمعرّف جديد لكل اختبار.
+  async function seedUpdate(extra = {}) {
+    const id = `del-${++seq}`;
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `dailyUpdates/${id}`), {
+        ...update(extra),
+        // المنسوخ كما يكتبه العميل فعلاً: القائمة مع المفرد.
+        managerUids: [FIRST, SECOND],
+      });
+    });
+    return id;
+  }
+
+  test('كاتبُه يحذف ما كتبه', async () => {
+    const id = await seedUpdate({ authorUid: EXECUTOR });
+    const db = env.authenticatedContext(EXECUTOR, claims(EXECUTOR, { role: 'employee' })).firestore();
+    await assertSucceeds(deleteDoc(doc(db, `dailyUpdates/${id}`)));
+  });
+
+  test('والمدير الأول يحذف ولو لم يكتبه', async () => {
+    const id = await seedUpdate({ authorUid: SECOND });
+    const db = env.authenticatedContext(FIRST, claims(FIRST)).firestore();
+    await assertSucceeds(deleteDoc(doc(db, `dailyUpdates/${id}`)));
+  });
+
+  // نظير عطل الاشتراك: القائمة لا المفرد. ولولا هذا لَكان المدير الثاني
+  // يكتب ولا يحذف على مشروعٍ يقوده.
+  test('والمدير الثاني كذلك — القائمة لا المفرد', async () => {
+    const id = await seedUpdate({ authorUid: FIRST });
+    const db = env.authenticatedContext(SECOND, claims(SECOND)).firestore();
+    await assertSucceeds(deleteDoc(doc(db, `dailyUpdates/${id}`)));
+  });
+
+  test('ومدير الإدارة صاحبتِه', async () => {
+    const id = await seedUpdate({ authorUid: FIRST });
+    const db = env
+      .authenticatedContext(HEAD, claims(HEAD, { role: 'departmentManager', depts: [DEPT] }))
+      .firestore();
+    await assertSucceeds(deleteDoc(doc(db, `dailyUpdates/${id}`)));
+  });
+
+  // ــ وهنا حدُّ الفتح ــ
+  //
+  // المنفّذ **يكتب** التحديث اليومي (مُقاسٌ أعلاه)، ولا يحذف تحديث غيره:
+  // العضوية تنفيذاً ليست ملكاً. ولو استُعملت `isProjectMember` في القاعدة
+  // لَمرّ هذا.
+  test('ولا يحذف المنفّذُ تحديثَ مديره', async () => {
+    const id = await seedUpdate({ authorUid: FIRST });
+    const db = env.authenticatedContext(EXECUTOR, claims(EXECUTOR, { role: 'employee' })).firestore();
+    await assertFails(deleteDoc(doc(db, `dailyUpdates/${id}`)));
+  });
+
+  test('ولا موظفٌ في الإدارة ليس عضواً', async () => {
+    const id = await seedUpdate({ authorUid: FIRST });
+    const db = env.authenticatedContext(STRANGER, claims(STRANGER, { role: 'employee' })).firestore();
+    await assertFails(deleteDoc(doc(db, `dailyUpdates/${id}`)));
+  });
+
+  test('ولا مديرُ إدارةٍ أخرى', async () => {
+    const id = await seedUpdate({ authorUid: FIRST });
+    const db = env
+      .authenticatedContext(STRANGER, claims(STRANGER, { role: 'departmentManager', dept: OTHER, depts: [OTHER] }))
+      .firestore();
+    await assertFails(deleteDoc(doc(db, `dailyUpdates/${id}`)));
+  });
+
+  // السجل أثرٌ لا يُنقّح بأثر رجعي: التصحيح حذفٌ مُسجَّل ثم إضافةٌ جديدة.
+  test('والتعديل يبقى مردوداً — حتى على كاتبه ومالك المشروع', async () => {
+    const id = await seedUpdate({ authorUid: FIRST });
+    const owner = env.authenticatedContext(FIRST, claims(FIRST)).firestore();
+    await assertFails(updateDoc(doc(owner, `dailyUpdates/${id}`), { achievements: 'نصٌّ آخر' }));
+
+    const author = env.authenticatedContext(EXECUTOR, claims(EXECUTOR, { role: 'employee' })).firestore();
+    await assertFails(updateDoc(doc(author, `dailyUpdates/${id}`), { achievements: 'نصٌّ آخر' }));
   });
 });

@@ -530,6 +530,55 @@ want_in "lib/models/app_user.dart" "وتعريفُ «من يُراسَل» وا�
   "bool get isContactable =>"
 echo ""
 
+# ــ سجل التحديثات اليومية: يُقرأ بالقائمة، ويُحذف بحدّ ــ
+#
+# اشتراك المستندات التابعة كان يُصفّي لمدير المشروع بالحقل المفرد الموروث
+# `managerUid` — أي أوّل المديرين وحده — فلا يصل المديرَ الثاني فصاعداً
+# تحديثٌ واحد على مشروعه. وهو نظير عطل دمج الحسابات حرفاً بحرف.
+echo "واشتراك المستندات التابعة يقرأ القائمة لا المفرد:"
+want_in "lib/data/child_scope.dart" "القائمة أوّلاً" \
+  "ChildFilter.arrayContains('managerUids', uid)"
+want_in "lib/data/app_store.dart" "والاشتراك يمرّ بالقرار المُختبَر" \
+  "childScopeFilters("
+reject_in "lib/data/app_store.dart" "ولا تصفيةٌ يدوية بالمفرد وحده" \
+  "col.where('managerUid', isEqualTo: currentUser?.id)"
+echo ""
+
+# ــ الحذف يُفتح، والتعديل يبقى مغلقاً ــ
+#
+# التحديث اليومي أثرٌ لا يُنقّح بأثر رجعي: التصحيح حذفٌ مُسجَّل ثم إضافةٌ
+# جديدة. ولو فُتح التعديل مع الحذف لَصار السجلُّ نصّاً يُعاد كتابته بعد شهر.
+DU_FILE="$(mktemp)"
+sed -n '/match \/dailyUpdates\/{id}/,/^    }/p' "$RULES" > "$DU_FILE"
+echo "وحذف التحديث اليومي مفتوحٌ بحدّ، والتعديل مغلق:"
+want_in "$DU_FILE" "الحذف لكاتبه ولمالك المشروع" \
+  "allow delete: if canAccessProjectDocOrMember(resource.data)"
+want_in "$DU_FILE" "وكاتبُه صراحةً" \
+  "resource.data.get('authorUid', '') == request.auth.uid"
+want_in "$DU_FILE" "والتعديل يبقى مردوداً على الجميع" "allow update: if false;"
+# والمنفّذ ليس مالكاً: عضوية المشروع تشمله، ففتحُ الحذف لها يعني أن يمحو
+# منفّذٌ تحديثَ مديره. وقد قِيست هذه بطفرةٍ على المحاكي فعضّت.
+#
+# والفحص على **سطور الحذف وحدها**: قاعدة الإنشاء فوقها تستعمل
+# `isMemberOfRealProject` بحقّ — فالمنفّذ يكتب التحديث اليومي ولا يمحوه.
+DU_DELETE="$(mktemp)"
+sed -n '/allow delete:/,$p' "$DU_FILE" > "$DU_DELETE"
+reject_in "$DU_DELETE" "ولا تُفتح لعضوية المشروع التنفيذية" "isMemberOfRealProject"
+rm -f "$DU_FILE" "$DU_DELETE"
+echo ""
+
+# ــ ملفات المرفقات: العميل لا يمحوها، والخادم يمحوها بفحص ــ
+echo "وملفات المرفقات لا يمحوها العميل:"
+want_in "storage.rules" "قاعدة التخزين تبقى مغلقة" "allow update, delete: if false;"
+want_in "$SRC" "والمُشغِّل الخلفي يمحوها بعد حذف المستند" \
+  "export const cleanupDailyUpdateFiles = onDocumentDeleted("
+want_in "$SRC" "بمسارات تُفحص أولاً" "storagePathsToDelete(data.attachments"
+# المسار يكتبه العميل، والمُشغِّل يعمل بصلاحية المدير. فبلا فحصٍ للبادئة
+# يمحو موظفٌ ملفَ غيره بأن يضع مساره في مرفق تحديثٍ يحذفه.
+want_in "functions/src/attachment_cleanup.ts" "والبادئة مبنيّةٌ على مشروع التحديث" \
+  "path.startsWith(prefix)"
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

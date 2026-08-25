@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import {HttpsError, onCall, CallableRequest} from "firebase-functions/v2/https";
 import {onSchedule} from "firebase-functions/v2/scheduler";
+import {onDocumentDeleted} from "firebase-functions/v2/firestore";
 import {setGlobalOptions} from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
 
@@ -13,6 +14,7 @@ import {
   projectMemberPatch,
   pruneUidFromReportSettings,
 } from "./account_merge";
+import {storagePathsToDelete} from "./attachment_cleanup";
 
 admin.initializeApp();
 
@@ -1452,6 +1454,44 @@ export const adminRestampClaims = onCall(async (request) => {
   );
   return {ok: true, claims};
 });
+
+// ــــــــــــــ تنظيف مرفقات تحديثٍ يومي بعد حذفه ــــــــــــــ
+
+/**
+ * يمحو ملفات التحديث اليومي من التخزين بعد حذف مستنده.
+ *
+ * ــ لماذا مُشغِّلٌ لا استدعاءٌ من العميل؟ ــ
+ *
+ * لأن قواعد التخزين لا تقرأ Firestore، فلا تعرف من يملك المشروع. وفتحُ
+ * الحذف للعميل يفتحه لكل موظفٍ معتمد على كل مرفقٍ في الوزارة متى عرف
+ * مساره. فبقيت `delete: if false` في `storage.rules`، ووقع المحو هنا —
+ * **بعد** أن تكون قاعدة Firestore قد بتّت في حقّ الحذف بحذف المستند. فحقُّ
+ * الحذف يُفحص مرّةً واحدة في مكانٍ واحد، ولا يُنسخ منطقُه إلى التخزين.
+ *
+ * والفشل هنا لا يُرمى: المستند حُذف فعلاً وانتهى ما يراه المستخدم. وملفٌّ
+ * بقي في التخزين بلا مرجعٍ إليه أثرٌ خاملٌ يُسجَّل ويُراجَع، لا سببٌ
+ * لإعادة محاولةٍ لا نهائية على مُشغِّل.
+ */
+export const cleanupDailyUpdateFiles = onDocumentDeleted(
+  "dailyUpdates/{updateId}",
+  async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+
+    const paths = storagePathsToDelete(data.attachments, String(data.projectId ?? ""));
+    if (paths.length === 0) return;
+
+    const bucket = admin.storage().bucket();
+    for (const path of paths) {
+      try {
+        await bucket.file(path).delete({ignoreNotFound: true});
+      } catch (e) {
+        logger.error(`تعذّر محو مرفق التحديث اليومي: ${path}`, e);
+      }
+    }
+    logger.info(`مُحيت ${paths.length} مرفقاً بعد حذف التحديث ${event.params.updateId}`);
+  },
+);
 
 // ــــــــــــــــــــ التقرير التنفيذي اليومي ــــــــــــــــــــ
 //

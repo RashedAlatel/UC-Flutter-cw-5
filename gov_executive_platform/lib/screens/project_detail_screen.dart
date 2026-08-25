@@ -5,16 +5,15 @@ import '../data/app_store.dart';
 import '../models/assignment_policy.dart';
 import '../models/closure_trail.dart';
 import '../models/enums.dart';
-import '../models/attachment.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
 import '../theme/app_theme.dart';
-import '../utils/file_download.dart';
 import '../widgets/responsive_header_row.dart';
 import '../widgets/project_team_card.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
 import '../widgets/custom_widgets_section.dart';
+import '../widgets/day_updates_dialog.dart';
 import '../widgets/executors_field.dart';
 import '../widgets/progress_bar.dart';
 import '../models/notify_templates.dart';
@@ -63,52 +62,15 @@ class ProjectDetailScreen extends StatelessWidget {
     };
   }
 
-  /// يفتح يوماً من التقويم: نموذج التحديث مفتوحاً على ذلك اليوم.
+  /// يفتح يوماً من التقويم: **ما جرى فيه**، لا نموذجَ إضافةٍ فارغاً.
   ///
-  /// ولمن لا يملك الكتابة يُعرض ما فيه بلا نموذج — فالتقويم يُقرأ ولو لم
-  /// يُكتب فيه.
+  /// وكان الأمر معكوساً: من يملك التحرير — أي مدير المشروع نفسه — يُقذف إلى
+  /// النموذج ولا يرى ما كُتب في ذلك اليوم، ومن لا يملكه يرى السرد. فصاحبُ
+  /// المشروع وحده هو المحروم من سجلّه. راجع [DayUpdatesDialog].
   void _openDay(BuildContext context, Project project, DateTime day) {
-    final store = context.read<AppStore>();
-    if (store.canEditProject(project)) {
-      showDialog(
-        context: context,
-        builder: (_) => DailyUpdateForm(project: project, initialDay: day),
-      );
-      return;
-    }
-    final updates = store.updatesOnDay(project.id, day);
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text(Formatters.date(day)),
-        content: SizedBox(
-          width: 420,
-          child: updates.isEmpty
-              ? const Text('لا يوجد تحديث مسجَّل لهذا اليوم.')
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final u in updates) ...[
-                      Text(u.authorName,
-                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
-                      const SizedBox(height: 4),
-                      Text(u.achievements.trim().isEmpty ? 'بلا ملخّص إنجازات' : u.achievements,
-                          style: const TextStyle(fontSize: 12.5, height: 1.7)),
-                      if (u.blockers.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text('عوائق: ${u.blockers.join('، ')}',
-                            style: const TextStyle(fontSize: 12, color: AppColors.danger, height: 1.6)),
-                      ],
-                      const SizedBox(height: 10),
-                    ],
-                  ],
-                ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('إغلاق')),
-        ],
-      ),
+      builder: (_) => DayUpdatesDialog(project: project, day: day),
     );
   }
 
@@ -456,7 +418,7 @@ class ProjectDetailScreen extends StatelessWidget {
                             spacing: 8,
                             runSpacing: 8,
                             children: [
-                              for (final a in u.attachments) _AttachmentChip(attachment: a),
+                              for (final a in u.attachments) AttachmentChip(attachment: a),
                             ],
                           ),
                         ],
@@ -1446,27 +1408,6 @@ class _UpdateLines extends StatelessWidget {
 /// الفتح داخل لمسة المستخدم مباشرة بلا أي انتظار — سفاري على الآيفون يمنع
 /// صامتاً كل فتح يقع بعد عملية غير متزامنة، وهو الدرس نفسه الذي كلّفنا
 /// جولةً في تنزيل التقارير.
-class _AttachmentChip extends StatelessWidget {
-  final Attachment attachment;
-
-  const _AttachmentChip({required this.attachment});
-
-  @override
-  Widget build(BuildContext context) {
-    return ActionChip(
-      avatar: Icon(
-        attachment.kind == AttachmentKind.link ? Icons.link_rounded : Icons.attach_file_rounded,
-        size: 16,
-      ),
-      label: Text(
-        [attachment.name, if (attachment.readableSize.isNotEmpty) attachment.readableSize].join(' · '),
-        style: const TextStyle(fontSize: 12),
-      ),
-      onPressed: () => openDownloadedUrl(attachment.url),
-      tooltip: attachment.kind.label,
-    );
-  }
-}
 
 /// يفتح صفحة المشروع بترويسة تحمل اسمه — نظير [openWorkDetail].
 ///

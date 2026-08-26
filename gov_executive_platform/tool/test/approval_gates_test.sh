@@ -760,6 +760,48 @@ want_in "lib/screens/works_list_screen.dart" "والنموذج يسأل عن ا�
   "store.canEditWorkDetails(widget.editing!)"
 echo ""
 
+# ــــ الطلب الواحد لا يصير طلبين ــــ
+#
+# ظهر كلُّ مشروعٍ يُطلَب مرّتين في مركز القرارات. والبطاقتان مستندان حقيقيّان
+# لا تكراراً في العرض: كتابةُ الطلب نجحت ثم ارتفع خطأٌ بعدها، فجمدت النافذة
+# على دوّارة بلا رسالة — فأعاد صاحبها المحاولة ظانّاً أنها فشلت.
+#
+# فيُغلق البابان: النافذة تتكلّم عند الفشل، والقاعدة تردّ المكرّر أيّاً كان
+# سببُ الضغطة الثانية.
+echo "الطلب الواحد لا يصير طلبين:"
+want_in "$STORE" "قاعدةُ التكرار موجودة ونقيّة" \
+  "static ApprovalRequest? findDuplicatePending("
+# وكلُّ مسارٍ من الثلاثة يمرّ بها فعلاً: وجودُ القاعدة بلا استعمالٍ حراسةٌ
+# على الورق. والفحص داخل جسم كل دالّة لا في الملف كلِّه.
+want_within() {
+  local name="$1" signature="$2" pattern="$3"
+  if grep -A 26 "$signature" "$STORE" | grep -q "$pattern"; then
+    echo "  ✔ $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ $name"
+    echo "      لم يُعثر على «$pattern» داخل «$signature»"
+    FAIL=$((FAIL + 1))
+  fi
+}
+want_within "وطلبُ المشروع يمرّ بها" \
+  "Future<String?> submitProjectRequest(" "_duplicateRequestBlock("
+want_within "وطلبُ العمل كذلك" \
+  "Future<String?> submitWorkRequest(" "_duplicateRequestBlock("
+want_within "وطلبُ الموعد النهائي كذلك" \
+  "Future<String?> submitDeadlineChangeRequest(" "_duplicateRequestBlock("
+
+# ــ والنافذة لا تجمد صامتة ــ
+#
+# وهذه دالّتان لا خمس: بقيّةُ نوافذ الإرسال تنادي دوالَّ متجرٍ تُعيد `String?`
+# ولا ترفع شيئاً (`sendOrRequestNotification`، `submitFeedback`)، فهي محروسةٌ
+# أصلاً. وتوسيعُ الجولة إليها تغييرٌ بلا أثر.
+want_in "lib/screens/request_project_dialog.dart" "نافذةُ المشروع تلتقط خطأها" \
+  "        _error = 'تعذّر الحفظ: \$e';"
+want_in "lib/screens/request_deadline_change_dialog.dart" "ونافذةُ الموعد كذلك" \
+  "        _error = 'تعذّر إرسال الطلب: \$e';"
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

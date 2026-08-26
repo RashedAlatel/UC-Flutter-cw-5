@@ -50,11 +50,30 @@ class _RequestDeadlineChangeDialogState extends State<RequestDeadlineChangeDialo
       _busy = true;
       _error = null;
     });
-    await context.read<AppStore>().submitDeadlineChangeRequest(
-          project: widget.project,
-          newDueDate: _newDueDate,
-          reason: _reasonCtrl.text.trim(),
-        );
+    // نافذةٌ بلا `try` تجمد على دوّارة عند أي فشل، وقد كُتب الطلب قبله —
+    // فيعيدها صاحبها فيصير طلبين. راجع `request_project_dialog`.
+    try {
+      final blocked = await context.read<AppStore>().submitDeadlineChangeRequest(
+            project: widget.project,
+            newDueDate: _newDueDate,
+            reason: _reasonCtrl.text.trim(),
+          );
+      if (blocked != null) {
+        if (!mounted) return;
+        setState(() {
+          _busy = false;
+          _error = blocked;
+        });
+        return;
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'تعذّر إرسال الطلب: $e';
+      });
+      return;
+    }
     if (!mounted) return;
     Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(

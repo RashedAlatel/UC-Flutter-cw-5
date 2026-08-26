@@ -78,32 +78,61 @@ class _RequestProjectDialogState extends State<RequestProjectDialog> {
     // المعيار هو النطاق لا الدور: مسؤول النظام يُنشئ في أي إدارة، وصاحب
     // منحة «إنشاء المشاريع» يُنشئ داخل نطاقه، ومن سواهما يقدّم طلباً.
     final direct = store.canCreateIn(departmentId);
-    if (direct) {
-      await store.createProjectDirect(
-        departmentId: departmentId,
-        sectionId: _sectionId,
-        name: _nameCtrl.text.trim(),
-        description: _descCtrl.text.trim(),
-        startDate: _startDate,
-        dueDate: _dueDate,
-        priority: _priority,
-        executorNames: _executorNames,
-        managerUids: _managerUids.toList(),
-        executorUids: _executorUids.toList(),
-      );
-    } else {
-      await store.submitProjectRequest(
-        departmentId: departmentId,
-        name: _nameCtrl.text.trim(),
-        description: _descCtrl.text.trim(),
-        startDate: _startDate,
-        dueDate: _dueDate,
-        priority: _priority,
-        executorNames: _executorNames,
-        managerUids: _managerUids.toList(),
-        executorUids: _executorUids.toList(),
-        sectionId: _sectionId,
-      );
+
+    // ــــ ولماذا `try` هنا الآن ــــ
+    //
+    // لم تكن، فكان أيُّ خطأ يرتفع من المتجر يترك `_busy` على `true` بلا
+    // رجعة: نافذةٌ مجمَّدة على دوّارة، وزرٌّ معطَّل، ولا رسالة. والكتابةُ
+    // **وقعت** قبل الخطأ. فيُغلقها صاحبها ظانّاً أنها فشلت ويعيدها — فيصير
+    // الطلب طلبين في مركز القرارات. وهذا ما وقع فعلاً حين رُدّت كتابة سطر
+    // التدقيق: كلُّ مشروعٍ يُطلب ظهر مرّتين.
+    //
+    // والنمط قائمٌ في `works_list_screen` و`daily_update_form` — فاتَ هذه
+    // وحدها، وهي أكثرهنّ استعمالاً.
+    try {
+      if (direct) {
+        await store.createProjectDirect(
+          departmentId: departmentId,
+          sectionId: _sectionId,
+          name: _nameCtrl.text.trim(),
+          description: _descCtrl.text.trim(),
+          startDate: _startDate,
+          dueDate: _dueDate,
+          priority: _priority,
+          executorNames: _executorNames,
+          managerUids: _managerUids.toList(),
+          executorUids: _executorUids.toList(),
+        );
+      } else {
+        // والمكرّر يُردّ برسالةٍ لا بكتابةٍ ثانية — راجع `findDuplicatePending`.
+        final blocked = await store.submitProjectRequest(
+          departmentId: departmentId,
+          name: _nameCtrl.text.trim(),
+          description: _descCtrl.text.trim(),
+          startDate: _startDate,
+          dueDate: _dueDate,
+          priority: _priority,
+          executorNames: _executorNames,
+          managerUids: _managerUids.toList(),
+          executorUids: _executorUids.toList(),
+          sectionId: _sectionId,
+        );
+        if (blocked != null) {
+          if (!mounted) return;
+          setState(() {
+            _busy = false;
+            _error = blocked;
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'تعذّر الحفظ: $e';
+      });
+      return;
     }
     if (!mounted) return;
     Navigator.of(context).pop();

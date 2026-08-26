@@ -547,7 +547,8 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
       // يسلك مسار الكتابة المباشرة فيردّه الخادم.
       if (widget.editing == null && !store.canCreateWorkIn(_departmentId)) {
         requested = true;
-        await store.submitWorkRequest(
+        // والمكرّر يُردّ برسالةٍ لا بكتابةٍ ثانية — راجع `findDuplicatePending`.
+        final blocked = await store.submitWorkRequest(
           departmentId: _departmentId,
           title: _titleCtrl.text.trim(),
           description: _descCtrl.text.trim(),
@@ -556,6 +557,14 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
           assigneeUid: _assigneeUid.isEmpty ? null : _assigneeUid,
           assigneeName: assigneeName,
         );
+        if (blocked != null) {
+          if (!mounted) return;
+          setState(() {
+            _busy = false;
+            _error = blocked;
+          });
+          return;
+        }
       } else if (widget.editing == null) {
         final me = store.currentUser;
         await store.addWork(WorkItem(

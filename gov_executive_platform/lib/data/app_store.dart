@@ -3784,11 +3784,76 @@ class AppStore extends ChangeNotifier {
 
   // ------------------------- طلبات الموافقة -------------------------
 
+  /// الطلبُ المطابقُ الذي ينتظر البتّ أصلاً — أو null إن لم يوجد.
+  ///
+  /// ــــ لماذا يلزم هذا أصلاً؟ ــــ
+  ///
+  /// وقع في المنصّة أن ظهر كلُّ مشروعٍ يُطلَب **مرّتين** في مركز القرارات.
+  /// وليس تكراراً في العرض: القائمة تُدمج بالمعرّف (`mergeById`)، فالبطاقتان
+  /// مستندان حقيقيّان. وكُتبا لأن كتابة الطلب نجحت ثم ارتفع خطأٌ بعدها،
+  /// فجمدت النافذة بلا رسالة — فأعاد صاحبها المحاولة ظانّاً أنها فشلت.
+  ///
+  /// والنافذة تُصلَح (راجع `_submit`)، لكن هذا وحده لا يكفي: أيُّ فشلٍ لاحق —
+  /// شبكةٍ أو صلاحية — يُنتج السلوك نفسه، ولا شيء في القاعدة يمنع الطلب
+  /// الثاني. فيُمنع هنا، أيّاً كان سببُ الضغطة الثانية.
+  ///
+  /// ــــ والأبعاد خمسةٌ معاً لا واحد ــــ
+  ///
+  /// * **بانتظار البتّ** — طلبٌ رُفض ثم أُعيد بعد التصحيح طلبٌ مشروع.
+  /// * **النوع** — طلبُ مشروعٍ وطلبُ عملٍ بالاسم نفسه شيئان.
+  /// * **الإدارة** — «رقمنة الأرشيف» في إدارتين مبادرتان لا واحدة.
+  /// * **مقدّم الطلب** — موظفان يطلبان الشيء نفسه أمرٌ يراه مسؤول النظام
+  ///   ويقرّر، ولا يُخفى عنه أحدهما.
+  /// * **العنوان** بعد تشذيب الفراغ — فلا تمرّ مسافةٌ زائدة بنسخةٍ ثانية.
+  ///
+  /// وحدُّه يُقال: يقرأ **الحالة المحلّية**، وتصل إلى مقدّم الطلب عبر تدفّق
+  /// «طلباتي». فضغطتان في اللحظة نفسها قبل وصول اللقطة قد تمرّان — وهو يمنع
+  /// ما وقع فعلاً (إعادةَ محاولةٍ بعد ثوانٍ) لا سباقاً نظرياً.
+  @visibleForTesting
+  static ApprovalRequest? findDuplicatePending({
+    required List<ApprovalRequest> existing,
+    required ApprovalType type,
+    required String? departmentId,
+    required String title,
+    required String requestedByUid,
+  }) {
+    final wanted = title.trim();
+    for (final r in existing) {
+      if (r.status != DecisionStatus.pending) continue;
+      if (r.type != type) continue;
+      if (r.departmentId != departmentId) continue;
+      if (r.requestedByUid != requestedByUid) continue;
+      if (r.title.trim() != wanted) continue;
+      return r;
+    }
+    return null;
+  }
+
+  /// رسالةُ الردّ حين يوجد طلبٌ مطابق — أو null فيمضي الطلب.
+  String? _duplicateRequestBlock({
+    required ApprovalType type,
+    required String? departmentId,
+    required String title,
+  }) {
+    final found = findDuplicatePending(
+      existing: approvalRequests,
+      type: type,
+      departmentId: departmentId,
+      title: title,
+      requestedByUid: currentUser?.id ?? '',
+    );
+    if (found == null) return null;
+    return 'قدّمتَ هذا الطلب من قبل وهو ينتظر البتّ في مركز القرارات. '
+        'تابِعه من هناك، أو غيّر الاسم إن كان طلباً آخر.';
+  }
+
   /// طلب إضافة **عمل** — يعتمده مدير الإدارة صاحبته، لا مسؤول النظام.
   ///
   /// والعمل ليس من بوابات الاعتماد الثلاث، فلا قيد عليه: أقرب من يعرف
   /// أولويات الإدارة هو من يبتّ فيه.
-  Future<void> submitWorkRequest({
+  ///
+  /// وتُعيد رسالةً إن كان الطلب مكرّراً — راجع [findDuplicatePending].
+  Future<String?> submitWorkRequest({
     required String departmentId,
     required String title,
     required String description,
@@ -3797,12 +3862,19 @@ class AppStore extends ChangeNotifier {
     String? assigneeUid,
     String? assigneeName,
   }) async {
+    final requestTitle = 'طلب إضافة عمل جديد: $title';
+    final blocked = _duplicateRequestBlock(
+      type: ApprovalType.workCreate,
+      departmentId: departmentId,
+      title: requestTitle,
+    );
+    if (blocked != null) return blocked;
     final now = DateTime.now();
     await _db.collection('approvalRequests').add(ApprovalRequest(
           id: '',
           type: ApprovalType.workCreate,
           status: DecisionStatus.pending,
-          title: 'طلب إضافة عمل جديد: $title',
+          title: requestTitle,
           description: description,
           priority: priority,
           delayImpactDays: 0,
@@ -3820,6 +3892,7 @@ class AppStore extends ChangeNotifier {
           },
         ).toMap());
     await _log('طلب إضافة عمل', 'قدّم ${currentUser?.name} طلب إضافة عمل "$title"');
+    return null;
   }
 
   /// هل يستطيع المستخدم **طلب** إضافة عمل في هذه الإدارة؟
@@ -3829,7 +3902,8 @@ class AppStore extends ChangeNotifier {
     return myDepartmentIds.contains(departmentId) || currentUser!.departmentId == departmentId;
   }
 
-  Future<void> submitProjectRequest({
+  /// وتُعيد رسالةً إن كان الطلب مكرّراً — راجع [findDuplicatePending].
+  Future<String?> submitProjectRequest({
     required String departmentId,
     required String name,
     required String description,
@@ -3841,12 +3915,19 @@ class AppStore extends ChangeNotifier {
     List<String> executorUids = const [],
     String? sectionId,
   }) async {
+    final requestTitle = 'طلب إضافة مشروع جديد: $name';
+    final blocked = _duplicateRequestBlock(
+      type: ApprovalType.projectCreate,
+      departmentId: departmentId,
+      title: requestTitle,
+    );
+    if (blocked != null) return blocked;
     final now = DateTime.now();
     await _db.collection('approvalRequests').add(ApprovalRequest(
           id: '',
           type: ApprovalType.projectCreate,
           status: DecisionStatus.pending,
-          title: 'طلب إضافة مشروع جديد: $name',
+          title: requestTitle,
           description: description,
           priority: priority,
           delayImpactDays: 0,
@@ -3873,6 +3954,7 @@ class AppStore extends ChangeNotifier {
           },
         ).toMap());
     await _log('طلب مشروع جديد', 'قدّم ${currentUser?.name} طلب إضافة مشروع "$name"');
+    return null;
   }
 
   /// إضافة مشروع مباشرة (مسؤول النظام فقط) دون المرور بدورة طلب/اعتماد،
@@ -4185,17 +4267,25 @@ class AppStore extends ChangeNotifier {
     await _log('تحديث المنفذين', 'تم تحديث قائمة منفذي مشروع "${project.name}"');
   }
 
-  Future<void> submitDeadlineChangeRequest({
+  /// وتُعيد رسالةً إن كان الطلب مكرّراً — راجع [findDuplicatePending].
+  Future<String?> submitDeadlineChangeRequest({
     required Project project,
     required DateTime newDueDate,
     required String reason,
   }) async {
+    final requestTitle = 'طلب تعديل الموعد النهائي: ${project.name}';
+    final blocked = _duplicateRequestBlock(
+      type: ApprovalType.deadlineChange,
+      departmentId: project.departmentId,
+      title: requestTitle,
+    );
+    if (blocked != null) return blocked;
     final now = DateTime.now();
     await _db.collection('approvalRequests').add(ApprovalRequest(
           id: '',
           type: ApprovalType.deadlineChange,
           status: DecisionStatus.pending,
-          title: 'طلب تعديل الموعد النهائي: ${project.name}',
+          title: requestTitle,
           description: reason,
           priority: PriorityLevel.medium,
           delayImpactDays: newDueDate.difference(project.dueDate).inDays.abs(),
@@ -4212,6 +4302,7 @@ class AppStore extends ChangeNotifier {
           },
         ).toMap());
     await _log('طلب تعديل موعد', 'قدّم ${currentUser?.name} طلب تعديل الموعد النهائي لمشروع "${project.name}"');
+    return null;
   }
 
   /// يعتمد طلباً، ويمكن لمسؤول النظام تعديل حمولته قبل الاعتماد.

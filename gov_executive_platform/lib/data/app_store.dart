@@ -858,6 +858,46 @@ class AppStore extends ChangeNotifier {
           u.date.day == day.day)
       .toList();
 
+  /// ما يصير إليه العمل بعد تحديثٍ يومي: نسبتُه وحالتُه وسجلُّ إغلاقه.
+  ///
+  /// ــ ولماذا دالّةٌ نقيّة لا سطورٌ في مكانها؟ ــ
+  ///
+  /// لأن هذا المنطق هو **أوسع ثقبٍ في دورة الإغلاق**: بلوغُ المئة كان يكتب
+  /// «منجَز» مباشرةً، فلو أُغلق باب نموذج العمل وحده لبقي كلُّ منفّذٍ قادراً
+  /// على إغلاق عمله من نموذج التحديث اليومي — وهو أكثر ما يُفتح في المنصة.
+  ///
+  /// وكان يقع داخل دالّةٍ لا تعمل إلا بـFirestore حيّ، أي خارج مدى أي
+  /// اختبار. فأُخرج ليُقاس — كنمط `splitDeleted` و`findDuplicatePending`.
+  @visibleForTesting
+  static ({double progressPercent, TaskStatus status, DateTime? completedDate, ClosureTrail? closure})
+      workUpdateOutcome({
+    required ClosureTrail closure,
+    required double progressPercent,
+    required DateTime stamp,
+    required String actorUid,
+    required String actorName,
+  }) {
+    final full = progressPercent >= 100;
+    final needsApproval = closure.requiresApproval;
+    // المئة تُنتج «بانتظار الاعتماد» متى وُجد معتمِد، ولا تُنتج إغلاقاً إلا
+    // بلا معتمِد — فلا يُغلق المنفّذُ ما طلبه غيرُه.
+    final closesNow = full && !needsApproval;
+    return (
+      progressPercent: progressPercent,
+      status: full
+          ? (needsApproval ? TaskStatus.awaitingApproval : TaskStatus.done)
+          : TaskStatus.inProgress,
+      completedDate: closesNow ? stamp : null,
+      closure: full && needsApproval
+          ? closure.copyWith(
+              claimedByUid: actorUid,
+              claimedByName: actorName,
+              claimedAt: stamp,
+            )
+          : null,
+    );
+  }
+
   /// يكتب تحديثاً يومياً على عمل، ويرفع نسبة إنجازه معه.
   ///
   /// [forDay] اليوم الذي يُسجَّل تحته — اليومُ الحالي إن لم يُحدَّد. ويومٌ
@@ -866,7 +906,16 @@ class AppStore extends ChangeNotifier {
   /// والنسبة تُكتب على العمل **وعلى التحديث** معاً: الأولى هي الحال الآن،
   /// والثانية هي ما كانت عليه ذلك اليوم — ولولاها لتعذّر أن يُقرأ من السجل
   /// كيف تقدّم العمل.
-  Future<void> addWorkUpdate({
+  /// ــ التحديث يُكتب أوّلاً وبمفرده ــ
+  ///
+  /// كان هذا كلُّه **دفعةً ذرّية واحدة**: مستندُ التحديث وتحديثُ نسبة العمل
+  /// وحالته معاً. ودفعةُ Firestore ذرّية — فردُّ كتابةِ `works` وحدها، لأي
+  /// سبب، يُسقط معها **ما كتبه الموظف**، ولا يُقال له أيُّ الاثنين رُدّ.
+  ///
+  /// وهو العطل نفسه الذي أُصلح للتحديث اليومي على المشاريع، ولم يُنقل إلى
+  /// الأعمال. فنُقل: إن نجحت الكتابة الأولى فقد نجح ما يهمّ، ثم يُحاوَل
+  /// الباقي ويُجمع ما تعذّر ليُقال صراحةً.
+  Future<({List<String> notRecorded})> addWorkUpdate({
     required WorkItem work,
     required String summary,
     required double progressPercent,
@@ -880,9 +929,7 @@ class AppStore extends ChangeNotifier {
         : DateTime(forDay.year, forDay.month, forDay.day, 12);
 
     final ref = _db.collection('workUpdates').doc();
-    final batch = _db.batch();
-    batch.set(
-      ref,
+    await ref.set(
       WorkUpdate(
         id: ref.id,
         workId: work.id,
@@ -898,37 +945,32 @@ class AppStore extends ChangeNotifier {
       ).toMap(),
     );
 
+    final notRecorded = <String>[];
+
     // الحالة تتبع النسبة كما في المشاريع: مئةٌ تعني منجَزاً، وما دونها
     // يُخرج العمل من «منجَز» إن كان فيه — فلا يبقى مكتوباً عليه «منجَز»
-    // وصاحبه يكتب فيه تحديثاً.
-    //
-    // ــــ وهنا كان أوسع ثقبٍ في دورة الإغلاق ــــ
-    //
-    // بلوغ المئة كان يكتب `done` مباشرةً. فلو أُغلق باب «قائمة الحالة» في
-    // نموذج العمل وحده، لبقي كلُّ منفّذٍ قادراً على إغلاق عمله من **نموذج
-    // التحديث اليومي** — وهو أكثر ما يُفتح في المنصة. فالمئة تُنتج الآن
-    // «بانتظار الاعتماد» متى وُجد معتمِد، ولا تُنتج إغلاقاً إلا بلا معتمِد.
-    final full = progressPercent >= 100;
-    final needsApproval = work.closure.requiresApproval;
-    final closesNow = full && !needsApproval;
-    final trail = full && needsApproval
-        ? work.closure.copyWith(
-            claimedByUid: currentUser?.id ?? '',
-            claimedByName: currentUser?.name ?? '',
-            claimedAt: stamp,
-          )
-        : null;
-    batch.update(_db.collection('works').doc(work.id), {
-      'progressPercent': progressPercent,
-      'status': full
-          ? (needsApproval ? TaskStatus.awaitingApproval.name : TaskStatus.done.name)
-          : TaskStatus.inProgress.name,
-      if (closesNow) 'completedDate': Timestamp.fromDate(stamp),
-      if (trail != null) 'closure': trail.toMap(),
-    });
+    // وصاحبه يكتب فيه تحديثاً. والحساب في `workUpdateOutcome` ليُقاس.
+    final outcome = workUpdateOutcome(
+      closure: work.closure,
+      progressPercent: progressPercent,
+      stamp: stamp,
+      actorUid: currentUser?.id ?? '',
+      actorName: currentUser?.name ?? '',
+    );
+    try {
+      await _db.collection('works').doc(work.id).update({
+        'progressPercent': outcome.progressPercent,
+        'status': outcome.status.name,
+        if (outcome.completedDate != null)
+          'completedDate': Timestamp.fromDate(outcome.completedDate!),
+        if (outcome.closure != null) 'closure': outcome.closure!.toMap(),
+      });
+    } catch (e) {
+      notRecorded.add('تحديث نسبة العمل وحالته ($e)');
+    }
 
-    await batch.commit();
     await _log('الأعمال التشغيلية', 'حدّث ${currentUser?.name} العمل "${work.title}"');
+    return (notRecorded: notRecorded);
   }
 
   /// من يحذف هذا العمل حذفاً منطقياً؟

@@ -73,7 +73,7 @@ class _WorkUpdateFormState extends State<WorkUpdateForm> {
     }
     setState(() => _busy = true);
     try {
-      await context.read<AppStore>().addWorkUpdate(
+      final result = await context.read<AppStore>().addWorkUpdate(
             work: widget.work,
             summary: _summaryCtrl.text.trim(),
             notes: _notesCtrl.text.trim(),
@@ -82,8 +82,18 @@ class _WorkUpdateFormState extends State<WorkUpdateForm> {
           );
       if (!mounted) return;
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('تم حفظ تحديث العمل')));
+      // ــ النتيجة الجزئية تُقال ــ
+      //
+      // التحديث يُكتب أوّلاً وبمفرده، وتحديثُ نسبة العمل قد يُردّ وحده. فلو
+      // قيل «تم الحفظ» وسكتنا، لبحث الكاتب عن نسبةٍ حرّكها ولم تتحرّك، وظنّ
+      // التحديث نفسه ضائعاً. والنمط من `daily_update_form`.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result.notRecorded.isEmpty
+            ? 'تم حفظ تحديث العمل'
+            : 'حُفظ التحديث، ولم يُسجَّل: ${result.notRecorded.join(' · ')}'),
+        backgroundColor: result.notRecorded.isEmpty ? null : AppColors.warning,
+        duration: Duration(seconds: result.notRecorded.isEmpty ? 4 : 12),
+      ));
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);

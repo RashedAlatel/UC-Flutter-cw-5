@@ -774,8 +774,8 @@ want_in "$STORE" "قاعدةُ التكرار موجودة ونقيّة" \
 # وكلُّ مسارٍ من الثلاثة يمرّ بها فعلاً: وجودُ القاعدة بلا استعمالٍ حراسةٌ
 # على الورق. والفحص داخل جسم كل دالّة لا في الملف كلِّه.
 want_within() {
-  local name="$1" signature="$2" pattern="$3"
-  if grep -A 26 "$signature" "$STORE" | grep -q "$pattern"; then
+  local name="$1" signature="$2" pattern="$3" window="${4:-26}"
+  if grep -A "$window" "$signature" "$STORE" | grep -q "$pattern"; then
     echo "  ✔ $name"
     PASS=$((PASS + 1))
   else
@@ -800,6 +800,39 @@ want_in "lib/screens/request_project_dialog.dart" "نافذةُ المشروع �
   "        _error = 'تعذّر الحفظ: \$e';"
 want_in "lib/screens/request_deadline_change_dialog.dart" "ونافذةُ الموعد كذلك" \
   "        _error = 'تعذّر إرسال الطلب: \$e';"
+echo ""
+
+# ــــ ولا تسقط كتابةُ الموظف بسقوط تابعٍ لها ــــ
+#
+# كانت `addWorkUpdate` دفعةً ذرّية تجمع مستندَ التحديث مع تحديث نسبة العمل
+# وحالته. ودفعةُ Firestore ذرّية — فردُّ كتابةِ `works` وحدها يُسقط معها ما
+# كتبه الموظف، ولا يُقال له أيُّ الاثنين رُدّ. وهو العطل نفسه الذي أُصلح
+# للتحديث اليومي على المشاريع ولم يُنقل إلى الأعمال.
+echo "وتحديثُ العمل يُكتب أوّلاً وبمفرده:"
+reject_within() {
+  local name="$1" signature="$2" pattern="$3"
+  if grep -A 40 "$signature" "$STORE" | grep -q "$pattern"; then
+    echo "  ✗ $name"
+    echo "      عاد «$pattern» داخل «$signature»"
+    FAIL=$((FAIL + 1))
+  else
+    echo "  ✔ $name"
+    PASS=$((PASS + 1))
+  fi
+}
+reject_within "لا دفعةَ ذرّية في تحديث العمل" \
+  "addWorkUpdate({" "_db.batch()"
+want_within "بل كتابةٌ أولى مفردة" \
+  "addWorkUpdate({" "await ref.set("
+want_within "وما تعذّر يُجمع ويُقال" \
+  "addWorkUpdate({" "notRecorded.add(" 60
+# والنمطُ نصُّ الرسالة لا اسمُ الحقل: `result.notRecorded` يبقى مذكوراً في
+# سطر اللون ولو حُذف الفرعُ الذي يُظهرها — وقد جُرّب فمرّ.
+want_in "lib/screens/work_update_form.dart" "والواجهة تعرضه" \
+  "حُفظ التحديث، ولم يُسجَّل: "
+# ودورةُ الإغلاق التي سُدّت لا تُفتح بالنقل: المنطق في دالّةٍ نقيّة تُقاس.
+want_in "$STORE" "وحسابُ الحالة نقيٌّ يُقاس" \
+  "workUpdateOutcome({"
 echo ""
 
 echo "══════════════════════════════"

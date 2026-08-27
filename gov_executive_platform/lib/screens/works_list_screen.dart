@@ -724,12 +724,18 @@ class _WorkFormDialogState extends State<WorkFormDialog> {
               DropdownButtonFormField<String>(
                 initialValue: candidates.any((u) => u.id == _assigneeUid) ? _assigneeUid : null,
                 isExpanded: true,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'المسؤول عن التنفيذ (اختياري)',
                   // الحقلُ الفارغ يُقرأ نسياناً ما لم يُقَل أنه مسارٌ مقصود.
                   // فمن لا يعرف اختصاصات الإدارة يتركه واثقاً لا متردّداً.
-                  helperText: 'اتركه إن لم تعرف من يختصّ — يكلّف مديرُ الإدارة '
-                      'من يُنفّذ عند اعتماد الطلب.',
+                  //
+                  // ولمسار **الطلب** وحده: كان يُعرض دائماً، فيَعِد من يعدّل
+                  // عملاً قائماً باعتمادٍ لا يقع ومديرِ إدارةٍ لن يُكلّف
+                  // أحداً — لا طلبَ هنا أصلاً.
+                  helperText: isRequest
+                      ? 'اتركه إن لم تعرف من يختصّ — يكلّف مديرُ الإدارة '
+                          'من يُنفّذ عند اعتماد الطلب.'
+                      : null,
                   helperMaxLines: 2,
                 ),
                 items: candidates.map((u) => DropdownMenuItem<String>(value: u.id, child: Text(_userLabel(u)))).toList(),

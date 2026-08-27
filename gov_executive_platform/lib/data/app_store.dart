@@ -649,18 +649,62 @@ class AppStore extends ChangeNotifier {
   ///
   /// والقيمةُ السابقة تُقرأ من المتجر لا من الخادم: هي التي كانت معروضةً
   /// أمام من عدّل، فهي «قبل» الصحيحة — وتوفّر قراءةً إضافية.
+  /// ــ ولا يُكتب المستند كاملاً ــ
+  ///
+  /// كانت تكتب `toMap()`، وهي حمولةُ **إنشاء** لا تعديل: تكتب حقول الحذف
+  /// والتحويل السبعة دائماً ولو فارغة. والمستندُ الذي وُلد بلا تلك المفاتيح
+  /// — وكلُّ عملٍ أُنشئ باعتماد طلبٍ كذلك — تُضاف إليه لأول مرّة، فتدخل في
+  /// `diff().affectedKeys()`، وقاعدةُ `works` تشترط ألّا يُمسّ أيٌّ منها في
+  /// التعديل العادي. **فيُردّ الحفظ كلُّه**.
+  ///
+  /// فتُكتب حقول النموذج وحدها. وبها يُعدَّل كلُّ عملٍ قائم — ناقصاً كان أو
+  /// تامّاً — بلا ترحيلٍ ولا خطوةٍ يدويّة تُنسى. ويسقط معها خطرُ `Timestamp`
+  /// الذي يفقد ما دون الميكروثانية في رحلته إلى `DateTime` وإيابه، فيُقرأ
+  /// موعداً تغيّر ويُردّ. والنمط من `updateProjectDetails`.
+  ///
+  /// و`closure` ليست منها بقصد: لا يعدّلها هذا النموذج، ولانتقالاتها دوالُّ
+  /// خاصّة تحمل معها من فعلها ومتى.
   Future<void> updateWork(WorkItem work) async {
-    final before = works.where((w) => w.id == work.id).firstOrNull?.toMap();
-    await _db.collection('works').doc(work.id).update(work.toMap());
+    final before = works.where((w) => w.id == work.id).firstOrNull;
+    final patch = <String, dynamic>{
+      'title': work.title,
+      'description': work.description,
+      'departmentId': work.departmentId,
+      'assigneeUid': work.assigneeUid,
+      'assigneeName': work.assigneeName,
+      'status': work.status.name,
+      'priority': work.priority.name,
+      'progressPercent': work.progressPercent,
+      'dueDate': Timestamp.fromDate(work.dueDate),
+      'completedDate':
+          work.completedDate == null ? null : Timestamp.fromDate(work.completedDate!),
+      'isRecurring': work.isRecurring,
+    };
+    await _db.collection('works').doc(work.id).update(patch);
     if (before == null) return;
+    // و«قبل» تُقرأ بالمفاتيح نفسها، وإلا ظهر كلُّ حقلٍ لا يُعدَّل فرقاً.
+    final beforePatch = <String, dynamic>{
+      'title': before.title,
+      'description': before.description,
+      'departmentId': before.departmentId,
+      'assigneeUid': before.assigneeUid,
+      'assigneeName': before.assigneeName,
+      'status': before.status.name,
+      'priority': before.priority.name,
+      'progressPercent': before.progressPercent,
+      'dueDate': Timestamp.fromDate(before.dueDate),
+      'completedDate':
+          before.completedDate == null ? null : Timestamp.fromDate(before.completedDate!),
+      'isRecurring': before.isRecurring,
+    };
     await _logChange(
       'تعديل عمل',
       'عدّل ${currentUser?.name ?? ''} بيانات العمل "${work.title}"',
       targetType: 'work',
       targetId: work.id,
       targetName: work.title,
-      before: before,
-      after: work.toMap(),
+      before: beforePatch,
+      after: patch,
     );
   }
 

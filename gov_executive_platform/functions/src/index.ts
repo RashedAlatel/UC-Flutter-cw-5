@@ -16,6 +16,7 @@ import {
 import {storagePathsToDelete} from "./attachment_cleanup";
 import {childMembershipPatch} from "./child_membership";
 import {mayDeleteDailyUpdate} from "./daily_update_delete";
+import {buildWorkDoc} from "./work_create";
 import {
   claimDepartments,
   mayConvertIn,
@@ -783,19 +784,26 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         const aSnap = await db().collection("users").doc(workAssignee).get();
         workAssigneeName = String(aSnap.data()?.name ?? "");
       }
-      await db().collection("works").doc().set({
-        departmentId: data.departmentId ?? null,
-        title: payload.title,
-        description: payload.description ?? "",
+      // ــ ولا يُبنى المستند بيدٍ هنا ــ
+      //
+      // كان كذلك، فنقصته حقولٌ يكتبها العميل دائماً: الحالة، و«دوري متكرر»،
+      // و**سجلُّ الإغلاق**، وحقولُ الحذف والتحويل السبعة. فوُلد كلُّ عملٍ
+      // أُنشئ باعتماد طلبٍ ناقصاً — لا يُعدَّل، ولا يمرّ إغلاقُه بأحد.
+      // وصار البناءُ في وحدةٍ نقيّة تُقاس — راجع `work_create.ts`.
+      await db().collection("works").doc().set(buildWorkDoc({
+        departmentId: (data.departmentId as string | null) ?? null,
+        title: String(payload.title ?? ""),
+        description: String(payload.description ?? ""),
         assigneeUid: workAssignee || null,
         assigneeName: workAssigneeName,
-        priority: payload.priority ?? "medium",
-        progressPercent: 0,
+        priority: String(payload.priority ?? "medium"),
         dueDate: admin.firestore.Timestamp.fromDate(new Date(payload.dueDate as string)),
-        completedDate: null,
-        createdByUid: data.requestedByUid,
+        createdByUid: String(data.requestedByUid ?? ""),
         createdAt: now(),
-      });
+        // المعتمِد هو مقدّم الطلب — كما في الإنشاء المباشر.
+        requesterUid: String(data.requestedByUid ?? ""),
+        requesterName: String(data.requestedByName ?? ""),
+      }));
       break;
     }
     case "projectManagerAppointment": {

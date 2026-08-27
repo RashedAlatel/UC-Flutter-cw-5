@@ -835,6 +835,28 @@ want_in "$STORE" "وحسابُ الحالة نقيٌّ يُقاس" \
   "workUpdateOutcome({"
 echo ""
 
+# ــــ العملُ لا يُولد ناقصاً، ولا يُكتب كاملاً عند التعديل ــــ
+#
+# دالّةُ الاعتماد كانت تبني مستند العمل بيدها فتنقصها حقول — ومنها حقولُ
+# الحذف والتحويل السبعة. و`updateWork` كانت تكتب المستند كاملاً بـ`toMap()`
+# وهي تكتب تلك السبعة دائماً. فتعديلُ عملٍ وُلد ناقصاً يُضيفها لأول مرّة،
+# فتدخل في `affectedKeys`، وقاعدةُ `works` تمنع مسّها — فيُردّ الحفظ كلُّه.
+# وكلُّ عملٍ أُنشئ باعتماد طلبٍ كان لا يُعدَّل إطلاقاً.
+echo "والعملُ لا يُولد ناقصاً ولا يُكتب كاملاً عند التعديل:"
+reject_within "التعديل لا يكتب المستند كاملاً" \
+  "Future<void> updateWork(WorkItem work)" "update(work.toMap())"
+want_within "بل حقول النموذج وحدها" \
+  "Future<void> updateWork(WorkItem work)" "update(patch);" 45
+want_in "functions/src/work_create.ts" "وبناءُ مستند العمل وحدةٌ نقيّة" \
+  "export function buildWorkDoc("
+want_in "functions/src/work_create.ts" "وحقول الحذف مكتوبةٌ فيه" "deletedReason: null,"
+want_in "functions/src/work_create.ts" "وحقول التحويل كذلك" "convertedToId: null,"
+want_in "$SRC" "والخادم يستعملها لا يبني بيده" "set(buildWorkDoc({"
+# ودورةُ الإغلاق لا تبقى معطَّلةً في مسار الطلب: المعتمِد مقدّم الطلب.
+want_in "functions/src/work_create.ts" "والمعتمِد مقدّم الطلب" \
+  "export function closureForRequest("
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

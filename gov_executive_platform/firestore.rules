@@ -85,7 +85,22 @@ service cloud.firestore {
              (request.auth.uid in managersOf(data) || request.auth.uid in executorsOf(data));
     }
     // صلاحية القراءة/الكتابة على مستند مرتبط بمشروع (تقدّم عبر departmentId و managerUid المنسوخين عليه).
-    function canEditDept(deptId) { return isAdmin() || (isDeptManager() && isMyDeptOfManager(deptId)); }
+    // ــــ البطاقةُ تُقرأ قراءةً واحدة في المنصة كلِّها ــــ
+    //
+    // الإدارةُ على البطاقة في موضعين: `departmentId` مفرداً (الأقدم، ويحمله
+    // كلُّ حساب) و`departmentIds` قائمةً (أُضيفت حين صار المدير قد يدير أكثر
+    // من إدارة). وكانت هذه الدالّة تقرأ **القائمة وحدها**، بينما قاعدةُ
+    // الأعمال تقرأ الاثنين (`isMyDeptAny`)، والعميلُ يقرأ الاثنين كذلك
+    // (`myDepartmentIds` تعود إلى المفرد عند فراغ القائمة).
+    //
+    // فمديرُ إدارةٍ بطاقتُه تحمل المفرد وقائمتُه فارغة — وهو حالُ كل حسابٍ
+    // رُقّي قبل إضافة القائمة — كان يرى قلمَ التعديل، ويعدّل أعمال إدارته،
+    // **ويُردّ عليه تعديل مشروعها**. وقِيس ذلك على المحاكي قبل الإصلاح.
+    //
+    // والتوسيع محمولٌ كلُّه على `isDeptManager()`: لا يمرّ منه موظفٌ في
+    // الإدارة ولا مستخدمٌ تنفيذي — وهو مُقاسٌ في
+    // `test_rules/dept_claim.rules.test.mjs`.
+    function canEditDept(deptId) { return isAdmin() || (isDeptManager() && isMyDeptAny(deptId)); }
     function canAccessProjectDoc(deptId, managerUid) { return canEditDept(deptId) || isMyProject(managerUid); }
     // ونظيرُها للمستندات التي تحمل قائمتَي العضوية كاملتين (مستندُ المشروع
     // نفسه، والمهام): بها يعمل **المدير الثاني** فصاعداً، إذ الحقل المفرد

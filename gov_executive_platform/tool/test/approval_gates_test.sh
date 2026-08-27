@@ -857,6 +857,22 @@ want_in "functions/src/work_create.ts" "والمعتمِد مقدّم الطلب
   "export function closureForRequest("
 echo ""
 
+# ــــ البطاقةُ تُقرأ قراءةً واحدة ــــ
+#
+# الإدارةُ على بطاقة الدخول في موضعين: مفردٍ وقائمة. وكانت تُقرأ بطريقتين
+# في المنصة الواحدة: قاعدةُ الأعمال تقبل الاثنين، و`canEditDept` تقبل
+# القائمة وحدها، والعميلُ يقبل الاثنين. فمديرُ إدارةٍ بطاقتُه بالمفرد كان
+# يعدّل أعمال إدارته ويُردّ عليه تعديلُ مشروعها — وهو ما بلّغ عنه.
+echo "وبطاقةُ الإدارة تُقرأ قراءةً واحدة:"
+want_in "$RULES" "القاعدة تقبل المفرد والقائمة" \
+  "function canEditDept(deptId) { return isAdmin() || (isDeptManager() \&\& isMyDeptAny(deptId)); }"
+reject_in "$RULES" "ولا تقتصر على القائمة" \
+  "canEditDept(deptId) { return isAdmin() || (isDeptManager() \&\& isMyDeptOfManager(deptId)); }"
+want_in "$STORE" "والعميل كذلك" "if (many.isNotEmpty) return many;"
+# ورسالةُ الرفض تقول ما يُفعل لا رمزاً — راجع `readable_write_error_test.dart`.
+want_in "$STORE" "ورسالةُ الرفض تسمّي العلاج" "static String readableWriteError("
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

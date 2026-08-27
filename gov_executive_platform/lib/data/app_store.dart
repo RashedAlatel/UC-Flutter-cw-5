@@ -1094,6 +1094,26 @@ class AppStore extends ChangeNotifier {
   /// نفسها فلا ترفضها القاعدة نظرياً، لكن `Timestamp` يمرّ بـ`DateTime`
   /// ذهاباً وإياباً فيفقد ما دون الميكروثانية — فيراه الخادم **تغييراً في
   /// الموعد النهائي** ويردّ الحفظ كلَّه. فتُكتب الحقول المقصودة وحدها.
+  /// نصٌّ يُقرأ بدل رمز الخطأ الخام.
+  ///
+  /// ــ «permission-denied» لا يقول لأحدٍ ما يفعله ــ
+  ///
+  /// وأكثرُ أسبابه في هذه المنصة **بطاقةُ دخولٍ لم تُختم**: الحساب رُقّي أو
+  /// نُقل إلى إدارة، والقواعد تقرأ البطاقة لا سجلَّ المستخدم — فتقول الواجهة
+  /// «تستطيع» ويقول الخادم «لا». وله زرٌّ يُصلحه في لافتة تعذّر القراءة.
+  ///
+  /// فيُقال ذلك بدل الرمز. والسببُ الخام يبقى ملحقاً: من يُصلح يحتاجه.
+  @visibleForTesting
+  static String readableWriteError(Object error) {
+    final text = error.toString();
+    if (text.contains('permission-denied') || text.contains('PERMISSION_DENIED')) {
+      return 'ردّ الخادم الحفظ. وأكثرُ أسبابه أن بطاقة دخولك لم تُختم بإدارتك '
+          'أو دورك الحالي — جرّب تسجيل الخروج والدخول من جديد، فإن تكرّر '
+          'فأبلغ مسؤول النظام. ($text)';
+    }
+    return 'تعذّر الحفظ: $text';
+  }
+
   Future<String?> updateProjectDetails(
     Project project, {
     required String name,
@@ -1123,7 +1143,7 @@ class AppStore extends ChangeNotifier {
     try {
       await _db.collection('projects').doc(project.id).update(after);
     } catch (e) {
-      return 'تعذّر الحفظ: $e';
+      return readableWriteError(e);
     }
     await _logChange(
       'تعديل مشروع',

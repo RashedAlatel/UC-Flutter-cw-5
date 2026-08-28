@@ -29,6 +29,7 @@ enum NavKey {
   decisions('مركز القرارات'),
   dailyReport('التقرير اليومي'),
   reports('التقارير'),
+  periodicReports('التقارير الدورية'),
   feedback('الشكاوى والاقتراحات'),
   people('متابعة الأشخاص'),
   auditLog('سجل التدقيق'),
@@ -110,6 +111,13 @@ List<NavKey> navKeysFor(AppStore store) {
       store.currentUser?.role != UserRole.employee) {
     keys.add(NavKey.reports);
   }
+
+  // ــ التقارير الدورية: لمن يُتابع أداء غيره ــ
+  //
+  // الشرط في `canViewPeriodicReports` لا هنا، فهو نفسُه الذي يُبنى به نطاق
+  // `periodicReportInput` — ولو كُتب في موضعين لَافترقا: مدخلٌ يظهر وتقريرٌ
+  // يخرج فارغاً، أو صفحةٌ تُحجب عمّن يملك بياناتها.
+  if (store.canViewPeriodicReports) keys.add(NavKey.periodicReports);
 
   // الشكاوى: يظهر المدخل لمن يرفع أو لمن يتابع الوارد. ومن رفع شيئاً سابقاً
   // ثم سُحبت منه صلاحية الرفع يبقى المدخل ليتابع ردّه.

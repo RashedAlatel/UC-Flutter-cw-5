@@ -16,6 +16,7 @@ import '../screens/my_assignments_screen.dart';
 import '../screens/project_detail_screen.dart';
 import '../screens/projects_list_screen.dart';
 import '../screens/registration_settings_screen.dart';
+import '../screens/periodic_reports_screen.dart';
 import '../screens/reports_screen.dart';
 import '../screens/role_permissions_screen.dart';
 import '../screens/roles_management_screen.dart';
@@ -55,6 +56,7 @@ const Map<NavKey, IconData> _navIcons = {
   NavKey.decisions: Icons.gavel_rounded,
   NavKey.dailyReport: Icons.wb_twilight_rounded,
   NavKey.reports: Icons.assessment_rounded,
+  NavKey.periodicReports: Icons.insights_rounded,
   NavKey.feedback: Icons.forum_outlined,
   NavKey.people: Icons.groups_rounded,
   NavKey.auditLog: Icons.history_rounded,
@@ -174,6 +176,8 @@ class _AppShellState extends State<AppShell> {
         return const DailyReportScreen();
       case NavKey.reports:
         return const ReportsScreen();
+      case NavKey.periodicReports:
+        return const PeriodicReportsScreen();
       case NavKey.feedback:
         return const FeedbackScreen();
       case NavKey.people:

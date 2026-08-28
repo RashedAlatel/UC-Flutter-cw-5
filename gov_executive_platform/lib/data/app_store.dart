@@ -35,6 +35,7 @@ import '../models/user_deletion_report.dart';
 import '../models/risk.dart';
 import '../models/work_item.dart';
 import '../models/work_update.dart';
+import '../reports/periodic_report.dart';
 import '../theme/app_theme.dart';
 import '../utils/file_picker.dart';
 import '../utils/formatters.dart';
@@ -1419,6 +1420,42 @@ class AppStore extends ChangeNotifier {
   }
 
   bool get canTrackPeople => trackablePeople.isNotEmpty;
+
+  // ------------------------- التقارير الدورية -------------------------
+
+  /// من يفتح «التقارير الدورية»: **مسؤول النظام والتنفيذي كلَّ الإدارات،
+  /// ومديرُ الإدارة إدارتَه** — كما قرّرت.
+  ///
+  /// ولا يُفتح للموظف: التقرير يعرض أداء أشخاصٍ بأسمائهم، وذلك شأنُ من يُتابع
+  /// لا شأنُ الزميل.
+  bool get canViewPeriodicReports => canViewAllDepartments || isManager;
+
+  /// **مقارنةُ الإدارات لمن يقرأ كلَّ الإدارات وحده.**
+  ///
+  /// ومديرُ الإدارة لا يراها: جدولٌ يرتّب الإدارات بإنجازها وهو لا يحمل من
+  /// بياناتها إلا إدارتَه سيُظهره أوّلاً أو أخيراً بلا معنى — والقواعد
+  /// **ترفض ولا تُصفّي**، فما لا يقرؤه لا يصل إليه أصلاً.
+  bool get canCompareDepartments => canViewAllDepartments;
+
+  /// مدخلاتُ التقرير الدوري بنطاق المستخدم الحالي.
+  ///
+  /// ــــ لماذا تُجمَع هنا لا في الشاشة ــــ
+  ///
+  /// لأن النطاق قرارُ أمنٍ لا عرض. وجمعُه في موضعٍ واحدٍ يجعله يُقرأ ويُختبر
+  /// بلا فتح شاشة. والقوائم أصلاً محدودةٌ بما تسمح به قواعد القراءة، فهذا
+  /// **إحكامٌ ثانٍ** لا الحاجزُ الأول.
+  ///
+  /// والأشخاص من [trackablePeople] بعينها — تعريفُ النطاق واحدٌ لشاشة
+  /// «متابعة الأشخاص» ولهذا التقرير، فلا يفترقان بعد حين.
+  ReportInput get periodicReportInput => ReportInput(
+        projects: visibleProjects,
+        works: visibleWorks,
+        tasks: tasks,
+        dailyUpdates: dailyUpdates,
+        workUpdates: workUpdates,
+        users: trackablePeople,
+        departments: visibleDepartments,
+      );
 
   // ------------------------- لوحة مخصّصة لكل مستخدم -------------------------
 
@@ -3785,11 +3822,19 @@ class AppStore extends ChangeNotifier {
       );
     }
 
+    // ــ تاريخُ الإنجاز يُكتب حين يقع الإنجاز، ويُمحى حين يزول ــ
+    //
+    // و`effective` لا `status`: من أعلن الإتمام على مهمةٍ لها معتمِد لم
+    // يُنجزها بعد — ينتظر اعتماده. فتاريخُ الإنجاز لحظةُ **الإغلاق**
+    // الفعلي. ومن أعاد المهمة إلى التنفيذ يمحوه، وإلا بقي عليها تاريخُ
+    // إنجازٍ وهي تُنفَّذ.
+    final closesNow = effective == TaskStatus.done;
     await _db.collection('tasks').doc(task.id).update({
       'status': effective.name,
       'lastUpdated': Timestamp.now(),
       if (wantsClose) 'progressPercent': 100.0,
       if (trail != null) 'closure': trail.toMap(),
+      'completedAt': closesNow ? Timestamp.fromDate(now) : null,
     });
     await _log('تحديث مهمة', 'تم تغيير حالة المهمة "${task.title}" إلى ${effective.label}');
   }
@@ -3808,6 +3853,8 @@ class AppStore extends ChangeNotifier {
     await _db.collection('tasks').doc(task.id).update({
       'status': TaskStatus.inProgress.name,
       'lastUpdated': Timestamp.now(),
+      // عادت إلى التنفيذ، فلا تاريخ إنجازٍ لها.
+      'completedAt': null,
       'closure': trail.toMap(),
     });
     await _log('إعادة مهمة للتنفيذ',
@@ -3881,6 +3928,12 @@ class AppStore extends ChangeNotifier {
     final project = projectById(task.projectId);
     await _db.collection('tasks').doc(task.id).set({
       ...task.toMap(),
+      // ــ متى أُضيفت ــ
+      //
+      // كانت المهمة تحمل **من** أضافها ولا تحمل **متى**، فلا سبيل إلى
+      // «كم مهمةً أضاف هذا الشخص في هذا الشهر». ويُكتب هنا لا في النموذج
+      // ليكون تاريخَ الكتابة الحقيقي لا ما بناه المُنادي.
+      'createdAt': Timestamp.now(),
       'managerUid': project?.managerUid,
       'managerUids': project?.managerUids ?? const <String>[],
       'executorUids': project?.executorUids ?? const <String>[],

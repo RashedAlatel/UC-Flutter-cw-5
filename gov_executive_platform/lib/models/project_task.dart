@@ -32,6 +32,32 @@ class ProjectTask {
   /// سجلّ الإغلاق نفسه الذي على العمل — راجع [ClosureTrail].
   final ClosureTrail closure;
 
+  /// ــــ متى أُضيفت المهمة، ومتى أُنجزت ــــ
+  ///
+  /// **`null` يعني «غير مسجَّل» لا «صفر»**، وهذا هو الفرق كلُّه: كلُّ مهمة
+  /// كُتبت قبل هذه الدورة لا تحملهما، فلو قُرئ غيابُهما صفراً لَظهر الموظف
+  /// في التقرير الدوري بلا إنجازٍ ولا إضافة — فيُقرأ نقصُ البيان تقصيراً
+  /// منه. فتُعرض «غير مسجّل» صراحةً.
+  ///
+  /// وكان الأول مفقوداً كلَّه: المهمة تحمل `createdByUid` ولا تحمل **متى**،
+  /// فلا سبيل إلى «كم مهمةً أضاف في هذا الشهر». والثاني لا يوجد إلا في
+  /// `closure.approvedAt` لما مرّ باعتماد — أما المُغلَق مباشرةً فلا تاريخ
+  /// له إطلاقاً، و`lastUpdated` تقديرٌ يكذب إن عُدّلت المهمة بعد إنجازها.
+  ///
+  /// و[completedAt] يكتبه **المُسنَد إليه** عند الإغلاق: هو من يعرف متى وقع.
+  /// وقاعدةُ `tasks` تحصر ما يكتبه في قائمةٍ مغلقة، فأُضيف المفتاح إليها —
+  /// راجع `test_rules/task_completed_at.rules.test.mjs`.
+  final DateTime? createdAt;
+  final DateTime? completedAt;
+
+  /// هل يُعرف تاريخ إنجازها؟ ومهمةٌ منجَزةٌ بلا تاريخ ليست خطأً — هي أقدمُ
+  /// من الحقل.
+  bool get hasCompletionDate => completedAt != null;
+
+  /// أُنجزت في موعدها؟ و`null` حين لا يُعرف — لا `false`.
+  bool? get finishedOnTime =>
+      completedAt == null ? null : !completedAt!.isAfter(dueDate);
+
   const ProjectTask({
     required this.id,
     required this.projectId,
@@ -46,6 +72,8 @@ class ProjectTask {
     required this.priority,
     this.createdByUid = '',
     this.closure = ClosureTrail.none,
+    this.createdAt,
+    this.completedAt,
   });
 
   bool get isDone => status == TaskStatus.done;
@@ -61,6 +89,10 @@ class ProjectTask {
     DateTime? dueDate,
     PriorityLevel? priority,
     ClosureTrail? closure,
+    DateTime? completedAt,
+    /// الإنجاز يُمسح حين تعود المهمة إلى التنفيذ — و`completedAt` وحدها لا
+    /// تكفي لذلك، فالقيمة `null` تعني «لا تغيّر» في `copyWith`.
+    bool clearCompletedAt = false,
   }) {
     return ProjectTask(
       id: id,
@@ -76,6 +108,8 @@ class ProjectTask {
       priority: priority ?? this.priority,
       createdByUid: createdByUid,
       closure: closure ?? this.closure,
+      createdAt: createdAt,
+      completedAt: clearCompletedAt ? null : (completedAt ?? this.completedAt),
     );
   }
 
@@ -92,6 +126,11 @@ class ProjectTask {
         'priority': priority.name,
         'createdByUid': createdByUid,
         'closure': closure.toMap(),
+        // تُكتبان دائماً ولو فارغتين: `toMap` تُستعمل في الإنشاء، والمهمة
+        // الجديدة يجب أن تُولد بالمفتاحين — وإلا رُدّ أولُ تعديلٍ عليها كما
+        // وقع في الأعمال.
+        'createdAt': createdAt == null ? null : Timestamp.fromDate(createdAt!),
+        'completedAt': completedAt == null ? null : Timestamp.fromDate(completedAt!),
       };
 
   factory ProjectTask.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -110,6 +149,13 @@ class ProjectTask {
       priority: PriorityLevel.fromName(json['priority'] as String? ?? PriorityLevel.medium.name),
       createdByUid: json['createdByUid'] as String? ?? '',
       closure: ClosureTrail.fromMap(json['closure']),
+      // الغياب يُقرأ `null` — «غير مسجّل» — لا تاريخاً مختلقاً.
+      createdAt: (json['createdAt'] as Timestamp?)?.toDate(),
+      // والمهامُّ التي مرّت باعتماد تحمل تاريخ إغلاقها في سجلّ الإغلاق منذ
+      // دورةٍ سابقة، فيُقرأ منه حين لا يكون الحقل الصريح مكتوباً. وهذا ليس
+      // تقديراً: `approvedAt` هو لحظةُ الاعتماد التي أُغلقت بها فعلاً.
+      completedAt: (json['completedAt'] as Timestamp?)?.toDate() ??
+          ClosureTrail.fromMap(json['closure']).approvedAt,
     );
   }
 }

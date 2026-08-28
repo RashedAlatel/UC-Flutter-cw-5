@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gov_exec_platform/data/ministry_projects_2026.dart';
 import 'package:gov_exec_platform/models/department.dart';
 import 'package:gov_exec_platform/models/enums.dart';
+import 'package:gov_exec_platform/models/project.dart';
 import 'package:gov_exec_platform/models/report.dart';
 import 'package:gov_exec_platform/models/work_item.dart';
 import 'package:gov_exec_platform/utils/report_export.dart';
@@ -75,6 +76,33 @@ void main() {
     // ‏%PDF- هي توقيع الملف؛ وجوده يعني أننا أنتجنا مستنداً لا بايتات عشوائية.
     expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
     expect(bytes.length, greaterThan(50000));
+  });
+
+  // ــ عطلٌ كامنٌ في هذا المصدّر منذ وُجد، كُشف عند بناء التقرير الدوري ــ
+  //
+  // نصٌّ يبدأ بهمزةٍ تليها حركة — «أُفق العدالة» — يرمي `RangeError` من داخل
+  // حزمة `bidi`، فيسقط تصديرُ التقرير كلُّه بلا ملفٍّ ولا سبب. وأسماءُ
+  // المشاريع يكتبها المستخدم. راجع `lib/utils/pdf_safe_text.dart`.
+  test('مشروع اسمه يبدأ بهمزة محرّكة لا يُسقط التصدير', () async {
+    final bytes = await ReportExporter.buildPdfBytes(
+      report: report,
+      projects: [
+        Project(
+          id: 'p-hamza',
+          departmentId: departments.first.id,
+          name: 'أُفق العدالة الرقمية',
+          description: '',
+          startDate: DateTime(2026, 1, 1),
+          dueDate: DateTime(2026, 12, 31),
+          status: ProjectStatus.onTrack,
+          priority: PriorityLevel.medium,
+          progressPercent: 40,
+          executorNames: const ['أُسامة العنزي'],
+        ),
+      ],
+      departmentById: departmentById,
+    );
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
   });
 
   // حالة الحدود: تقرير بلا مشاريع ولا أعمال ولا تعليق. الجداول الفارغة كانت

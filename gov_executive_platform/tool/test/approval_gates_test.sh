@@ -873,6 +873,42 @@ want_in "$STORE" "والعميل كذلك" "if (many.isNotEmpty) return many;"
 want_in "$STORE" "ورسالةُ الرفض تسمّي العلاج" "static String readableWriteError("
 echo ""
 
+# ــــ التقارير الدورية: النطاقُ واحد، والمؤشرُ لا يُقرأ حكماً ــــ
+#
+# النطاقُ له ثلاثة أبواب — مدخلُ القائمة، والشاشة، والملفُّ المُصدَّر — وقد
+# وقع في هذه المنصة أن انفتح بابٌ وأُغلق أخواه. فيُشترط أن يُبنى الثلاثةُ
+# من تعريفٍ واحد في المتجر لا من ثلاثة شروطٍ متفرّقة.
+echo "والتقارير الدورية بنطاقٍ واحد:"
+want_in "$STORE" "تعريفُ من يفتح القسم في المتجر" \
+  "bool get canViewPeriodicReports =>"
+want_in "$STORE" "ومقارنةُ الإدارات لمن يقرأ الكلّ" \
+  "bool get canCompareDepartments => canViewAllDepartments;"
+want_in "lib/widgets/nav_entries.dart" "والقائمة تستعمله لا شرطاً ثانياً" \
+  "if (store.canViewPeriodicReports) keys.add(NavKey.periodicReports);"
+want_in "lib/screens/periodic_reports_screen.dart" "والشاشة كذلك" \
+  "final compare = store.canCompareDepartments;"
+# والتحفّظ نصٌّ واحد يُعرض ويُصدَّر — لا نسخةٌ في الشاشة تُنسى في الملفّ.
+want_in "lib/reports/periodic_report.dart" "وتحفّظُ المؤشر نصٌّ واحد" \
+  "const String kActivityDisclaimer ="
+want_in "lib/screens/periodic_reports_screen.dart" "يُعرض على الشاشة" \
+  "kActivityDisclaimer,"
+want_in "lib/utils/report_export.dart" "ويُكتب في الملفّ" \
+  "xls.TextCellValue(kActivityDisclaimer)"
+# و«غير مسجّل» ليست صفراً: مهمةٌ أقدمُ من الحقل لا تُقرأ تقصيراً.
+want_in "lib/models/project_task.dart" "والمهمةُ بلا تاريخٍ تقول إنها لا تعرف" \
+  "bool? get finishedOnTime =>"
+want_in "lib/utils/report_export.dart" "وتُصدَّر «غير مسجّل» لا خليةً فارغة" \
+  "(غير مسجّل)"
+# والتأخّر يُقاس بنهاية الفترة لا بيوم القراءة — وإلا تغيّر رقمُ تقريرٍ مضى.
+want_in "lib/reports/periodic_report.dart" "والتأخّر يُقاس عند نهاية الفترة" \
+  "bool isTaskLateAt(ProjectTask task, DateTime asOf) {"
+reject_in "lib/reports/periodic_report.dart" "ولا بلحظة فتح الشاشة" \
+  "isTaskLateAt(t, DateTime.now())"
+# والنصُّ الخام لا يدخل مولّد PDF: همزةٌ محرّكةٌ في أوّله تُسقط الملفَّ كلَّه.
+want_in "lib/utils/report_export.dart" "والنصُّ يُنقّى قبل PDF" \
+  "static List<String> _safeRow(List<String> row)"
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

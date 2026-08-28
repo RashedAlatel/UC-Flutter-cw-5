@@ -502,15 +502,26 @@ service cloud.firestore {
       // والتوسيع أضيق ما يمكن: حقول الحالة والتقدّم والسجل وحدها، فلا يُعيد
       // إسناد مهمته ولا ينقلها إلى مشروع آخر.
       allow update: if (canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                        // ــ و`completedAt` معها ــ
+                        //
+                        // القائمةُ مغلقة (`hasOnly`)، فأيُّ حقلٍ جديد يكتبه
+                        // المُسنَد إليه يُردّ ما لم يُذكر فيها. ووقع ذلك
+                        // مرّتين في أسبوعٍ واحد — في تعديل العمل وفي تسمية
+                        // المشروع — فيُذكر هنا **قبل** أن يُكتب في النموذج،
+                        // ويُقاس على المحاكي أنه كان يُردّ ثم صار يمرّ.
+                        //
+                        // وتاريخُ الإنجاز يكتبه من أنجز: هو الوحيد الذي يعرف
+                        // متى وقع الإنجاز، ولا معنى لأن يُنتظر به معتمِد.
                         || (resource.data.get('assigneeUid', '') == request.auth.uid
                             && (request.resource.data.diff(resource.data).affectedKeys()
-                                   .hasOnly(['status', 'progressPercent', 'closure', 'lastUpdated'])
+                                   .hasOnly(['status', 'progressPercent', 'closure',
+                                             'lastUpdated', 'completedAt'])
                                 // وردُّها لعدم الاختصاص يمسّ الإسناد كذلك،
                                 // ولا يُقبل إلا تفريغاً باسم صاحبه.
                                 || (isSelfDecline()
                                     && request.resource.data.diff(resource.data).affectedKeys()
                                          .hasOnly(['status', 'assigneeUid', 'assigneeName',
-                                                   'closure', 'lastUpdated'])))))
+                                                   'closure', 'lastUpdated', 'completedAt'])))))
                     && !request.resource.data.diff(resource.data).affectedKeys()
                           .hasAny(['projectId', 'departmentId', 'managerUid'])
                     && closureRespected();

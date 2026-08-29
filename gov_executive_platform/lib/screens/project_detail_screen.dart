@@ -294,6 +294,10 @@ class ProjectDetailScreen extends StatelessWidget {
               ),
             ),
           ),
+          if (project.hasContractData) ...[
+            const SizedBox(height: 16),
+            _ContractCard(project: project),
+          ],
           const SizedBox(height: 16),
           ProjectTeamCard(project: project),
           const SizedBox(height: 16),
@@ -1459,4 +1463,74 @@ void openProjectDetail(BuildContext context, Project project) {
       body: ProjectDetailScreen(projectId: project.id),
     ),
   ));
+}
+
+/// بطاقةُ بيانات العقد.
+///
+/// ــــ ولماذا تُخفى حين لا بيانات ــــ
+///
+/// لأن مشاريع الوزارة المستوردة لا تحمل عقوداً في المنصة، فبطاقةٌ كلُّها
+/// «غير مسجّل» على مئةِ مشروعٍ ضجيجٌ يُعلَّم القارئ تخطّيَه — فحين يظهر فيها
+/// شيءٌ يوماً لا يُرى. أمّا الحقلُ الفارغ **داخل** بطاقةٍ فيها بيانات فيُقال
+/// «غير مسجّل» صراحةً: هناك يعني الغيابُ شيئاً.
+class _ContractCard extends StatelessWidget {
+  final Project project;
+  const _ContractCard({required this.project});
+
+  /// **موضعٌ واحد يقرّر «غير مسجّل»** — لا سبعةُ ثلاثيّاتٍ متكرّرة.
+  ///
+  /// ولم يكن هذا تجميلاً: حارسٌ نصّي على عبارةٍ مكتوبةٍ سبعَ مرّات لا يكشف
+  /// سقوطَ إحداها — قيس ذلك بطفرةٍ نجت. فصار القرار في دالّةٍ واحدة، وطفرةٌ
+  /// عليها تعضّ.
+  Widget _bit(IconData icon, String label, String? value) => _MetaBit(
+        icon: icon,
+        label: label,
+        value: value ?? 'غير مسجّلة',
+        valueColor: value == null ? AppColors.textSecondary : null,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    String? date(DateTime? d) => d == null ? null : Formatters.date(d);
+    final contractor = project.contractorName.trim();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              // `AppColors.primary` ليست ثابتة: تُضبط من «إعدادات المظهر».
+              Icon(Icons.receipt_long_rounded, size: 18, color: AppColors.primary),
+              const SizedBox(width: 8),
+              const Text('بيانات العقد',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+            ]),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 28,
+              runSpacing: 16,
+              children: [
+                _bit(Icons.description_outlined, 'تاريخ العقد', date(project.contractDate)),
+                _bit(Icons.play_arrow_rounded, 'بداية العقد', date(project.contractStartDate)),
+                _bit(Icons.stop_rounded, 'انتهاء العقد', date(project.contractEndDate)),
+                _bit(Icons.request_quote_outlined, 'استحقاق الفاتورة',
+                    date(project.invoiceDueDate)),
+                _bit(Icons.timelapse_rounded, 'مدة المشروع',
+                    project.durationDays == null ? null : '${project.durationDays} يوم'),
+                // **صفرٌ ادّعاءُ رقم**: قيمةٌ غير مسجّلة تُقال ولا تُكتب «٠ د.ك».
+                _bit(Icons.payments_outlined, 'قيمة العقد',
+                    project.contractValue == null
+                        ? null
+                        : Formatters.money(project.contractValue!)),
+                _bit(Icons.business_outlined, 'الجهة المنفّذة',
+                    contractor.isEmpty ? null : contractor),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

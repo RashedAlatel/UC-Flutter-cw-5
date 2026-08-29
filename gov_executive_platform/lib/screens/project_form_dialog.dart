@@ -21,6 +21,7 @@ import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
+import '../utils/formatters.dart';
 import '../widgets/section_picker.dart';
 
 /// يفتح نموذج تعديل بيانات المشروع. يُعيد true إن حُفظ تعديلٌ فعلاً.
@@ -46,6 +47,22 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
   late PriorityLevel _priority = widget.project.priority;
   late String? _sectionId = widget.project.sectionId;
   late final List<String> _categoryIds = List<String>.from(widget.project.categoryIds);
+
+  // ــ بيانات العقد ــ
+  //
+  // و`null` تبقى `null`: حقلٌ لم يُملأ يبقى «غير مسجّل»، ولا يُحفظ صفراً
+  // ولا تاريخَ اليوم لمجرّد أن النموذج فُتح وأُغلق.
+  late DateTime? _contractDate = widget.project.contractDate;
+  late DateTime? _contractStart = widget.project.contractStartDate;
+  late DateTime? _contractEnd = widget.project.contractEndDate;
+  late DateTime? _invoiceDue = widget.project.invoiceDueDate;
+  late final _durationCtrl = TextEditingController(
+      text: widget.project.durationDays?.toString() ?? '');
+  late final _valueCtrl = TextEditingController(
+      text: widget.project.contractValue?.toString() ?? '');
+  late final _contractorCtrl =
+      TextEditingController(text: widget.project.contractorName);
+
   bool _busy = false;
   String? _error;
 
@@ -53,6 +70,9 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
   void dispose() {
     _nameCtrl.dispose();
     _descCtrl.dispose();
+    _durationCtrl.dispose();
+    _valueCtrl.dispose();
+    _contractorCtrl.dispose();
     super.dispose();
   }
 
@@ -69,6 +89,14 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
       priority: _priority,
       sectionId: _sectionId,
       categoryIds: _categoryIds,
+      contractDate: _contractDate,
+      contractStartDate: _contractStart,
+      contractEndDate: _contractEnd,
+      invoiceDueDate: _invoiceDue,
+      // حقلٌ فارغ أو نصٌّ لا يُقرأ رقماً يبقى «غير مسجّل» — ولا يُقلب صفراً.
+      durationDays: int.tryParse(_durationCtrl.text.trim()),
+      contractValue: double.tryParse(_valueCtrl.text.trim()),
+      contractorName: _contractorCtrl.text,
     );
     if (!mounted) return;
     if (error != null) {
@@ -147,6 +175,75 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
                   ],
                 ),
               ],
+              const SizedBox(height: 18),
+              const Divider(height: 1),
+              const SizedBox(height: 14),
+              const Text('بيانات العقد',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              // الفارغُ يبقى فارغاً: من لا عقد له لا يُملأ له تاريخُ اليوم.
+              const Text(
+                'ما لا يُملأ يبقى «غير مسجّل» — ولا يُحفظ صفراً ولا تاريخاً.',
+                style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 10),
+              _DateField(
+                label: 'تاريخ العقد',
+                value: _contractDate,
+                onChanged: (d) => setState(() => _contractDate = d),
+              ),
+              _DateField(
+                label: 'تاريخ بداية العقد',
+                value: _contractStart,
+                onChanged: (d) => setState(() => _contractStart = d),
+              ),
+              _DateField(
+                label: 'تاريخ انتهاء العقد',
+                value: _contractEnd,
+                onChanged: (d) => setState(() => _contractEnd = d),
+              ),
+              _DateField(
+                label: 'تاريخ استحقاق الفاتورة',
+                value: _invoiceDue,
+                onChanged: (d) => setState(() => _invoiceDue = d),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _durationCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'مدة المشروع',
+                        suffixText: 'يوم',
+                        // المدّةُ منصوصةٌ في العقد لا مشتقّةٌ من التاريخين —
+                        // راجع `Project.durationDays`.
+                        helperText: 'كما في العقد',
+                        helperMaxLines: 2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _valueCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'قيمة العقد',
+                        suffixText: 'د.ك',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _contractorCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'الجهة أو الشركة المنفّذة',
+                ),
+              ),
               const SizedBox(height: 16),
               // ــ يُقال صراحةً ما لا يُعدَّل من هنا وأين يُعدَّل ــ
               //
@@ -184,6 +281,62 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
           child: Text(_busy ? 'جارٍ الحفظ…' : 'حفظ'),
         ),
       ],
+    );
+  }
+}
+
+/// حقلُ تاريخٍ **يقبل الفراغ** — ومسحُه فعلٌ صريح لا نسيان.
+///
+/// و`showDatePicker` وحده لا يكفي: لا سبيل فيه إلى قول «لا تاريخ». فيُوضع
+/// إلى جانبه زرُّ مسحٍ يظهر حين يكون هناك ما يُمسح — وبه يعود الحقل «غير
+/// مسجّل» بعد أن مُلئ خطأً.
+class _DateField extends StatelessWidget {
+  final String label;
+  final DateTime? value;
+  final ValueChanged<DateTime?> onChanged;
+
+  const _DateField({required this.label, required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: value ?? DateTime.now(),
+                  firstDate: DateTime(2015),
+                  lastDate: DateTime(2040),
+                  helpText: label,
+                );
+                if (picked != null) onChanged(picked);
+              },
+              icon: const Icon(Icons.event_rounded, size: 17),
+              label: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  value == null ? '$label — غير مسجّل' : '$label: ${Formatters.date(value!)}',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: value == null ? AppColors.textSecondary : null,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ),
+          if (value != null)
+            IconButton(
+              tooltip: 'مسح $label',
+              onPressed: () => onChanged(null),
+              icon: const Icon(Icons.close_rounded, size: 18),
+            ),
+        ],
+      ),
     );
   }
 }

@@ -52,6 +52,45 @@ class Project {
   /// **تجميعاً** لا فرزاً — فالمشروع يظهر تحت كل تصنيف يحمله.
   final List<String> categoryIds;
 
+  /// ــــ بيانات العقد ــــ
+  ///
+  /// **و`null` تعني «غير مسجّل» لا صفراً ولا تاريخاً.** وهذا هو الفرق كلُّه:
+  /// مشاريع الوزارة المائةُ والثمانية المستوردة لا تحمل عقوداً في المنصة،
+  /// فلو قُرئ غيابُها صفراً لَظهرت «قيمة العقد: ٠ د.ك» على مشروعٍ قيمتُه
+  /// مئات الألوف — وهو **ادّعاءُ رقمٍ** لا نقصُ بيان.
+  ///
+  /// وهي القاعدة نفسُها التي حكمت `completedAt` على المهام: غيابُ الحقل
+  /// يُقال صراحةً ولا يُملأ بقيمةٍ مختلقة.
+  final DateTime? contractDate;
+  final DateTime? contractStartDate;
+  final DateTime? contractEndDate;
+  final DateTime? invoiceDueDate;
+
+  /// مدّةُ المشروع بالأيام — **منصوصةٌ لا مشتقّة**.
+  ///
+  /// ولا تُحسب من [startDate] و[dueDate] بقصد: ذلك فرقٌ تقويمي، وهذه مدّةٌ
+  /// مكتوبةٌ في عقدٍ قد تخالفه — تُعلَّق الأعمال، وتُمدَّد المدّة بملحقٍ بلا
+  /// تغيير تاريخ الاستحقاق. واشتقاقُها يجعل المدير يقرأ رقماً لم يوقّع عليه
+  /// أحد ولا يجده في العقد الذي بين يديه.
+  final int? durationDays;
+
+  /// قيمةُ العقد بالدينار الكويتي.
+  final double? contractValue;
+
+  /// الجهةُ أو الشركة المنفّذة — نصٌّ حرّ، وفارغُه «غير مسجّل».
+  final String contractorName;
+
+  /// هل سُجّل شيءٌ من بيانات العقد أصلاً؟ تُعرض به بطاقةُ العقد أو تُخفى،
+  /// فلا تظهر على كل مشروعٍ بطاقةٌ كلُّها «غير مسجّل».
+  bool get hasContractData =>
+      contractDate != null ||
+      contractStartDate != null ||
+      contractEndDate != null ||
+      invoiceDueDate != null ||
+      durationDays != null ||
+      contractValue != null ||
+      contractorName.trim().isNotEmpty;
+
   const Project({
     required this.id,
     required this.departmentId,
@@ -69,6 +108,13 @@ class Project {
     this.sectionId,
     this.categoryIds = const [],
     this.createdAt,
+    this.contractDate,
+    this.contractStartDate,
+    this.contractEndDate,
+    this.invoiceDueDate,
+    this.durationDays,
+    this.contractValue,
+    this.contractorName = '',
     this.deletedAt,
     this.deletedBy,
     this.deletedReason,
@@ -200,7 +246,17 @@ class Project {
     List<String>? executorUids,
     String? sectionId,
     List<String>? categoryIds,
+    DateTime? contractDate,
+    DateTime? contractStartDate,
+    DateTime? contractEndDate,
+    DateTime? invoiceDueDate,
+    int? durationDays,
+    double? contractValue,
+    String? contractorName,
     bool clearSection = false,
+    /// مسحُ بيانات العقد — و`null` وحدها لا تكفي، فهي تعني «لا تغيّر».
+    /// ومن أراد أن يقول «لا عقد» يقولها صراحةً.
+    bool clearContract = false,
   }) {
     return Project(
       id: id,
@@ -219,6 +275,14 @@ class Project {
       sectionId: clearSection ? null : (sectionId ?? this.sectionId),
       categoryIds: categoryIds ?? this.categoryIds,
       createdAt: createdAt,
+      contractDate: clearContract ? null : (contractDate ?? this.contractDate),
+      contractStartDate:
+          clearContract ? null : (contractStartDate ?? this.contractStartDate),
+      contractEndDate: clearContract ? null : (contractEndDate ?? this.contractEndDate),
+      invoiceDueDate: clearContract ? null : (invoiceDueDate ?? this.invoiceDueDate),
+      durationDays: clearContract ? null : (durationDays ?? this.durationDays),
+      contractValue: clearContract ? null : (contractValue ?? this.contractValue),
+      contractorName: clearContract ? '' : (contractorName ?? this.contractorName),
       // ــ علامات الحذف والتحويل تُنقَل، ولا تُترك للنسيان ــ
       //
       // `toMap` تكتب المستند كاملاً، و`copyWith` بلا هذه الحقول تُنتج نسخةً
@@ -254,6 +318,26 @@ class Project {
         'sectionId': sectionId,
         'categoryIds': categoryIds,
         if (createdAt != null) 'createdAt': Timestamp.fromDate(createdAt!),
+        // ــ حقولُ العقد تُكتب **دائماً ولو فارغة** ــ
+        //
+        // وهذا ليس تزيّداً: وقع في هذا المستودع مرّتين أن سجلاً وُلد ناقصاً
+        // حقلاً فرُدّ أوّلُ تعديلٍ عليه — في الأعمال (`ba220b7`) وفي
+        // `completedAt` على المهام. والسبب أن `affectedKeys` يشمل المفتاح
+        // الذي يُضاف لأوّل مرّة ولو كان فارغاً.
+        //
+        // وقائمةُ `projects` اليوم قائمةُ **منع** لا سماح، فالخطر غيرُ قائم
+        // الآن — لكنه يعود بأوّل تضييقٍ للقاعدة. راجع
+        // `test_rules/project_contract.rules.test.mjs`.
+        'contractDate': contractDate == null ? null : Timestamp.fromDate(contractDate!),
+        'contractStartDate':
+            contractStartDate == null ? null : Timestamp.fromDate(contractStartDate!),
+        'contractEndDate':
+            contractEndDate == null ? null : Timestamp.fromDate(contractEndDate!),
+        'invoiceDueDate':
+            invoiceDueDate == null ? null : Timestamp.fromDate(invoiceDueDate!),
+        'durationDays': durationDays,
+        'contractValue': contractValue,
+        'contractorName': contractorName,
         // تُكتب دائماً ولو فارغة: `toMap` تُستعمل في تحديثٍ يكتب المستند
         // كاملاً، فحذفُ المفتاح عند الفراغ يُبقي علامةَ حذفٍ قديمة عالقة.
         'deletedAt': deletedAt == null ? null : Timestamp.fromDate(deletedAt!),
@@ -305,6 +389,14 @@ class Project {
               .where((e) => e.isNotEmpty)
               .toList() ??
           const [],
+      // الغيابُ يُقرأ `null` — «غير مسجّل» — لا صفراً ولا تاريخاً مختلقاً.
+      contractDate: (json['contractDate'] as Timestamp?)?.toDate(),
+      contractStartDate: (json['contractStartDate'] as Timestamp?)?.toDate(),
+      contractEndDate: (json['contractEndDate'] as Timestamp?)?.toDate(),
+      invoiceDueDate: (json['invoiceDueDate'] as Timestamp?)?.toDate(),
+      durationDays: (json['durationDays'] as num?)?.toInt(),
+      contractValue: (json['contractValue'] as num?)?.toDouble(),
+      contractorName: json['contractorName'] as String? ?? '',
       deletedAt: (json['deletedAt'] as Timestamp?)?.toDate(),
       deletedBy: json['deletedBy'] as String?,
       deletedReason: json['deletedReason'] as String?,

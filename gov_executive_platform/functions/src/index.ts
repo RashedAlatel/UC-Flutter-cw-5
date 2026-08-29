@@ -353,6 +353,22 @@ function uidList(raw: unknown): string[] {
   return out;
 }
 
+/**
+ * تاريخٌ من حمولة الطلب، أو `null` — و«غير مسجّل» لا تُملأ بتاريخ اليوم.
+ *
+ * ونصٌّ لا يُفهم تاريخاً يُقرأ `null` كذلك: `new Date("كلام")` تُنتج
+ * `Invalid Date`، وكتابتُها في Firestore تُفسد المستند بقيمةٍ لا تُقرأ.
+ *
+ * @param {unknown} raw القيمة كما جاءت في الحمولة.
+ * @return {admin.firestore.Timestamp | null} الختم أو العدم.
+ */
+function dateOrNull(raw: unknown): admin.firestore.Timestamp | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return admin.firestore.Timestamp.fromDate(parsed);
+}
+
 // ــــــــــــــ رتبة الإسناد: من يحقّ له أن يُسنِد إلى مَن ــــــــــــــ
 //
 // نظير `lib/models/assignment_policy.dart` و`roleRank` في `firestore.rules`.
@@ -751,6 +767,21 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         createdAt: now(),
         // القسم داخل الإدارة كما اختاره مقدّم الطلب (null = تحت الإدارة مباشرةً).
         sectionId: payload.sectionId ?? null,
+        // ــ حقول العقد تُكتب فارغةً ولا تُترك غائبة ــ
+        //
+        // المشروع المُعتمَد يجب أن يُولد بالمفاتيح نفسها التي يُولد بها
+        // المشروع المُنشأ مباشرةً — وإلا صار في المنصة نوعان من المشاريع
+        // يفترق تعديلُهما. وهو بعينه ما وقع في الأعمال (`ba220b7`): سجلٌّ
+        // وُلد ناقصاً من مسار الاعتماد فرُدّ أوّلُ تعديلٍ عليه.
+        //
+        // وتُقرأ من الحمولة إن حملها الطلب — فمن سجّلها عند تقديمه لا تضيع.
+        contractDate: dateOrNull(payload.contractDate),
+        contractStartDate: dateOrNull(payload.contractStartDate),
+        contractEndDate: dateOrNull(payload.contractEndDate),
+        invoiceDueDate: dateOrNull(payload.invoiceDueDate),
+        durationDays: typeof payload.durationDays === "number" ? payload.durationDays : null,
+        contractValue: typeof payload.contractValue === "number" ? payload.contractValue : null,
+        contractorName: typeof payload.contractorName === "string" ? payload.contractorName : "",
       });
       break;
     }

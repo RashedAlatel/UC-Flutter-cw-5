@@ -1123,17 +1123,36 @@ class AppStore extends ChangeNotifier {
     required PriorityLevel priority,
     String? sectionId,
     required List<String> categoryIds,
+    DateTime? contractDate,
+    DateTime? contractStartDate,
+    DateTime? contractEndDate,
+    DateTime? invoiceDueDate,
+    int? durationDays,
+    double? contractValue,
+    String contractorName = '',
   }) async {
     if (!canEditProjectDetails(project)) {
       return 'لا تملك صلاحية تعديل بيانات هذا المشروع.';
     }
     if (name.trim().isEmpty) return 'اسم المشروع مطلوب.';
+
+    // التواريخُ والأرقام تُكتب `null` حين لا تُسجَّل — «غير مسجّل» قيمةٌ
+    // تُقال لا خانةٌ تُملأ بصفرٍ أو بتاريخ اليوم.
+    Object? stamp(DateTime? d) => d == null ? null : Timestamp.fromDate(d);
+
     final before = <String, dynamic>{
       'name': project.name,
       'description': project.description,
       'priority': project.priority.name,
       'sectionId': project.sectionId,
       'categoryIds': project.categoryIds,
+      'contractDate': stamp(project.contractDate),
+      'contractStartDate': stamp(project.contractStartDate),
+      'contractEndDate': stamp(project.contractEndDate),
+      'invoiceDueDate': stamp(project.invoiceDueDate),
+      'durationDays': project.durationDays,
+      'contractValue': project.contractValue,
+      'contractorName': project.contractorName,
     };
     final after = <String, dynamic>{
       'name': name.trim(),
@@ -1141,6 +1160,13 @@ class AppStore extends ChangeNotifier {
       'priority': priority.name,
       'sectionId': (sectionId ?? '').isEmpty ? null : sectionId,
       'categoryIds': categoryIds,
+      'contractDate': stamp(contractDate),
+      'contractStartDate': stamp(contractStartDate),
+      'contractEndDate': stamp(contractEndDate),
+      'invoiceDueDate': stamp(invoiceDueDate),
+      'durationDays': durationDays,
+      'contractValue': contractValue,
+      'contractorName': contractorName.trim(),
     };
     try {
       await _db.collection('projects').doc(project.id).update(after);

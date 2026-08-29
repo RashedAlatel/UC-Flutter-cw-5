@@ -964,6 +964,44 @@ reject_in "lib/screens/periodic_reports_screen.dart" "ولا نسخةَ ثاني
   "_BandButton"
 echo ""
 
+# ــــ بياناتُ العقد: تُولد مكتوبةً، وغيابُها يُقال ولا يُملأ ــــ
+#
+# المفاتيحُ السبعة تُكتب **دائماً ولو فارغة**. ووقع في هذا المستودع مرّتين
+# أن سجلاً وُلد ناقصاً مفتاحاً فرُدّ أوّلُ تعديلٍ عليه — في الأعمال
+# (`ba220b7`) وفي `completedAt`. وقاعدةُ `projects` اليوم قائمةُ منعٍ لا
+# سماح، فالخطر غيرُ قائم الآن ويعود بأوّل تضييق. راجع
+# `test_rules/project_contract.rules.test.mjs`.
+echo "وبياناتُ العقد تُولد مكتوبة:"
+want_in "lib/models/project.dart" "المفاتيح السبعة في toMap" \
+  "'contractorName': contractorName,"
+want_in "lib/models/project.dart" "والمدّة تُكتب ولو فارغة" "'durationDays': durationDays,"
+want_in "lib/models/project.dart" "والقيمة كذلك" "'contractValue': contractValue,"
+reject_in "lib/models/project.dart" "ولا يسقط مفتاحٌ عند الفراغ" \
+  "if (contractValue != null) 'contractValue'"
+want_in "$SRC" "والخادمُ يكتبها عند الاعتماد" "contractorName: typeof payload.contractorName"
+want_in "$SRC" "وتاريخاً لا يُفهم يُقرأ عدماً لا Invalid Date" \
+  "if (Number.isNaN(parsed.getTime())) return null;"
+
+# والغيابُ «غير مسجّل» لا صفرٌ ولا تاريخُ اليوم.
+echo "وغيابُ العقد يُقال لا يُملأ:"
+# والنمطُ يخصّ **قيمة العقد** وحدها: `progressPercent` يبدأ صفراً بحقّ —
+# مشروعٌ لم يُنجَز منه شيء أُنجز صفراً، وذلك خبرٌ صادق. أمّا قيمةُ العقد
+# فصفرُها ادّعاءُ رقمٍ لا نقصُ بيان. وحارسٌ يخلط الاثنين يمنع الصواب.
+reject_in "lib/models/project.dart" "لا صفرَ لقيمةٍ غير مسجّلة" \
+  "contractValue: (json\['contractValue'\] as num?)?.toDouble() ?? 0"
+reject_in "lib/models/project.dart" "ولا تاريخَ اليوم لتاريخٍ غائب" \
+  "contractDate: (json\['contractDate'\] as Timestamp?)?.toDate() ?? DateTime.now()"
+# والنمطُ على **الدالّة** التي تقرّرها لا على العبارة: العبارةُ كانت مكتوبةً
+# سبعَ مرّات، وطفرةٌ أسقطت إحداها نجت من الحارس. فجُمعت في موضعٍ واحد.
+want_in "lib/screens/project_detail_screen.dart" "والشاشة تقولها في موضعٍ واحد" \
+  "value: value ?? 'غير مسجّلة',"
+want_in "lib/screens/project_form_dialog.dart" "والنموذجُ يقولها كذلك" \
+  "ما لا يُملأ يبقى «غير مسجّل»"
+# والمدّةُ منصوصةٌ لا مشتقّة من التاريخين — راجع `Project.durationDays`.
+reject_in "lib/models/project.dart" "والمدّةُ لا تُشتقّ من التاريخين" \
+  "durationDays => dueDate.difference(startDate)"
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

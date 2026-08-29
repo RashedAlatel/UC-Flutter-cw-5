@@ -909,6 +909,61 @@ want_in "lib/utils/report_export.dart" "والنصُّ يُنقّى قبل PDF" 
   "static List<String> _safeRow(List<String> row)"
 echo ""
 
+# ــــ الجولة الثانية: «—» ليست صفراً، والمدّة إعدادٌ يُقرأ ــــ
+#
+# المبدأ نفسه الذي حكم «غير مسجّل»: العملُ لا يحمل مهامّ في هذه المنصة، فصفرٌ
+# في خانة مهامّه **ادّعاءُ عدم** لا نقصُ بيان. وكذلك «لا أساس للمقارنة»:
+# مشروعٌ بلا تحديثٍ قبل الفترة لم يبدأ من الصفر — لا نعرف أين كان.
+echo "و«—» ليست صفراً في تقرير المشاريع:"
+want_in "lib/reports/periodic_report.dart" "أعدادُ البند تقبل العدم" \
+  "final int? tasksCompleted;"
+want_in "lib/reports/periodic_report.dart" "والعملُ يُكتب عدماً لا صفراً" \
+  "tasksCompleted: null,"
+want_in "lib/utils/report_export.dart" "والتصدير يكتب «—» لا خليةً فارغة" \
+  "v == null ? xls.TextCellValue('—') : xls.IntCellValue(v);"
+want_in "lib/screens/periodic_reports_screen.dart" "والشاشة كذلك" \
+  "v == null ? '—' : '\$v',"
+want_in "lib/reports/periodic_report.dart" "و«لا أساس للمقارنة» لا صفر" \
+  "progressAtStart == null ? null : progressNow - progressAtStart!;"
+reject_in "lib/utils/report_export.dart" "ولا يُقرأ غيابُ الأساس صفراً في الملفّ" \
+  "progressAtStart ?? 0"
+
+# والمدّةُ إعدادٌ يُقرأ لا رقمٌ مكتوب: حقلٌ يُحفظ ولا يُقرأ أسوأ من عدمه.
+echo "ومدّةُ الجمود إعدادٌ يُقرأ:"
+want_in "lib/models/periodic_report_settings.dart" "الإعداد نموذجٌ مستقل" \
+  "class PeriodicReportSettings {"
+want_in "$STORE" "والمتجر يُمرّرها إلى المحرّك" \
+  "inactiveAfterDays: periodicReportSettings.inactiveAfterDays,"
+want_in "lib/reports/periodic_report.dart" "والمحرّك يقرؤها لا رقماً مكتوباً" \
+  "days < input.inactiveAfterDays"
+want_in "lib/screens/periodic_reports_screen.dart" "والمعيار يُعرض مع القائمة" \
+  "\${report.inactiveAfterDays} أيام أو أكثر"
+want_in "lib/utils/report_export.dart" "ويخرج مع الورقة كذلك" \
+  "المعيار: بلا تحديث منذ \${report.inactiveAfterDays} أيام أو أكثر"
+
+# والحالاتُ الأربع بالقاعدة التي اختِيرت: «يحتاج تدخل» متأخّرٌ ومعه مانع.
+echo "وحالاتُ المشروع بقاعدتها:"
+want_in "lib/reports/periodic_report.dart" "التدخّل يشترط التأخّر ومعه مانع" \
+  "if (isLate \&\& (blocked || stalled)) return ReportItemStatus.needsIntervention;"
+want_in "lib/reports/periodic_report.dart" "والمكتملُ لا يُطالَب بتحديث" \
+  "if (isCompleted) return ReportItemStatus.normal;"
+
+# والتصفيةُ تسري على التقرير كلِّه لا على جدولٍ واحد.
+echo "والتصفيةُ تسري على التقرير كلِّه:"
+want_in "lib/reports/periodic_report.dart" "المدخلاتُ تُصفّى قبل الحساب" \
+  "final input = applyFilters(raw, filters, range);"
+want_in "lib/reports/periodic_report.dart" "والإسقاطُ متسلسل" \
+  "projectIds.contains(t.projectId) \&\&"
+
+# ولا زرَّ ترويسةٍ ثانياً: المشترك موجود.
+# `reject_in` على الاسم كلِّه لا على تعريف الصنف وحده: طفرةٌ استبدلت
+# **استدعاءً** واحداً بـ`_BandButton` مرّت من حارسٍ يفحص التعريف — فوُسّع.
+# والحارسُ الموجب («يوجد BandButton») غير قابلٍ للقياس هنا: يبقى ماراً ولو
+# بقي استدعاءٌ واحدٌ صحيحاً، فحُذف بدل أن يُترك يطمئن بلا أن يحرس.
+reject_in "lib/screens/periodic_reports_screen.dart" "ولا نسخةَ ثانيةً من زرّ الترويسة" \
+  "_BandButton"
+echo ""
+
 echo "══════════════════════════════"
 echo "نجح: $PASS · فشل: $FAIL"
 [[ $FAIL -eq 0 ]] || exit 1

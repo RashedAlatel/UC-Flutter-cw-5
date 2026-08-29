@@ -28,6 +28,7 @@ import '../models/enums.dart';
 import '../models/feedback_item.dart';
 import '../models/project.dart';
 import '../models/project_category.dart';
+import '../models/periodic_report_settings.dart';
 import '../models/project_task.dart';
 import '../models/report.dart';
 import '../models/role_permissions.dart';
@@ -1455,7 +1456,18 @@ class AppStore extends ChangeNotifier {
         workUpdates: workUpdates,
         users: trackablePeople,
         departments: visibleDepartments,
+        risks: risks,
+        blockers: blockers,
+        inactiveAfterDays: periodicReportSettings.inactiveAfterDays,
       );
+
+  /// إعداداتُ القسم — مدّةُ الجمود. تُقرأ لحظياً كبقية الإعدادات، فتغييرُ
+  /// مسؤول النظام يظهر على شاشات الجميع بلا إعادة تحميل.
+  PeriodicReportSettings periodicReportSettings = const PeriodicReportSettings();
+
+  Future<void> savePeriodicReportSettings(PeriodicReportSettings settings) async {
+    await _db.collection('settings').doc('periodicReports').set(settings.toMap());
+  }
 
   // ------------------------- لوحة مخصّصة لكل مستخدم -------------------------
 
@@ -2262,6 +2274,11 @@ class AppStore extends ChangeNotifier {
         notifyListeners();
       });
     }
+    _listen('settings/periodicReports',
+        _db.collection('settings').doc('periodicReports').snapshots(), (doc) {
+      periodicReportSettings = PeriodicReportSettings.fromMap(doc.data());
+      notifyListeners();
+    });
     _listen('settings/focus', _db.collection('settings').doc('focus').snapshots(), (doc) {
       final ids = doc.data()?['projectIds'] as List?;
       focusedProjectIds = ids == null ? [] : ids.map((e) => e.toString()).toList();

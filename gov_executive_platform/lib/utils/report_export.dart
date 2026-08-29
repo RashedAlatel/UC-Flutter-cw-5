@@ -502,6 +502,113 @@ class ReportExporter {
       }
     }
 
+    // ــ أداء المشاريع ــ الرابعةُ في الترتيب الذي عدّدتَه.
+    final items = workbook['أداء المشاريع'];
+    items.appendRow([
+      xls.TextCellValue('الاسم'),
+      xls.TextCellValue('النوع'),
+      xls.TextCellValue('الإدارة'),
+      xls.TextCellValue('المدير'),
+      xls.TextCellValue('المنفّذون'),
+      xls.TextCellValue('الحالة'),
+      xls.TextCellValue('مستوى النشاط'),
+      xls.TextCellValue('الإنجاز الحالي'),
+      xls.TextCellValue('الإنجاز عند بداية الفترة'),
+      xls.TextCellValue('مقدار التقدّم'),
+      xls.TextCellValue('مهام أُنجزت'),
+      xls.TextCellValue('مهام جديدة'),
+      xls.TextCellValue('مهام متأخرة'),
+      xls.TextCellValue('آخر تحديث'),
+      xls.TextCellValue('أيام منذ آخر تحديث'),
+      xls.TextCellValue('تاريخ الاستحقاق'),
+      xls.TextCellValue('الأيام المتبقية'),
+      xls.TextCellValue('عوائق قائمة'),
+      xls.TextCellValue('متطلبات/قرارات مطلوبة'),
+      xls.TextCellValue('ملفات أُضيفت'),
+    ]);
+    for (final it in report.items) {
+      items.appendRow([
+        xls.TextCellValue(it.name),
+        xls.TextCellValue(it.isWork ? 'عمل' : 'مشروع'),
+        xls.TextCellValue(it.departmentName),
+        xls.TextCellValue(it.managerNames.isEmpty ? '—' : it.managerNames),
+        xls.TextCellValue(it.executorNames.isEmpty ? '—' : it.executorNames),
+        xls.TextCellValue(it.status.label),
+        xls.TextCellValue(it.activity.label),
+        xls.DoubleCellValue(it.progressNow),
+        // «لا أساس للمقارنة» نصّاً: خليةٌ فارغة تُقرأ صفراً في Excel، فيظهر
+        // مشروعٌ عمرُه سنةٌ وكأنه أنجز كلَّ شيء في أسبوع.
+        _numOrText(it.progressAtStart, 'لا أساس للمقارنة'),
+        _numOrText(it.progressMade, 'لا أساس للمقارنة'),
+        _intOrDash(it.tasksCompleted),
+        _intOrDash(it.tasksAdded),
+        _intOrDash(it.tasksLate),
+        xls.TextCellValue(
+            it.lastUpdate == null ? 'لا يوجد' : Formatters.shortDate(it.lastUpdate!)),
+        _intOrDash(it.daysSinceLastUpdate),
+        xls.TextCellValue(Formatters.shortDate(it.dueDate)),
+        xls.IntCellValue(it.remainingDays),
+        _intOrDash(it.openBlockers),
+        _intOrDash(it.requirementsRaised),
+        xls.IntCellValue(it.filesAdded),
+      ]);
+    }
+
+    // ــ المهام المتأخرة ــ
+    final late = workbook['المهام المتأخرة'];
+    late.appendRow([
+      xls.TextCellValue('المهمة'),
+      xls.TextCellValue('المشروع'),
+      xls.TextCellValue('الإدارة'),
+      xls.TextCellValue('المُسنَد إليه'),
+      xls.TextCellValue('تاريخ الاستحقاق'),
+      xls.TextCellValue('أيام التأخير'),
+    ]);
+    for (final t in report.lateTasks) {
+      late.appendRow([
+        xls.TextCellValue(t.title),
+        xls.TextCellValue(t.projectName),
+        xls.TextCellValue(t.departmentName),
+        xls.TextCellValue(t.assigneeName),
+        xls.TextCellValue(Formatters.shortDate(t.dueDate)),
+        xls.IntCellValue(t.delayDays),
+      ]);
+    }
+
+    // ــ المشاريع غير النشطة ــ ومعيارُها في رأس الورقة لا مخفيّاً.
+    final idle = workbook['المشاريع غير النشطة'];
+    idle.appendRow([
+      xls.TextCellValue(
+          'المعيار: بلا تحديث منذ ${report.inactiveAfterDays} أيام أو أكثر'),
+    ]);
+    idle.appendRow([
+      xls.TextCellValue('الاسم'),
+      xls.TextCellValue('النوع'),
+      xls.TextCellValue('المسؤول'),
+      xls.TextCellValue('آخر تحديث'),
+      xls.TextCellValue('أيام بلا نشاط'),
+      xls.TextCellValue('مهام مفتوحة'),
+      xls.TextCellValue('تاريخ الاستحقاق'),
+      xls.TextCellValue('قريب من موعده'),
+    ]);
+    for (final it in report.inactive) {
+      idle.appendRow([
+        xls.TextCellValue(it.name),
+        xls.TextCellValue(it.isWork ? 'عمل' : 'مشروع'),
+        xls.TextCellValue(it.ownerNames.isEmpty ? '—' : it.ownerNames),
+        xls.TextCellValue(
+            it.lastUpdate == null ? 'لا يوجد' : Formatters.shortDate(it.lastUpdate!)),
+        it.daysWithoutActivity == null
+            ? xls.TextCellValue('لا تحديث منذ الإنشاء')
+            : xls.IntCellValue(it.daysWithoutActivity!),
+        _intOrDash(it.openTasks),
+        xls.TextCellValue(Formatters.shortDate(it.dueDate)),
+        xls.TextCellValue(it.dueSoon
+            ? (it.remainingDays < 0 ? 'تجاوز موعده' : 'نعم — ${it.remainingDays} يوم')
+            : 'لا'),
+      ]);
+    }
+
     if (defaultSheetName != null) workbook.delete(defaultSheetName);
 
     final bytes = workbook.encode();
@@ -510,6 +617,14 @@ class ReportExporter {
     }
     return Uint8List.fromList(bytes);
   }
+
+  /// عددٌ قد لا ينطبق — **«—» لا خليةٌ فارغة**: الفارغةُ تُقرأ صفراً في
+  /// Excel، فيصير «لا ينطبق» ادّعاءَ عدم.
+  static xls.CellValue _intOrDash(int? v) =>
+      v == null ? xls.TextCellValue('—') : xls.IntCellValue(v);
+
+  static xls.CellValue _numOrText(double? v, String fallback) =>
+      v == null ? xls.TextCellValue(fallback) : xls.DoubleCellValue(v);
 
   static void _appendLines(xls.Sheet sheet, String title, List<String> lines) {
     sheet.appendRow([xls.TextCellValue('')]);
@@ -706,12 +821,107 @@ class ReportExporter {
                   .toList()),
             ),
           ],
+          pw.SizedBox(height: 16),
+          heading('ثالثاً: أداء المشاريع والأعمال'),
+          pw.SizedBox(height: 8),
+          pw.TableHelper.fromTextArray(
+            headerStyle: pw.TextStyle(font: bold, fontSize: 7.5, color: PdfColors.white),
+            headerDecoration: const pw.BoxDecoration(color: _navy),
+            cellStyle: pw.TextStyle(font: regular, fontSize: 7.5),
+            cellAlignment: pw.Alignment.center,
+            border: pw.TableBorder.all(color: _border, width: 0.5),
+            columnWidths: {0: const pw.FlexColumnWidth(2.6)},
+            headers: _safeRow(const [
+              'الاسم',
+              'النوع',
+              'الإدارة',
+              'الحالة',
+              'الإنجاز',
+              'عند البداية',
+              'التقدّم',
+              'أُنجزت',
+              'متأخرة',
+              'أيام بلا تحديث',
+              'المتبقي',
+              'عوائق',
+            ]),
+            data: _safeRows(report.items
+                .map((it) => [
+                      it.name,
+                      it.isWork ? 'عمل' : 'مشروع',
+                      it.departmentName,
+                      it.status.label,
+                      '${it.progressNow.toStringAsFixed(0)}٪',
+                      // «لا أساس» لا صفر — كما على الشاشة وفي Excel.
+                      it.progressAtStart == null
+                          ? 'لا أساس'
+                          : '${it.progressAtStart!.toStringAsFixed(0)}٪',
+                      it.progressMade == null
+                          ? '—'
+                          : '${it.progressMade! >= 0 ? '+' : ''}'
+                              '${it.progressMade!.toStringAsFixed(0)}٪',
+                      _dash(it.tasksCompleted),
+                      _dash(it.tasksLate),
+                      _dash(it.daysSinceLastUpdate),
+                      '${it.remainingDays}',
+                      _dash(it.openBlockers),
+                    ])
+                .toList()),
+          ),
+          pw.SizedBox(height: 16),
+          // المعيارُ في العنوان: رقمٌ بلا مقياسه لا يُراجَع.
+          heading('المشاريع والأعمال غير النشطة — بلا تحديث منذ '
+              '${report.inactiveAfterDays} أيام أو أكثر'),
+          pw.SizedBox(height: 8),
+          if (report.inactive.isEmpty)
+            pw.Text('لا يوجد ما توقّف عن الحركة ضمن هذه المدّة.',
+                style: pw.TextStyle(font: regular, fontSize: 9.5, color: _grey))
+          else
+            pw.TableHelper.fromTextArray(
+              headerStyle: pw.TextStyle(font: bold, fontSize: 8, color: PdfColors.white),
+              headerDecoration: const pw.BoxDecoration(color: _navy),
+              cellStyle: pw.TextStyle(font: regular, fontSize: 8),
+              cellAlignment: pw.Alignment.center,
+              border: pw.TableBorder.all(color: _border, width: 0.5),
+              columnWidths: {0: const pw.FlexColumnWidth(2.6)},
+              headers: _safeRow(const [
+                'الاسم',
+                'النوع',
+                'المسؤول',
+                'آخر تحديث',
+                'أيام بلا نشاط',
+                'مهام مفتوحة',
+                'الاستحقاق',
+                'قريب من موعده',
+              ]),
+              data: _safeRows(report.inactive
+                  .map((it) => [
+                        it.name,
+                        it.isWork ? 'عمل' : 'مشروع',
+                        it.ownerNames.isEmpty ? '—' : it.ownerNames,
+                        it.lastUpdate == null
+                            ? 'لا يوجد'
+                            : Formatters.shortDate(it.lastUpdate!),
+                        it.daysWithoutActivity == null
+                            ? 'منذ الإنشاء'
+                            : '${it.daysWithoutActivity}',
+                        _dash(it.openTasks),
+                        Formatters.shortDate(it.dueDate),
+                        it.dueSoon
+                            ? (it.remainingDays < 0 ? 'تجاوز موعده' : 'نعم')
+                            : 'لا',
+                      ])
+                  .toList()),
+            ),
         ],
       ),
     );
 
     return doc.save();
   }
+
+  /// عددٌ قد لا ينطبق في جدول PDF — «—» لا صفر.
+  static String _dash(int? v) => v == null ? '—' : '$v';
 
   /// صفوفُ جدولٍ نقيّةٌ من النصّ الذي يكسر مولّد PDF — راجع [pdfSafeText].
   ///

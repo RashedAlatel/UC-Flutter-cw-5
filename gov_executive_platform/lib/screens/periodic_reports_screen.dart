@@ -23,7 +23,9 @@ import '../utils/file_download.dart';
 import '../utils/formatters.dart';
 import '../utils/report_export.dart';
 import '../widgets/command_band.dart';
+import '../widgets/filter_bar.dart';
 import '../widgets/kpi_card.dart';
+import 'periodic_report_settings_dialog.dart';
 
 class PeriodicReportsScreen extends StatefulWidget {
   const PeriodicReportsScreen({super.key});
@@ -40,6 +42,9 @@ class _PeriodicReportsScreenState extends State<PeriodicReportsScreen> {
 
   bool _exportingExcel = false;
   bool _exportingPdf = false;
+
+  /// الفلاتر الثمانية — والتاسع هو الفترة أعلاه.
+  ReportFilters _filters = ReportFilters.none;
 
   ReportRange get _range => _period == ReportPeriod.weekly
       ? ReportRange.weekEnding(_anchor)
@@ -101,7 +106,8 @@ class _PeriodicReportsScreenState extends State<PeriodicReportsScreen> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final range = _range;
-    final report = buildPeriodicReport(store.periodicReportInput, range);
+    final report =
+        buildPeriodicReport(store.periodicReportInput, range, filters: _filters);
     final compare = store.canCompareDepartments;
 
     return Column(
@@ -112,30 +118,46 @@ class _PeriodicReportsScreenState extends State<PeriodicReportsScreen> {
           subtitle: 'تقريرٌ ${_period.label} للفترة '
               '${Formatters.date(range.start)} — ${Formatters.date(range.end)}',
           actions: [
-            _BandButton(
+            BandButton(
               icon: Icons.grid_on_rounded,
-              label: 'Excel',
-              busy: _exportingExcel,
-              onPressed: () => _export(
-                label: 'Excel',
-                setBusy: (v) => setState(() => _exportingExcel = v),
-                run: ReportExporter.exportPeriodicExcel,
-                report: report,
-                includeDepartments: compare,
-              ),
+              label: _exportingExcel ? 'جارٍ التصدير…' : 'Excel',
+              // الحارس في الدالّة لا في الزرّ: `BandButton.onPressed` غير
+              // قابل للعدم، فتعطيلُه بـnull لا يمرّ من نوعه — كما في شاشة
+              // التقرير اليومي.
+              onPressed: () {
+                if (_exportingExcel) return;
+                _export(
+                  label: 'Excel',
+                  setBusy: (v) => setState(() => _exportingExcel = v),
+                  run: ReportExporter.exportPeriodicExcel,
+                  report: report,
+                  includeDepartments: compare,
+                );
+              },
             ),
-            _BandButton(
+            BandButton(
               icon: Icons.picture_as_pdf_rounded,
-              label: 'PDF',
-              busy: _exportingPdf,
-              onPressed: () => _export(
-                label: 'PDF',
-                setBusy: (v) => setState(() => _exportingPdf = v),
-                run: ReportExporter.exportPeriodicPdf,
-                report: report,
-                includeDepartments: compare,
-              ),
+              label: _exportingPdf ? 'جارٍ التصدير…' : 'PDF',
+              onPressed: () {
+                if (_exportingPdf) return;
+                _export(
+                  label: 'PDF',
+                  setBusy: (v) => setState(() => _exportingPdf = v),
+                  run: ReportExporter.exportPeriodicPdf,
+                  report: report,
+                  includeDepartments: compare,
+                );
+              },
             ),
+            if (store.isAdmin)
+              BandButton(
+                icon: Icons.tune_rounded,
+                label: 'الإعدادات',
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => const PeriodicReportSettingsDialog(),
+                ),
+              ),
           ],
         ),
         const SizedBox(height: 12),
@@ -146,6 +168,15 @@ class _PeriodicReportsScreenState extends State<PeriodicReportsScreen> {
             range: range,
             onPeriod: (p) => setState(() => _period = p),
             onPickDate: _pickAnchor,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: _ReportFilterBar(
+            filters: _filters,
+            store: store,
+            onChanged: (f) => setState(() => _filters = f),
           ),
         ),
         Expanded(
@@ -159,44 +190,14 @@ class _PeriodicReportsScreenState extends State<PeriodicReportsScreen> {
                 const SizedBox(height: 24),
                 _DepartmentsSection(report: report),
               ],
+              const SizedBox(height: 24),
+              _ItemsSection(report: report),
+              const SizedBox(height: 24),
+              _InactiveSection(report: report),
             ],
           ),
         ),
       ],
-    );
-  }
-}
-
-/// زرُّ ترويسةٍ على خلفيةٍ ملوّنة — بلونٍ مشتقٍّ من إضاءتها لا أبيضَ مفترضاً.
-class _BandButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool busy;
-  final VoidCallback onPressed;
-  const _BandButton({
-    required this.icon,
-    required this.label,
-    required this.busy,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = AppColors.onBrand(AppColors.primary);
-    return OutlinedButton.icon(
-      onPressed: busy ? null : onPressed,
-      icon: busy
-          ? SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2, color: fg),
-            )
-          : Icon(icon, size: 17),
-      label: Text(label),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: fg,
-        side: BorderSide(color: fg.withValues(alpha: 0.45)),
-      ),
     );
   }
 }
@@ -630,4 +631,392 @@ class _Empty extends StatelessWidget {
           child: Text(message, style: const TextStyle(color: AppColors.textSecondary)),
         ),
       );
+}
+
+// ───────────────────────── الفلاتر التسعة ─────────────────────────
+
+/// ثمانيةُ حقول — والتاسع الفترةُ في الشريط فوقها.
+///
+/// وتُبنى على [FilterBar] القائم لا على `Wrap` بعروضٍ مثبَّتة: ذاك يقيس
+/// العرض المتاح فيُكدّس الحقول على الجوال، وإلا خرج عنوانُ الحقل عن الشاشة
+/// **بلا أي خطأ** — عطلٌ لا يكشفه إلا من يفتحها على جواله.
+class _ReportFilterBar extends StatelessWidget {
+  final ReportFilters filters;
+  final AppStore store;
+  final ValueChanged<ReportFilters> onChanged;
+
+  const _ReportFilterBar({
+    required this.filters,
+    required this.store,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final input = store.periodicReportInput;
+    // المستخدمون من نطاق التقرير نفسه: لا يُعرض في منتقي المدير من لا
+    // يظهر في جداوله.
+    final people = input.users;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FilterBar(
+          fields: [
+            (
+              preferredWidth: 200,
+              child: DropdownButtonFormField<String?>(
+                initialValue: filters.departmentId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'الإدارة', isDense: true),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('كل الإدارات')),
+                  ...input.departments
+                      .map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))),
+                ],
+                onChanged: (v) => onChanged(v == null
+                    ? filters.copyWith(clearDepartment: true)
+                    : filters.copyWith(departmentId: v)),
+              ),
+            ),
+            (
+              preferredWidth: 220,
+              child: DropdownButtonFormField<String?>(
+                initialValue: filters.projectId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'المشروع', isDense: true),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('كل المشاريع')),
+                  ...input.projects.map((p) => DropdownMenuItem(
+                        value: p.id,
+                        child: Text(p.name, overflow: TextOverflow.ellipsis),
+                      )),
+                ],
+                onChanged: (v) => onChanged(v == null
+                    ? filters.copyWith(clearProject: true)
+                    : filters.copyWith(projectId: v)),
+              ),
+            ),
+            (
+              preferredWidth: 200,
+              child: DropdownButtonFormField<String?>(
+                initialValue: filters.managerUid,
+                isExpanded: true,
+                decoration:
+                    const InputDecoration(labelText: 'مدير المشروع', isDense: true),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('كل المديرين')),
+                  ...people.map((u) => DropdownMenuItem(
+                        value: u.id,
+                        child: Text(u.name, overflow: TextOverflow.ellipsis),
+                      )),
+                ],
+                onChanged: (v) => onChanged(v == null
+                    ? filters.copyWith(clearManager: true)
+                    : filters.copyWith(managerUid: v)),
+              ),
+            ),
+            (
+              preferredWidth: 200,
+              child: DropdownButtonFormField<String?>(
+                initialValue: filters.executorUid,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'المنفّذ', isDense: true),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('كل المنفّذين')),
+                  ...people.map((u) => DropdownMenuItem(
+                        value: u.id,
+                        child: Text(u.name, overflow: TextOverflow.ellipsis),
+                      )),
+                ],
+                onChanged: (v) => onChanged(v == null
+                    ? filters.copyWith(clearExecutor: true)
+                    : filters.copyWith(executorUid: v)),
+              ),
+            ),
+            (
+              preferredWidth: 180,
+              child: DropdownButtonFormField<ProjectStatus?>(
+                initialValue: filters.projectStatus,
+                isExpanded: true,
+                decoration:
+                    const InputDecoration(labelText: 'حالة المشروع', isDense: true),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('كل الحالات')),
+                  ...ProjectStatus.values
+                      .map((s) => DropdownMenuItem(value: s, child: Text(s.label))),
+                ],
+                onChanged: (v) => onChanged(v == null
+                    ? filters.copyWith(clearProjectStatus: true)
+                    : filters.copyWith(projectStatus: v)),
+              ),
+            ),
+            (
+              preferredWidth: 180,
+              child: DropdownButtonFormField<TaskStatus?>(
+                initialValue: filters.taskStatus,
+                isExpanded: true,
+                decoration:
+                    const InputDecoration(labelText: 'حالة المهمة', isDense: true),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('كل المهام')),
+                  ...TaskStatus.values
+                      .map((s) => DropdownMenuItem(value: s, child: Text(s.label))),
+                ],
+                onChanged: (v) => onChanged(v == null
+                    ? filters.copyWith(clearTaskStatus: true)
+                    : filters.copyWith(taskStatus: v)),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            FilterChip(
+              label: const Text('المتأخرة فقط'),
+              selected: filters.lateOnly,
+              onSelected: (v) => onChanged(filters.copyWith(lateOnly: v)),
+            ),
+            FilterChip(
+              label: const Text('غير المحدَّثة فقط'),
+              selected: filters.notUpdatedOnly,
+              onSelected: (v) => onChanged(filters.copyWith(notUpdatedOnly: v)),
+            ),
+            // إعلانٌ صريح أن الفلتر يسري على التقرير كلِّه: بدونه يظنّ
+            // القارئ أن الملخّص أعلاه لم يتأثّر، فيقرأ رقمين متناقضين.
+            if (!filters.isEmpty) ...[
+              TextButton.icon(
+                onPressed: () => onChanged(ReportFilters.none),
+                icon: const Icon(Icons.filter_alt_off_outlined, size: 17),
+                label: const Text('مسح التصفية'),
+              ),
+              const Text(
+                'التصفية تسري على التقرير كلِّه — الملخّص والأشخاص والإدارات والمشاريع.',
+                style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────── ثالثاً: المشاريع والأعمال ───────────────────
+
+Color _statusColor(ReportItemStatus s) => switch (s) {
+      ReportItemStatus.needsIntervention => AppColors.danger,
+      ReportItemStatus.late_ => const Color(0xFFE0692B),
+      ReportItemStatus.needsFollowUp => AppColors.warning,
+      ReportItemStatus.normal => AppColors.success,
+    };
+
+/// عددٌ قد لا ينطبق — «—» لا صفر. راجع [ItemPerformance].
+Widget _num(int? v) => Text(
+      v == null ? '—' : '$v',
+      style: TextStyle(color: v == null ? AppColors.textSecondary : null),
+    );
+
+class _ItemsSection extends StatelessWidget {
+  final PeriodicReport report;
+  const _ItemsSection({required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Section(
+      title: 'ثالثاً: أداء المشاريع والأعمال',
+      icon: Icons.folder_copy_rounded,
+      child: report.items.isEmpty
+          ? const _Empty('لا توجد مشاريع أو أعمالٌ ضمن التصفية الحالية.')
+          : SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowHeight: 40,
+                dataRowMinHeight: 40,
+                dataRowMaxHeight: 56,
+                columns: const [
+                  DataColumn(label: Text('الاسم')),
+                  DataColumn(label: Text('النوع')),
+                  DataColumn(label: Text('الإدارة')),
+                  DataColumn(label: Text('المدير')),
+                  DataColumn(label: Text('المنفّذون')),
+                  DataColumn(label: Text('الحالة')),
+                  DataColumn(label: Text('النشاط')),
+                  DataColumn(label: Text('الإنجاز الآن')),
+                  DataColumn(label: Text('عند البداية')),
+                  DataColumn(label: Text('التقدّم')),
+                  DataColumn(label: Text('مهام أُنجزت')),
+                  DataColumn(label: Text('مهام جديدة')),
+                  DataColumn(label: Text('مهام متأخرة')),
+                  DataColumn(label: Text('آخر تحديث')),
+                  DataColumn(label: Text('أيام منذه')),
+                  DataColumn(label: Text('الاستحقاق')),
+                  DataColumn(label: Text('المتبقي')),
+                  DataColumn(label: Text('عوائق قائمة')),
+                  DataColumn(label: Text('متطلبات')),
+                  DataColumn(label: Text('ملفات')),
+                ],
+                rows: [
+                  for (final it in report.items)
+                    DataRow(cells: [
+                      DataCell(SizedBox(
+                        width: 200,
+                        child: Text(it.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w700)),
+                      )),
+                      DataCell(Text(it.isWork ? 'عمل' : 'مشروع')),
+                      DataCell(Text(it.departmentName)),
+                      DataCell(Text(it.managerNames.isEmpty ? '—' : it.managerNames)),
+                      DataCell(SizedBox(
+                        width: 160,
+                        child: Text(
+                          it.executorNames.isEmpty ? '—' : it.executorNames,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      )),
+                      DataCell(_StatusChip(status: it.status)),
+                      DataCell(_ActivityChip(
+                          level: it.activity, total: it.totalActivities)),
+                      DataCell(Text(Formatters.percent(it.progressNow))),
+                      // «لا أساس للمقارنة» لا صفر: مشروعٌ بلا تحديثٍ سابق
+                      // لم يبدأ من الصفر، لا نعرف أين كان.
+                      DataCell(it.progressAtStart == null
+                          ? const Tooltip(
+                              message: 'لا يوجد تحديثٌ قبل بداية الفترة، فلا أساس للمقارنة.',
+                              child: Text('لا أساس للمقارنة',
+                                  style: TextStyle(
+                                      fontSize: 11, color: AppColors.textSecondary)),
+                            )
+                          : Text(Formatters.percent(it.progressAtStart!))),
+                      DataCell(it.progressMade == null
+                          ? const Text('—', style: TextStyle(color: AppColors.textSecondary))
+                          : Text(
+                              '${it.progressMade! >= 0 ? '+' : ''}'
+                              '${it.progressMade!.toStringAsFixed(0)}٪',
+                              style: TextStyle(
+                                color: it.progressMade! > 0 ? AppColors.success : null,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            )),
+                      DataCell(_num(it.tasksCompleted)),
+                      DataCell(_num(it.tasksAdded)),
+                      DataCell(_num(it.tasksLate)),
+                      DataCell(Text(it.lastUpdate == null
+                          ? 'لا يوجد'
+                          : Formatters.shortDate(it.lastUpdate!))),
+                      DataCell(_num(it.daysSinceLastUpdate)),
+                      DataCell(Text(Formatters.shortDate(it.dueDate))),
+                      DataCell(Text(
+                        '${it.remainingDays}',
+                        style: TextStyle(
+                          color: it.remainingDays < 0 ? AppColors.danger : null,
+                        ),
+                      )),
+                      DataCell(_num(it.openBlockers)),
+                      DataCell(Tooltip(
+                        message: 'القرارات والمتطلبات المسجَّلة في تحديثات الفترة.',
+                        child: _num(it.requirementsRaised),
+                      )),
+                      DataCell(Text('${it.filesAdded}')),
+                    ]),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  final ReportItemStatus status;
+  const _StatusChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _statusColor(status);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(status.label,
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: c)),
+    );
+  }
+}
+
+// ─────────────────── المشاريع والأعمال غير النشطة ───────────────────
+
+class _InactiveSection extends StatelessWidget {
+  final PeriodicReport report;
+  const _InactiveSection({required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Section(
+      // المعيارُ في العنوان لا مخفيّاً: «١٢ غير نشط» بلا مدّته رقمٌ لا يُراجَع.
+      title: 'المشاريع والأعمال غير النشطة — بلا تحديث منذ '
+          '${report.inactiveAfterDays} أيام أو أكثر',
+      icon: Icons.update_disabled_rounded,
+      child: report.inactive.isEmpty
+          ? const _Empty('لا يوجد ما توقّف عن الحركة — كلُّها محدَّثة ضمن المدّة.')
+          : SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowHeight: 40,
+                dataRowMinHeight: 40,
+                dataRowMaxHeight: 56,
+                columns: const [
+                  DataColumn(label: Text('الاسم')),
+                  DataColumn(label: Text('النوع')),
+                  DataColumn(label: Text('المسؤول')),
+                  DataColumn(label: Text('آخر تحديث')),
+                  DataColumn(label: Text('أيام بلا نشاط')),
+                  DataColumn(label: Text('مهام مفتوحة')),
+                  DataColumn(label: Text('الاستحقاق')),
+                  DataColumn(label: Text('قريب من موعده؟')),
+                ],
+                rows: [
+                  for (final it in report.inactive)
+                    DataRow(cells: [
+                      DataCell(SizedBox(
+                        width: 220,
+                        child: Text(it.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w700)),
+                      )),
+                      DataCell(Text(it.isWork ? 'عمل' : 'مشروع')),
+                      DataCell(Text(it.ownerNames.isEmpty ? '—' : it.ownerNames)),
+                      DataCell(Text(it.lastUpdate == null
+                          ? 'لا يوجد'
+                          : Formatters.shortDate(it.lastUpdate!))),
+                      // بلا تحديثٍ إطلاقاً: يُقال صراحةً لا يُكتب رقمٌ مختلق.
+                      DataCell(it.daysWithoutActivity == null
+                          ? const Text('لا تحديث منذ الإنشاء',
+                              style: TextStyle(
+                                  fontSize: 11, color: AppColors.textSecondary))
+                          : Text('${it.daysWithoutActivity}',
+                              style: const TextStyle(fontWeight: FontWeight.w700))),
+                      DataCell(_num(it.openTasks)),
+                      DataCell(Text(Formatters.shortDate(it.dueDate))),
+                      DataCell(it.dueSoon
+                          ? Text(
+                              it.remainingDays < 0
+                                  ? 'تجاوز موعده'
+                                  : 'نعم — ${it.remainingDays} يوم',
+                              style: const TextStyle(
+                                  color: AppColors.danger, fontWeight: FontWeight.w700),
+                            )
+                          : const Text('لا')),
+                    ]),
+                ],
+              ),
+            ),
+    );
+  }
 }

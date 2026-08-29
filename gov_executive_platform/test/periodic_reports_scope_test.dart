@@ -23,6 +23,7 @@ import 'package:gov_exec_platform/models/app_user.dart';
 import 'package:gov_exec_platform/models/daily_update.dart';
 import 'package:gov_exec_platform/models/department.dart';
 import 'package:gov_exec_platform/models/enums.dart';
+import 'package:gov_exec_platform/models/periodic_report_settings.dart';
 import 'package:gov_exec_platform/models/project.dart';
 import 'package:gov_exec_platform/reports/periodic_report.dart';
 import 'package:gov_exec_platform/screens/periodic_reports_screen.dart';
@@ -202,6 +203,86 @@ void main() {
     });
   });
 
+  group('الإعدادُ يُقرأ فعلاً', () {
+    // حقلٌ يُحفظ ولا يُقرأ أسوأُ من ألّا يوجد: المستخدم يضبطه ويظنّ أنه فعل.
+    test('المتجرُ يُمرّر المدّة إلى المحرّك', () {
+      final store = _store(_user('a', UserRole.systemAdmin))
+        ..periodicReportSettings = const PeriodicReportSettings(inactiveAfterDays: 3);
+      expect(store.periodicReportInput.inactiveAfterDays, 3);
+    });
+
+    test('ومبدئيُّه سبعة كما اخترت', () {
+      expect(const PeriodicReportSettings().inactiveAfterDays, 7);
+      expect(_store(_user('a', UserRole.systemAdmin)).periodicReportInput.inactiveAfterDays, 7);
+    });
+
+    // قيمةٌ فاسدة في مستند لا يجوز أن تُخرج قائمةً بلا تفسير.
+    test('وقيمةٌ خارج الحدود تُقرأ بالمبدئيّ لا بما فيها', () {
+      expect(PeriodicReportSettings.fromMap({'inactiveAfterDays': 0}).inactiveAfterDays, 7);
+      expect(PeriodicReportSettings.fromMap({'inactiveAfterDays': 500}).inactiveAfterDays, 7);
+      expect(PeriodicReportSettings.fromMap(null).inactiveAfterDays, 7);
+      expect(PeriodicReportSettings.fromMap({'inactiveAfterDays': 14}).inactiveAfterDays, 14);
+    });
+
+    // والعوائقُ تصل المحرّك: بدونها لا تُحسب حالةُ «يحتاج تدخل» إطلاقاً.
+    test('والعوائقُ والمخاطر تصل المحرّك', () {
+      final store = _store(_user('a', UserRole.systemAdmin));
+      expect(store.periodicReportInput.blockers, isEmpty);
+      expect(store.periodicReportInput.risks, isEmpty);
+      // ولا يُقرأ الفراغُ عطلاً: المتجرُ يُمرّر ما عنده، والحقلُ موصول.
+      expect(() => store.periodicReportInput.blockers, returnsNormally);
+    });
+  });
+
+  group('الشاشةُ تعرض أقسام الجولة الثانية', () {
+    testWidgets('جدولُ المشاريع وقائمةُ غير النشط، والمعيارُ في العنوان',
+        (tester) async {
+      tester.view.physicalSize = const Size(1800, 4000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await _pump(tester, _store(_user('a', UserRole.systemAdmin)));
+      expect(tester.takeException(), isNull);
+      expect(find.text('ثالثاً: أداء المشاريع والأعمال'), findsOneWidget);
+      // المعيارُ مكتوبٌ مع العدد: «غير نشط» بلا مدّته رقمٌ لا يُراجَع.
+      // والشاشةُ عاليةٌ عمداً هنا: `ListView` لا يبني ما لا يُعرض، فقياسُ
+      // القسم الأخير يحتاج أن يكون معروضاً.
+      expect(find.textContaining('بلا تحديث منذ 7 أيام أو أكثر'), findsWidgets);
+    });
+
+    testWidgets('ويراها مديرُ الإدارة كذلك — القسمان ليسا مقارنةً بين إدارات',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await _pump(tester, _store(_user('m', UserRole.departmentManager, dept: _d1)));
+      expect(tester.takeException(), isNull);
+      expect(find.text('ثالثاً: أداء المشاريع والأعمال'), findsOneWidget);
+    });
+
+    // الفلاتر التسعة: التاسعُ منتقي الفترة أعلاه، والثمانيةُ هنا.
+    testWidgets('والفلاترُ الثمانيةُ معروضة', (tester) async {
+      tester.view.physicalSize = const Size(1800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await _pump(tester, _store(_user('a', UserRole.systemAdmin)));
+      for (final label in [
+        'الإدارة',
+        'المشروع',
+        'مدير المشروع',
+        'المنفّذ',
+        'حالة المشروع',
+        'حالة المهمة',
+        'المتأخرة فقط',
+        'غير المحدَّثة فقط',
+      ]) {
+        expect(find.text(label), findsWidgets, reason: 'الفلتر «$label»');
+      }
+    });
+  });
+
   group('الملفُّ المُصدَّر', () {
     PeriodicReport reportOf(AppStore store) => buildPeriodicReport(
           store.periodicReportInput,
@@ -217,9 +298,28 @@ void main() {
       return _sheetNames(bytes);
     }
 
-    test('ثلاثُ أوراقٍ بأسمائها لمن يقرأ الكلّ', () {
+    // الستُّ التي عدّدتَها بالترتيب — والملفُّ يُفكّ ويُقرأ منه لا يُفترض.
+    test('ستُّ أوراقٍ بأسمائها لمن يقرأ الكلّ', () {
       final sheets = sheetsOf(_store(_user('a', UserRole.systemAdmin)), includeDepartments: true);
-      expect(sheets, containsAll(['الملخص التنفيذي', 'أداء الأشخاص', 'أداء الإدارات']));
+      expect(sheets, [
+        'الملخص التنفيذي',
+        'أداء الأشخاص',
+        'أداء الإدارات',
+        'أداء المشاريع',
+        'المهام المتأخرة',
+        'المشاريع غير النشطة',
+      ]);
+    });
+
+    // معيارُ الجمود يخرج مع القائمة: من يفتح الملفّ خارج المنصة لا يرى
+    // الإعداد في شاشة، فيلزم أن يقرأه في الورقة.
+    test('وورقةُ غير النشط تحمل معيارَها', () {
+      final bytes = ReportExporter.buildPeriodicExcelBytes(
+        report: reportOf(_store(_user('a', UserRole.systemAdmin))),
+        includeDepartments: true,
+      );
+      expect(_sheetText(bytes, 'المشاريع غير النشطة'),
+          contains('بلا تحديث منذ 7 أيام أو أكثر'));
     });
 
     // الملفُّ يخرج من المنصة ويُرسَل — فما لا يُعرض على الشاشة لا يُكتب فيه.
@@ -228,7 +328,7 @@ void main() {
         _store(_user('m', UserRole.departmentManager, dept: _d1)),
         includeDepartments: false,
       );
-      expect(sheets, containsAll(['الملخص التنفيذي', 'أداء الأشخاص']));
+      expect(sheets, containsAll(['الملخص التنفيذي', 'أداء الأشخاص', 'أداء المشاريع']));
       expect(sheets, isNot(contains('أداء الإدارات')));
     });
 

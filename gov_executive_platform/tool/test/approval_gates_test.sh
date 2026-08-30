@@ -1023,47 +1023,81 @@ echo ""
 # فطفرةٌ تُسقط حقلاً من إحداها تعضّ ولو بقيت الكلمةُ موجودةً في الملفّ.
 echo "وقوائمُ الحقول المعتمَدة متطابقة:"
 
-list_dart=$(sed -n '/^const List<String> kEditableProjectFields = \[/,/^\];/p'   lib/models/project_edit.dart | grep -o "'[a-zA-Z]*'" | tr -d "'" | sort)
-list_ts=$(sed -n '/^export const EDITABLE_FIELDS/,/^\];/p'   functions/src/approval_stage.ts | grep -o '"[a-zA-Z]*"' | tr -d '"' | sort)
-list_rules=$(sed -n "/\.hasAny(\['dueDate', 'departmentId', 'createdByUid'/,/\]))/p"   firestore.rules | grep -o "'[a-zA-Z]*'" | tr -d "'" | sort)
+# والقائمةُ المرجعية مكتوبةٌ هنا **نسخةً رابعة**، وذلك مقصود: ثلاثُ نسخٍ
+# تُقارن بواحدةٍ ثابتة، فمن أسقط حقلاً من إحداها أو دسّ فيها حقلاً عضّه
+# الحارس. ولو قُورنت النسخُ الثلاث ببعضها لَمرّ حذفٌ وقع في ثلاثتها معاً.
+#
+# ولا يُستعمل هنا إلا `grep -F` و`grep -A` و`printf` — بلا تعابير نمطية ولا
+# `sed` ولا `awk`. وسببُه مكتوبٌ في `build_web.sh`: حارسٌ كُتب على أدوات
+# GNU وسقط على أدوات macOS **فأوقف نشر المستخدم**. وقد تكرّر ذلك في هذا
+# الحارس نفسه، فأُخرجت منه كلُّ عبارةٍ تختلف بين الأداتين.
+EDITABLE_FIELDS="name description priority categoryIds \
+contractDate contractStartDate contractEndDate invoiceDueDate \
+durationDays contractValue contractorName"
 
-count_dart=$(printf '%s\n' "$list_dart" | grep -c .)
-if [[ "$count_dart" -eq 11 ]]; then
-  echo "  ✔ أحدَ عشرَ حقلاً في العميل"
-  PASS=$((PASS + 1))
-else
-  echo "  ✗ أحدَ عشرَ حقلاً في العميل"
-  echo "      عُدَّ $count_dart"
-  FAIL=$((FAIL + 1))
-fi
+# الكتلةُ تُقتطع بالسطور التالية للترويسة لا بمدى `sed`: القائمتان في
+# `project_edit.dart` بالتنسيق نفسه (`  'name',`)، فبحثٌ في الملفّ كلّه
+# يجد الحقلَ في قائمة «الجوهري» ولو حُذف من قائمة «المعتمَد».
+DART_BLOCK="$(grep -F -A 12 "const List<String> kEditableProjectFields = [" \
+  lib/models/project_edit.dart)"
+TS_BLOCK="$(grep -F -A 12 "export const EDITABLE_FIELDS" \
+  functions/src/approval_stage.ts)"
+RULES_BLOCK="$(grep -F -A 6 "hasAny(['dueDate', 'departmentId', 'createdByUid'," \
+  firestore.rules)"
 
-if [[ "$list_dart" == "$list_ts" ]]; then
-  echo "  ✔ العميلُ والخادمُ يقبلان الحقولَ نفسَها"
-  PASS=$((PASS + 1))
-else
-  echo "  ✗ العميلُ والخادمُ يقبلان الحقولَ نفسَها"
-  echo "      الفرق:"
-  diff <(printf '%s\n' "$list_dart") <(printf '%s\n' "$list_ts") | sed 's/^/      /'
-  FAIL=$((FAIL + 1))
-fi
-
-missing_in_rules=""
-for field in $list_dart; do
-  printf '%s\n' "$list_rules" | grep -qx "$field" || missing_in_rules="$missing_in_rules $field"
+missing_dart=""
+missing_ts=""
+missing_rules=""
+for field in $EDITABLE_FIELDS; do
+  printf '%s\n' "$DART_BLOCK" | grep -F -q "'$field'," ||
+    missing_dart="$missing_dart $field"
+  printf '%s\n' "$TS_BLOCK" | grep -F -q "\"$field\"," ||
+    missing_ts="$missing_ts $field"
+  printf '%s\n' "$RULES_BLOCK" | grep -F -q "'$field'" ||
+    missing_rules="$missing_rules $field"
 done
-if [[ -z "$missing_in_rules" ]]; then
-  echo "  ✔ وكلُّها ممنوعةٌ من الكتابة المباشرة في القاعدة"
-  PASS=$((PASS + 1))
-else
-  echo "  ✗ وكلُّها ممنوعةٌ من الكتابة المباشرة في القاعدة"
-  echo "      خارجَ قائمة المنع:$missing_in_rules"
-  FAIL=$((FAIL + 1))
-fi
+
+list_report() {
+  local name="$1" missing="$2" block="$3"
+  if [ -z "$missing" ]; then
+    echo "  ✔ $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ $name"
+    echo "      حقولٌ مفقودة:$missing"
+    echo "      وما قُرئ فعلاً:"
+    printf '%s\n' "$block" | sed 's/^/        /'
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+list_report "الأحدَ عشرَ حقلاً في العميل" "$missing_dart" "$DART_BLOCK"
+list_report "وهي نفسُها في الخادم" "$missing_ts" "$TS_BLOCK"
+list_report "وكلُّها ممنوعةٌ من الكتابة المباشرة في القاعدة" "$missing_rules" "$RULES_BLOCK"
+
+# والاتجاهُ الآخر: لا يُدسّ حقلٌ زائد. فالعددُ يُقاس كما تُقاس الأسماء.
+count_report() {
+  local name="$1" count="$2" block="$3"
+  if [ "$count" = "11" ]; then
+    echo "  ✔ $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ $name"
+    echo "      عُدَّ $count لا ١١، وما قُرئ:"
+    printf '%s\n' "$block" | sed 's/^/        /'
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+count_report "ولا حقلَ زائدٌ في العميل" \
+  "$(printf '%s\n' "$DART_BLOCK" | grep -c "^  '")" "$DART_BLOCK"
+count_report "ولا في الخادم" \
+  "$(printf '%s\n' "$TS_BLOCK" | grep -c '^  "')" "$TS_BLOCK"
 
 # والبواباتُ القائمةُ لا تمرّ من هذا المسار: لها مساراتُها، ولو قُبلت هنا
 # لصارت هذه بابَ التفافٍ حولها.
 for gate in dueDate departmentId managerUids; do
-  if printf '%s\n' "$list_dart" | grep -qx "$gate"; then
+  if printf '%s\n' "$DART_BLOCK" | grep -F -q "'$gate',"; then
     echo "  ✗ و«$gate» لا تمرّ من طلب التعديل"
     FAIL=$((FAIL + 1))
   else
@@ -1083,18 +1117,26 @@ want_in "functions/src/approval_stage.ts" "ولا يُطبَّق التغيير�
 want_in "$SRC" "والفرعُ يعود قبل الختم عند المرحلة الأولى"   "if (!appliesAt(stage)) {"
 want_in "$SRC" "وتبدُّلُ القيمة يُردّ باسم الحقل"   'stale.map(fieldLabel).join'
 want_in "lib/data/app_store.dart" "والعميلُ يفحص النوعَ قبل isAdmin"   "if (r.type == ApprovalType.projectEdit) {"
-# و`grep` لا يقرأ سطرين معاً، ونمطٌ فيه `\n` يمرّ أبداً بلا أن يحرس. فيُقاس
-# بـ`awk`: أوّلُ سطرٍ **غيرِ تعليقٍ** بعد فتح الدالّة لا يكون فتحاً للمسؤول.
-first_line=$(awk '/^  bool canApprove\(ApprovalRequest r\) \{/{f=1; next}
-                  f && $0 !~ /^ *\/\// && $0 !~ /^ *$/ {print; exit}' lib/data/app_store.dart)
-if [[ "$first_line" == *"if (isAdmin) return true;"* ]]; then
-  echo "  ✗ ولا يُفتح بابُ المسؤول على مرحلةٍ ليست له"
-  echo "      أوّلُ سطرٍ في canApprove:$first_line"
-  FAIL=$((FAIL + 1))
-else
-  echo "  ✔ ولا يُفتح بابُ المسؤول على مرحلةٍ ليست له"
-  PASS=$((PASS + 1))
-fi
+# ــ وأخطرُ ما يُنقض هنا سطرٌ واحد ــ
+#
+# `if (isAdmin) return true;` أوّلَ `canApprove` — كان موجوداً فعلاً، فيظهر
+# الزرُّ لمسؤول النظام على مرحلةٍ ليست له ثم يردّه الخادم.
+#
+# ويُقاس بالسطر التالي للترويسة: التعليقُ الذي فوق الفحص يقع بينهما اليوم،
+# فالطفرةُ التي تدسّ السطرَ تدسّه ملاصقاً للقوس فتُلتقط.
+NEXT_LINE="$(grep -F -A 1 "bool canApprove(ApprovalRequest r) {" \
+  lib/data/app_store.dart | tail -1)"
+case "$NEXT_LINE" in
+  *"if (isAdmin) return true;"*)
+    echo "  ✗ ولا يُفتح بابُ المسؤول على مرحلةٍ ليست له"
+    echo "      أوّلُ سطرٍ في canApprove:$NEXT_LINE"
+    FAIL=$((FAIL + 1))
+    ;;
+  *)
+    echo "  ✔ ولا يُفتح بابُ المسؤول على مرحلةٍ ليست له"
+    PASS=$((PASS + 1))
+    ;;
+esac
 echo ""
 
 echo "══════════════════════════════"

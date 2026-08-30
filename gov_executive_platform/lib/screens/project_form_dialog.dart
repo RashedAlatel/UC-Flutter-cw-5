@@ -20,8 +20,10 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
+import '../models/project_edit.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
+import '../widgets/field_changes_table.dart';
 import '../widgets/section_picker.dart';
 
 /// يفتح نموذج تعديل بيانات المشروع. يُعيد true إن حُفظ تعديلٌ فعلاً.
@@ -63,18 +65,58 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
   late final _contractorCtrl =
       TextEditingController(text: widget.project.contractorName);
 
+  late final _reasonCtrl = TextEditingController();
+
   bool _busy = false;
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    // معاينةُ الفروق تتبع ما يُكتب لحظةً بلحظة — ولولا ذلك لَعرضت حالَ
+    // النموذج عند فتحه لا ما سيُرسل، وهو أسوأُ من ألّا تُعرض.
+    for (final c in [_nameCtrl, _descCtrl, _durationCtrl, _valueCtrl, _contractorCtrl]) {
+      c.addListener(_onFieldChanged);
+    }
+  }
+
+  void _onFieldChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    for (final c in [_nameCtrl, _descCtrl, _durationCtrl, _valueCtrl, _contractorCtrl]) {
+      c.removeListener(_onFieldChanged);
+    }
     _nameCtrl.dispose();
     _descCtrl.dispose();
     _durationCtrl.dispose();
     _valueCtrl.dispose();
     _contractorCtrl.dispose();
+    _reasonCtrl.dispose();
     super.dispose();
   }
+
+  /// ما أُدخل في النموذج، بمفاتيح الحمولة — موضعٌ واحد يقرأ الحقول.
+  ///
+  /// والتواريخُ نصّاً (ISO): الحمولةُ تُخزَّن في Firestore وتُقرأ على الخادم،
+  /// والنصُّ الزمنيُّ الموحّد يُقارن بلا التباس منطقةٍ زمنية.
+  Map<String, Object?> get _proposed => {
+        'name': _nameCtrl.text,
+        'description': _descCtrl.text,
+        'priority': _priority.name,
+        'categoryIds': _categoryIds,
+        'contractDate': _contractDate?.toIso8601String(),
+        'contractStartDate': _contractStart?.toIso8601String(),
+        'contractEndDate': _contractEnd?.toIso8601String(),
+        'invoiceDueDate': _invoiceDue?.toIso8601String(),
+        'durationDays': int.tryParse(_durationCtrl.text.trim()),
+        'contractValue': double.tryParse(_valueCtrl.text.trim()),
+        'contractorName': _contractorCtrl.text,
+      };
+
+  List<FieldChange> get _changes => diffProjectFields(widget.project, _proposed);
 
   Future<void> _save() async {
     final store = context.read<AppStore>();
@@ -82,22 +124,33 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
       _busy = true;
       _error = null;
     });
-    final error = await store.updateProjectDetails(
-      widget.project,
-      name: _nameCtrl.text,
-      description: _descCtrl.text,
-      priority: _priority,
-      sectionId: _sectionId,
-      categoryIds: _categoryIds,
-      contractDate: _contractDate,
-      contractStartDate: _contractStart,
-      contractEndDate: _contractEnd,
-      invoiceDueDate: _invoiceDue,
-      // حقلٌ فارغ أو نصٌّ لا يُقرأ رقماً يبقى «غير مسجّل» — ولا يُقلب صفراً.
-      durationDays: int.tryParse(_durationCtrl.text.trim()),
-      contractValue: double.tryParse(_valueCtrl.text.trim()),
-      contractorName: _contractorCtrl.text,
-    );
+
+    // ــ مسارٌ واحدٌ في النافذة، وطريقان تحته ــ
+    //
+    // مسؤولُ النظام يكتب مباشرةً، ومن سواه يرفع طلباً. والنافذةُ واحدة عمداً:
+    // نافذتان تعنيان حقلين يُضاف أحدُهما ويُنسى الآخر.
+    final error = store.isAdmin
+        ? await store.updateProjectDetails(
+            widget.project,
+            name: _nameCtrl.text,
+            description: _descCtrl.text,
+            priority: _priority,
+            sectionId: _sectionId,
+            categoryIds: _categoryIds,
+            contractDate: _contractDate,
+            contractStartDate: _contractStart,
+            contractEndDate: _contractEnd,
+            invoiceDueDate: _invoiceDue,
+            durationDays: int.tryParse(_durationCtrl.text.trim()),
+            contractValue: double.tryParse(_valueCtrl.text.trim()),
+            contractorName: _contractorCtrl.text,
+          )
+        : await store.submitProjectEditRequest(
+            widget.project,
+            proposed: _proposed,
+            reason: _reasonCtrl.text,
+          );
+
     if (!mounted) return;
     if (error != null) {
       setState(() {
@@ -115,7 +168,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
     final dept = store.departmentById(widget.project.departmentId);
 
     return AlertDialog(
-      title: const Text('تعديل بيانات المشروع'),
+      title: Text(store.isAdmin ? 'تعديل بيانات المشروع' : 'طلب تعديل بيانات المشروع'),
       content: SizedBox(
         width: 480,
         child: SingleChildScrollView(
@@ -149,7 +202,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
               SectionPicker(
                 departmentId: widget.project.departmentId,
                 initialSectionId: _sectionId,
-                onChanged: (v) => _sectionId = v,
+                onChanged: (v) => setState(() => _sectionId = v),
               ),
               if (store.categories.isNotEmpty) ...[
                 const SizedBox(height: 14),
@@ -244,6 +297,31 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
                   labelText: 'الجهة أو الشركة المنفّذة',
                 ),
               ),
+              // ــ جدولُ الفروق: ما سيُعتمد، لا ما في النموذج ــ
+              //
+              // يُعرض لمن يرفع طلباً قبل إرساله: «القيمة الحالية ← الجديدة»
+              // للحقول **المتغيّرة وحدها**. وهو ما طلبتَه صراحةً، وهو ما
+              // يجعل من يضغط «إرسال» يعرف ما يُرسل.
+              if (!store.isAdmin) ...[
+                const SizedBox(height: 18),
+                const Divider(height: 1),
+                const SizedBox(height: 14),
+                FieldChangesTable(
+                  changes: _changes,
+                  title: 'ما سيُرسل للاعتماد',
+                  emptyText: 'لم تُغيّر شيئاً بعد — عدّل حقلاً ليظهر هنا قبل الإرسال.',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _reasonCtrl,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'سبب التعديل (اختياري)',
+                    helperText: 'يُعرض للمعتمِد ويُحفظ في السجل',
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               // ــ يُقال صراحةً ما لا يُعدَّل من هنا وأين يُعدَّل ــ
               //
@@ -276,9 +354,14 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
           onPressed: _busy ? null : () => Navigator.pop(context, false),
           child: const Text('إلغاء'),
         ),
+        // الزرُّ يقول ما يقع فعلاً: «حفظ» على فعلٍ ينتظر اعتماداً وعدٌ لا يُوفى.
         FilledButton(
           onPressed: _busy ? null : _save,
-          child: Text(_busy ? 'جارٍ الحفظ…' : 'حفظ'),
+          child: Text(
+            _busy
+                ? (store.isAdmin ? 'جارٍ الحفظ…' : 'جارٍ الإرسال…')
+                : (store.isAdmin ? 'حفظ' : 'إرسال للاعتماد'),
+          ),
         ),
       ],
     );

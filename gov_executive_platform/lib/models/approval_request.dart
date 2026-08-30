@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'enums.dart';
+import 'project_edit.dart';
 
 /// معاينة بريدٍ ينتظر الاعتماد — تُقرأ من حمولة الطلب لا من وصفه.
 class NotifyPreview {
@@ -40,6 +41,23 @@ class ApprovalRequest {
   final String? resolutionNote;
   final DateTime? resolvedDate;
 
+  /// ــــ المرحلةُ التي عليها الطلب الآن ــــ
+  ///
+  /// لا معنى لها إلا في المسارات متعدّدة المراحل ([ApprovalType.projectEdit]
+  /// اليوم). وما سواها مرحلةٌ واحدة، فتُقرأ لها `systemAdmin` ولا تُستعمل.
+  ///
+  /// **وهي الحَكَم لا الدور**: مسؤولُ النظام لا يبتّ في مرحلة مدير الإدارة —
+  /// ولو فعل لَاختصر مساراً طُلب أن يكون مرحلتين، وسقط رأيُ صاحب الإدارة.
+  /// راجع `canActAtStage` في `functions/src/approval_stage.ts`.
+  final EditStage stage;
+
+  /// أثرُ المسار: من بتّ في كل مرحلة، ومتى، وبماذا.
+  ///
+  /// ويُكتب من **الخادم** لا من العميل: هو سجلُّ من وافق، ولا يجوز أن يكتبه
+  /// من يستفيد منه. وهو ما طلبتَه في «سجل التعديلات»: من وافق من مدير
+  /// الإدارة، وتاريخُ الموافقة، ومن اعتمد من مسؤولي النظام.
+  final List<StageStep> stageTrail;
+
   /// بيانات إضافية خاصة بنوع الطلب (تُقرأ فقط من قبل الدالة الخلفية عند الاعتماد):
   /// registration: {name, email, phone, requestedRole, requestedDepartmentId}
   /// projectCreate: {name, description, departmentId, startDate, dueDate, priority}
@@ -61,6 +79,8 @@ class ApprovalRequest {
     required this.requestedDate,
     this.resolutionNote,
     this.resolvedDate,
+    this.stage = EditStage.systemAdmin,
+    this.stageTrail = const [],
     this.payload = const {},
   });
 
@@ -78,6 +98,9 @@ class ApprovalRequest {
         'requestedDate': Timestamp.fromDate(requestedDate),
         'resolutionNote': resolutionNote,
         'resolvedDate': resolvedDate == null ? null : Timestamp.fromDate(resolvedDate!),
+        'stage': stage.name,
+        // ويُكتب فارغاً من العميل دائماً: الخادمُ وحده يُلحق به.
+        'stageTrail': [for (final s in stageTrail) s.toMap()],
         'payload': payload,
       };
 
@@ -98,6 +121,12 @@ class ApprovalRequest {
       requestedDate: (json['requestedDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       resolutionNote: json['resolutionNote'] as String?,
       resolvedDate: (json['resolvedDate'] as Timestamp?)?.toDate(),
+      // طلبٌ كُتب قبل المراحل يُقرأ `systemAdmin`: مرحلةٌ واحدةٌ كما كان.
+      stage: EditStage.fromName(json['stage'] as String?),
+      stageTrail: [
+        for (final raw in (json['stageTrail'] as List? ?? const []))
+          ?StageStep.fromMap(raw),
+      ],
       payload: Map<String, dynamic>.from(json['payload'] as Map? ?? {}),
     );
   }
@@ -161,4 +190,78 @@ class ApprovalRequest {
     final known = UserRole.values.where((r) => r.name == name);
     return known.isEmpty ? name : known.first.label;
   }
+}
+
+/// خطوةٌ في مسار الطلب — من بتّ، ومتى، وبماذا.
+class StageStep {
+  final EditStage stage;
+  final String byUid;
+  final String byName;
+  final DateTime at;
+
+  /// `approved` · `rejected` · `returned` — ما فُعل في هذه المرحلة.
+  final String action;
+
+  const StageStep({
+    required this.stage,
+    required this.byUid,
+    required this.byName,
+    required this.at,
+    required this.action,
+  });
+
+  String get actionLabel => switch (action) {
+        'approved' => 'وافق',
+        'rejected' => 'رفض',
+        'returned' => 'أعاد للتعديل',
+        _ => action,
+      };
+
+  Map<String, dynamic> toMap() => {
+        'stage': stage.name,
+        'byUid': byUid,
+        'byName': byName,
+        'at': Timestamp.fromDate(at),
+        'action': action,
+      };
+
+  /// خطوةٌ مشوّهة تُسقَط ولا تنهار: سجلُّ المسار يُعرض، ولا يجوز أن يُسقط
+  /// سطرٌ فاسدٌ فيه بطاقةَ الطلب كلَّها.
+  static StageStep? fromMap(Object? raw) {
+    if (raw is! Map) return null;
+    final at = raw['at'];
+    return StageStep(
+      stage: EditStage.fromName(raw['stage'] as String?),
+      byUid: raw['byUid'] as String? ?? '',
+      byName: raw['byName'] as String? ?? '',
+      at: at is Timestamp ? at.toDate() : DateTime.now(),
+      action: raw['action'] as String? ?? '',
+    );
+  }
+}
+
+extension ProjectEditRequest on ApprovalRequest {
+  /// التغييراتُ المطلوبة، مقروءةً من **الحمولة** لا من الوصف.
+  ///
+  /// للسبب نفسه المشروح في `grantedRoleLabel`: الوصفُ نصٌّ يكتبه الطالب،
+  /// والحمولةُ هي ما يُنفَّذ. ولا يجوز أن يعتمد مسؤولُ النظام تغييراً يقرأ
+  /// وصفَه لا حقيقتَه.
+  List<FieldChange> get editChanges {
+    if (type != ApprovalType.projectEdit) return const [];
+    final raw = payload['changes'];
+    if (raw is! Map) return const [];
+    final out = <FieldChange>[];
+    for (final entry in raw.entries) {
+      final change = FieldChange.fromMap(entry.key.toString(), entry.value);
+      if (change != null) out.add(change);
+    }
+    // الجوهريُّ أوّلاً: هو ما يجب أن تقع عليه العينُ قبل أن تتعب.
+    out.sort((a, b) {
+      if (a.isSensitive != b.isSensitive) return a.isSensitive ? -1 : 1;
+      return a.label.compareTo(b.label);
+    });
+    return out;
+  }
+
+  bool get hasSensitiveEdit => hasSensitiveChange(editChanges);
 }

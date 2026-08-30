@@ -9,6 +9,7 @@ import '../models/enums.dart';
 import '../theme/app_theme.dart';
 import '../widgets/command_band.dart';
 import '../utils/formatters.dart';
+import '../widgets/field_changes_table.dart';
 import '../widgets/status_chip.dart';
 
 class DecisionCenterScreen extends StatefulWidget {
@@ -188,6 +189,14 @@ class _RequestCardState extends State<_RequestCard> {
               const SizedBox(height: 12),
               _ManagerChangePanel(request: r),
             ],
+            // طلبُ تعديل بيانات المشروع: الفروقُ ومسارُ الطلب.
+            //
+            // ولا يُكتفى بالوصف: هو نصٌّ كتبه الطالب، والحمولةُ هي ما
+            // يُطبَّق. راجع `editChanges` في `approval_request.dart`.
+            if (r.type == ApprovalType.projectEdit) ...[
+              const SizedBox(height: 12),
+              _ProjectEditPanel(request: r),
+            ],
             // ــ تعيين مدير مشروع: ما الذي يُمنَح باعتماد هذا الطلب؟ ــ
             //
             // المعتمِد مدير إدارة لا مسؤول نظام، وقد لا يعرف ماذا تعني
@@ -262,6 +271,26 @@ class _RequestCardState extends State<_RequestCard> {
                     ),
                   ),
                   const SizedBox(width: 10),
+                  // ــــ «إعادة للتعديل»: بابٌ ثالث ليس رفضاً ــــ
+                  //
+                  // ولولاه لكان أمام المعتمِد بابان: يعتمد تعديلاً فيه خطأٌ
+                  // واحد، أو يرفضه فيبدأ الطالبُ من الصفر. وأكثرُ ما يُردّ
+                  // من هذه الطلبات يُردّ لحقلٍ واحد.
+                  //
+                  // وهو لهذا النوع وحده: الطلباتُ الأخرى لا مسارَ لتصحيحها
+                  // وإعادةِ إرسالها من صفحتها، فإعادتُها تترك صاحبَها
+                  // بطلبٍ حيٍّ لا يعرف ماذا يفعل به.
+                  if (r.type == ApprovalType.projectEdit) ...[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _busy ? null : () => _returnForRevision(context),
+                        icon: const Icon(Icons.undo_rounded, size: 16, color: AppColors.info),
+                        label: const Text('إعادة للتعديل', style: TextStyle(color: AppColors.info)),
+                        style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.info)),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   // «عدّل ثم اعتمد» لمسؤول النظام وحده وعلى نوعين اثنين.
                   // والحراسة على الخادم لا هنا: `approveRequest` ترفض
                   // `payloadOverride` من غيره ومن غير هذين النوعين.
@@ -355,6 +384,72 @@ class _RequestCardState extends State<_RequestCard> {
     });
   }
 
+  /// يُعيد الطلبَ لمقدّمه بملاحظة — **والملاحظةُ مطلوبة هنا لا اختيارية**.
+  ///
+  /// وإعادةٌ بلا سبب تُبقي الطلبَ يدور: يقرأ صاحبُه «أُعيد إليك» ولا يعرف
+  /// ماذا يصحّح، فيُعيد إرساله كما هو. والرفضُ يُنهي، أما هذه فتَعِد بجولةٍ
+  /// ثانية — فلتكن الجولةُ الثانية مبنيّةً على شيء.
+  void _returnForRevision(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final noteCtrl = TextEditingController();
+        return StatefulBuilder(
+          builder: (ctx, setLocal) => AlertDialog(
+            title: const Text('إعادة الطلب للتعديل'),
+            content: SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'يعود الطلب إلى مقدّمه ليصحّحه ويعيد إرساله — ولا يُرفض، '
+                    'ولا يتغيّر شيء في المشروع.',
+                    style: TextStyle(fontSize: 12, height: 1.8, color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: noteCtrl,
+                    maxLines: 3,
+                    onChanged: (_) => setLocal(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'ما الذي يُصحَّح؟',
+                      helperText: 'يصل مقدّم الطلب مع الإشعار',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+              ElevatedButton(
+                onPressed: noteCtrl.text.trim().isEmpty
+                    ? null
+                    : () async {
+                        Navigator.pop(ctx);
+                        setState(() {
+                          _busy = true;
+                          _error = null;
+                        });
+                        final error = await context
+                            .read<AppStore>()
+                            .returnRequestForRevision(widget.request, noteCtrl.text.trim());
+                        if (!mounted) return;
+                        setState(() {
+                          _busy = false;
+                          _error = error;
+                        });
+                      },
+                child: const Text('إعادة للتعديل'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _resolve(BuildContext context, {required bool approve}) {
     showDialog(
       context: context,
@@ -414,6 +509,11 @@ class _StatusBadge extends StatelessWidget {
         break;
       case DecisionStatus.rejected:
         color = AppColors.danger;
+        break;
+      // «معاد للتعديل» ليس رفضاً، فلا يُلوَّن بلونه: الطلبُ حيٌّ عند مقدّمه
+      // ينتظر تصحيحاً — وهي حالُ متابعةٍ لا حالُ انتهاء.
+      case DecisionStatus.returnedForRevision:
+        color = AppColors.info;
         break;
     }
     return Container(
@@ -931,6 +1031,96 @@ class _ChangeLine extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// طلبُ تعديل بيانات المشروع في مركز القرارات: **ما يُطبَّق، ومن بتّ فيه**.
+///
+/// ــــ ولماذا ثلاثة أشياء لا شيءٌ واحد ــــ
+///
+/// * **الفروق** — القيمةُ الحالية إلى الجديدة، والجوهريُّ مميَّز. وبها يبتّ
+///   المعتمِد فيما يُطبَّق لا فيما وُصف.
+/// * **السبب** — يكتبه الطالب، ويُقرأ قبل «موافقة» لا بعدها.
+/// * **مسارُ الطلب** — من طلب، ومن وافق قبلي، ومن ينتظره الآن. ومسارٌ
+///   بمرحلتين لا يُرى منه إلا المرحلةُ الحالية يجعل مسؤول النظام يوقّع بلا
+///   أن يعرف أوافق مديرُ الإدارة أم لم يصله الطلبُ بعد.
+class _ProjectEditPanel extends StatelessWidget {
+  final ApprovalRequest request;
+  const _ProjectEditPanel({required this.request});
+
+  @override
+  Widget build(BuildContext context) {
+    final changes = request.editChanges;
+    final reason = request.payload['reason']?.toString().trim() ?? '';
+    final trail = request.stageTrail;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FieldChangesTable(
+            changes: changes,
+            title: 'ما سيُطبَّق على المشروع',
+            emptyText: 'الطلب لا يحمل تغييراً — لا يُعتمد، ويُعاد لمقدّمه.',
+          ),
+          if (request.hasSensitiveEdit) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(Icons.priority_high_rounded, size: 14, color: AppColors.warning),
+                const SizedBox(width: 5),
+                const Expanded(
+                  child: Text(
+                    'الحقول المعلَّمة جوهرية: تغيّر التزاماً أو مسؤوليةً أو موعداً.',
+                    style: TextStyle(fontSize: 11.5, color: AppColors.warning, height: 1.7),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (reason.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _ChangeLine(label: 'السبب', value: reason, icon: Icons.notes_rounded),
+          ],
+          const SizedBox(height: 10),
+          Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 10),
+          Text('مسار الطلب', style: AppText.label),
+          const SizedBox(height: 6),
+          _ChangeLine(
+            label: 'قدّمه',
+            value: '${request.requestedByName} · ${Formatters.shortDate(request.requestedDate)}',
+            icon: Icons.person_outline_rounded,
+          ),
+          for (final step in trail) ...[
+            const SizedBox(height: 6),
+            _ChangeLine(
+              label: step.stage.label,
+              value: '${step.byName} · ${step.actionLabel} · ${Formatters.shortDate(step.at)}',
+              icon: Icons.check_circle_outline_rounded,
+            ),
+          ],
+          // ومن ينتظره الآن — للطلب الحيّ وحده: طلبٌ بُتّ فيه لا ينتظر أحداً،
+          // وقولُ «بانتظار فلان» عنه يُقرأ تعليقاً لا أثراً.
+          if (request.status == DecisionStatus.pending) ...[
+            const SizedBox(height: 6),
+            _ChangeLine(
+              label: 'بانتظار',
+              value: request.stage.label,
+              icon: Icons.hourglass_empty_rounded,
+              emphasis: true,
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

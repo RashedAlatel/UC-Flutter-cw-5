@@ -45,6 +45,7 @@ convertRecord
 applyRolePermissions
 generateDailyReportNow
 bootstrapFirstAdmin
+returnRequestForRevision
 "
 
 # (ب) ما ليس تغييراً على بيانات الوزارة: تفضيلاتٌ شخصية لا يراها غير
@@ -123,9 +124,13 @@ fi
 # ورُفع الحدّ من ٢٠ إلى ٢١ مرّةً واحدة، لـ`convertRecord`: التحويل عمليةٌ
 # ذرّية من خطوتين لا تصحّ من العميل أصلاً، وسطرُها يُكتب على الخادم بصلاحية
 # المدير — وهو مفحوصٌ في القسم الأخير من هذا الحارس.
+#
+# ورُفع ثانيةً إلى ٢٢ لـ`returnRequestForRevision`: إعادةُ الطلب للتعديل
+# قرارُ معتمِدٍ لا كتابةُ عميل — تفحص الدالّةُ الخلفية المرحلةَ والرتبة ثم
+# تكتب السطر بصلاحية المدير («إعادة طلب للتعديل»)، وهو مفحوصٌ أدناه.
 ALLOWED_COUNT="$(printf '%s\n' "$ALLOWED" | grep -c .)"
-if [ "$ALLOWED_COUNT" -le 21 ]; then
-  report "وقائمة الاستثناء لم تتضخّم ($ALLOWED_COUNT من ٢١)" 1
+if [ "$ALLOWED_COUNT" -le 22 ]; then
+  report "وقائمة الاستثناء لم تتضخّم ($ALLOWED_COUNT من ٢٢)" 1
 else
   report "وقائمة الاستثناء لم تتضخّم" 0 \
     "صارت $ALLOWED_COUNT استثناءً — راجعها قبل رفع الحدّ."

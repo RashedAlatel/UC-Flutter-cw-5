@@ -212,7 +212,16 @@ enum ItemStatus {
 enum DecisionStatus {
   pending, // بانتظار القرار
   approved, // تمت الموافقة
-  rejected; // مرفوض
+  rejected, // مرفوض
+  // ــــ معادٌ للتعديل — وهو **غيرُ الرفض** ــــ
+  //
+  // الرفضُ يُنهي الطلب: البياناتُ تبقى كما هي ولا شيء بعده. وهذه تُعيده إلى
+  // مقدّمه حيّاً ليصحّحه ويُعيد إرساله — وهي ما طلبتَ صراحةً في مسار مدير
+  // المشروع: «إعادة الطلب لمدير المشروع للتعديل».
+  //
+  // ولولا التفريق لَاضطُرّ المعتمِد إلى الرفض ليقول «انقص سطراً»، فيقرأ
+  // مقدّمُ الطلب رفضاً حيث أُريد تصحيح.
+  returnedForRevision;
 
   String get label {
     switch (this) {
@@ -222,6 +231,8 @@ enum DecisionStatus {
         return 'تمت الموافقة';
       case DecisionStatus.rejected:
         return 'مرفوض';
+      case DecisionStatus.returnedForRevision:
+        return 'معاد للتعديل';
     }
   }
 
@@ -261,6 +272,15 @@ enum ApprovalType {
   // وقبل هذا كان صاحب صلاحية «الانضمام لمشاريع الإدارة» يسجّل نفسه مديراً
   // بلا اعتماد أحد — وهو الباب الذي أُغلق.
   projectManagerAppointment,
+  // ــــ تعديل البيانات الأساسية للمشروع ــــ
+  //
+  // مسارٌ **بمرحلتين** بخلاف كل ما سبقه: مديرُ المشروع يطلب، فيوافق مديرُ
+  // الإدارة، ثم يعتمد مسؤولُ النظام ويُطبَّق. ومديرُ الإدارة إن طلب بدأ عند
+  // مسؤول النظام مباشرةً — فلا يعتمد أحدٌ طلبَ نفسه.
+  //
+  // والمرحلةُ على مستند الطلب (`stage`)، ومن يبتّ فيها يقرّره
+  // `functions/src/approval_stage.ts` — لا الدورُ وحده.
+  projectEdit,
   decision; // قرار تنفيذي عام مطلوب من القيادة
 
   String get label {
@@ -279,6 +299,8 @@ enum ApprovalType {
         return 'تغيير مدير المشروع';
       case ApprovalType.projectManagerAppointment:
         return 'تعيين مدير مشروع';
+      case ApprovalType.projectEdit:
+        return 'تعديل بيانات مشروع';
       case ApprovalType.decision:
         return 'قرار تنفيذي';
     }

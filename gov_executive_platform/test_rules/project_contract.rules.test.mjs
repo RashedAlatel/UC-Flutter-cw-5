@@ -17,6 +17,14 @@
 // تُقلب القائمةُ يوماً إلى `hasOnly` فيُردّ تعديلُ كل مشروعٍ قديم بلا أن
 // يكشفه شيء. وذلك فرقٌ يُقال ولا يُلبَّس.
 //
+// ــــ ومن يكتبها تبدّل بعد ذلك ــــ
+//
+// كان الكاتبُ هنا **مديرَ الإدارة**، ثم صارت حقولُ العقد تمرّ بمسار الاعتماد
+// بقرارٍ صريح — فما عاد يكتبها مباشرةً (راجع `project_edit.rules.test.mjs`).
+// فصار الكاتبُ **مسؤولَ النظام**: هو من يبقى يكتب مباشرةً، وهو من يُطبَّق
+// باسمه اعتمادُ الطلب. والسؤالُ المقيس واحدٌ لم يتغيّر: هل يقبل مستندٌ وُلد
+// ناقصاً مفاتيحَ تُضاف إليه لأوّل مرّة؟
+//
 // وما يُقاس:
 //   ١) مشروعٌ وُلد **بلا** حقول العقد يقبل تعديلاً يُضيفها.
 //   ٢) والقائمةُ المحظورة بقيت محظورة — فلم يُفتح مع حقول العقد بابٌ آخر.
@@ -34,11 +42,15 @@ const MANAGER = "u-lead";
 
 let env;
 
-const deptManagerClaims = {
+// مسؤولُ النظام: هو الكاتبُ المباشر الوحيد لحقول العقد بعد التضييق.
+const adminClaims = {role: "systemAdmin", approved: true, perms: {}};
+
+// ومديرُ إدارةٍ أخرى — لقياس أن الغريب يُردّ حتى لو كان مديراً.
+const strangerManagerClaims = {
   role: "departmentManager",
   approved: true,
-  departmentId: DEPT,
-  departmentIds: [DEPT],
+  departmentId: "d-other",
+  departmentIds: ["d-other"],
   perms: {},
 };
 
@@ -91,15 +103,15 @@ after(async () => {
 });
 
 describe("مشروعٌ وُلد بلا حقول العقد يقبل إضافتها", () => {
-  test("مديرُ الإدارة يكتب حقول العقد السبعة على مشروعٍ قديم", async () => {
+  test("مسؤولُ النظام يكتب حقول العقد السبعة على مشروعٍ قديم", async () => {
     await seedLegacyProject();
-    const db = env.authenticatedContext(MANAGER, deptManagerClaims).firestore();
+    const db = env.authenticatedContext("u-admin", adminClaims).firestore();
     await assertSucceeds(updateDoc(doc(db, "projects/p1"), contractPatch));
   });
 
   test("ويكتب بعضَها ويترك بعضاً", async () => {
     await seedLegacyProject();
-    const db = env.authenticatedContext(MANAGER, deptManagerClaims).firestore();
+    const db = env.authenticatedContext("u-admin", adminClaims).firestore();
     await assertSucceeds(updateDoc(doc(db, "projects/p1"), {
       contractValue: 9000,
       contractorName: "مؤسسة التوريد",
@@ -109,7 +121,7 @@ describe("مشروعٌ وُلد بلا حقول العقد يقبل إضافته
   // والفارغُ يُكتب `null` لا يُحذف: «غير مسجّل» قيمةٌ لا غياب.
   test("ويكتبها فارغةً بلا رفض", async () => {
     await seedLegacyProject();
-    const db = env.authenticatedContext(MANAGER, deptManagerClaims).firestore();
+    const db = env.authenticatedContext("u-admin", adminClaims).firestore();
     await assertSucceeds(updateDoc(doc(db, "projects/p1"), {
       contractDate: null,
       contractValue: null,
@@ -118,46 +130,34 @@ describe("مشروعٌ وُلد بلا حقول العقد يقبل إضافته
   });
 });
 
-describe("والقائمةُ المحظورة بقيت محظورة", () => {
-  // حقولُ العقد لا تفتح باباً لغيرها: الموعدُ النهائي بوابةٌ قائمة بذاتها،
-  // ودسُّه مع حقلٍ مسموح لا يمرّره.
-  test("لا يُدسّ الموعد النهائي مع حقول العقد", async () => {
-    await seedLegacyProject();
-    const db = env.authenticatedContext(MANAGER, deptManagerClaims).firestore();
-    await assertFails(updateDoc(doc(db, "projects/p1"), {
-      ...contractPatch,
-      dueDate: new Date("2027-06-30"),
-    }));
-  });
-
-  test("ولا نقلُ المشروع إلى إدارةٍ أخرى", async () => {
-    await seedLegacyProject();
-    const db = env.authenticatedContext(MANAGER, deptManagerClaims).firestore();
-    await assertFails(updateDoc(doc(db, "projects/p1"), {
-      ...contractPatch,
-      departmentId: "d-other",
-    }));
-  });
-
-  test("ولا تغييرُ مدير المشروع", async () => {
-    await seedLegacyProject();
-    const db = env.authenticatedContext(MANAGER, deptManagerClaims).firestore();
-    await assertFails(updateDoc(doc(db, "projects/p1"), {
-      ...contractPatch,
-      managerUids: ["u-other"],
-    }));
-  });
-
-  // وغريبٌ عن الإدارة لا يكتبها ولو كانت الحقول مسموحةً في ذاتها.
-  test("ولا يكتبها مديرُ إدارةٍ أخرى", async () => {
+describe("ومن دون مسؤول النظام تمرّ بالاعتماد", () => {
+  // ــــ لماذا لم يبقَ هنا اختبارُ «لا يُدسّ الموعد النهائي» ــــ
+  //
+  // كان يُكتب بمدير الإدارة، فيقيس أن حقول العقد لم تفتح باباً للموعد. ثم
+  // صارت حقولُ العقد نفسُها ممنوعةً عليه، فما عاد للسؤال محلّ هنا — ومسؤولُ
+  // النظام يكتب الموعدَ بحقّه، فقياسُ منعِه عليه يقيس عدماً.
+  //
+  // وانتقل السؤالُ كاملاً إلى `project_edit.rules.test.mjs`: هناك تُقاس
+  // البواباتُ الثلاث (الموعد · الإدارة · المدير) بمدير الإدارة، وهو صاحبُها.
+  // ولا يُترك اختبارٌ يمرّ بلا أن يقيس شيئاً.
+  test("مديرُ الإدارة لا يكتب حقول العقد مباشرةً", async () => {
     await seedLegacyProject();
     const db = env
-      .authenticatedContext("u-stranger", {
-        ...deptManagerClaims,
-        departmentId: "d-other",
-        departmentIds: ["d-other"],
+      .authenticatedContext(MANAGER, {
+        role: "departmentManager",
+        approved: true,
+        departmentId: DEPT,
+        departmentIds: [DEPT],
+        perms: {},
       })
       .firestore();
+    await assertFails(updateDoc(doc(db, "projects/p1"), contractPatch));
+  });
+
+  // وغريبٌ عن الإدارة يُردّ كذلك — من بابين لا باب.
+  test("ولا مديرُ إدارةٍ أخرى", async () => {
+    await seedLegacyProject();
+    const db = env.authenticatedContext("u-stranger", strangerManagerClaims).firestore();
     await assertFails(updateDoc(doc(db, "projects/p1"), contractPatch));
   });
 });

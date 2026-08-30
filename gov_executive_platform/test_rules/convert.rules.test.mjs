@@ -130,10 +130,24 @@ describe("١) تعديل بيانات العمل — حقُّ الدور", () =>
     await assertFails(updateDoc(doc(db, "works/w1"), {title: "تعديلٌ بلا صفة"}));
   });
 
+  // ــ المركبةُ هنا `sectionId` لا الاسم، والسببُ تبدُّلُ قرارٍ لا تبدُّلُ
+  // قياس ــ
+  //
+  // كان يُقاس بكتابة **اسم المشروع**، فصار الاسمُ يمرّ بمسار الاعتماد بقرارٍ
+  // صريح من مسؤول النظام (راجع `project_edit.rules.test.mjs`). وما يقيسه هذا
+  // السطر هو **حقُّ الدور على سجلّات إدارته** لا الاسمُ بعينه — فبقي السؤال
+  // وتبدّلت المركبة إلى حقلٍ ما زال يُكتب مباشرةً.
   test("ومديرُ الإدارة يعدّل بيانات مشروعٍ في إدارته", async () => {
     await seed();
     const db = env.authenticatedContext(HEAD, headOf(DEPT)).firestore();
-    await assertSucceeds(updateDoc(doc(db, "projects/p1"), {name: "رقمنة صحيفة الدعوى"}));
+    await assertSucceeds(updateDoc(doc(db, "projects/p1"), {sectionId: "s-new"}));
+  });
+
+  // وما صار بالاعتماد يُقاس هنا كذلك: الدورُ لا يفتحه.
+  test("ولا يكتب اسمَه مباشرةً — صار بالاعتماد", async () => {
+    await seed();
+    const db = env.authenticatedContext(HEAD, headOf(DEPT)).firestore();
+    await assertFails(updateDoc(doc(db, "projects/p1"), {name: "رقمنة صحيفة الدعوى"}));
   });
 
   // البوابة التي لا تُفتح بحال: الموعد النهائي يمرّ بطلبٍ يعتمده مسؤول النظام.

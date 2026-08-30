@@ -29,6 +29,7 @@ import '../models/feedback_item.dart';
 import '../models/project.dart';
 import '../models/project_category.dart';
 import '../models/periodic_report_settings.dart';
+import '../models/project_edit.dart';
 import '../models/project_task.dart';
 import '../models/report.dart';
 import '../models/role_permissions.dart';
@@ -1131,8 +1132,13 @@ class AppStore extends ChangeNotifier {
     double? contractValue,
     String contractorName = '',
   }) async {
-    if (!canEditProjectDetails(project)) {
-      return 'لا تملك صلاحية تعديل بيانات هذا المشروع.';
+    // ــ الكتابةُ المباشرة لمسؤول النظام وحده ــ
+    //
+    // وكانت لمدير الإدارة ومدير المشروع. ثم صار تعديلُ البيانات الأساسية
+    // يمرّ بالاعتماد بقرارٍ صريح — فمن لا يكتب مباشرةً يرفع طلباً عبر
+    // [submitProjectEditRequest]، والقاعدةُ تردّه هنا على أي حال.
+    if (!isAdmin) {
+      return 'تعديلُ البيانات الأساسية يمرّ بالاعتماد — أرسِل طلباً من صفحة المشروع.';
     }
     if (name.trim().isEmpty) return 'اسم المشروع مطلوب.';
 
@@ -1183,6 +1189,117 @@ class AppStore extends ChangeNotifier {
       after: after,
     );
     return null;
+  }
+
+  /// هل يستطيع هذا المستخدم **طلب** تعديل بيانات هذا المشروع؟
+  ///
+  /// مديرُ الإدارة في إدارته، ومديرُ المشروع في مشروعه. والموظفُ العادي لا
+  /// يطلب تعديل بياناتٍ رسمية لمشروعٍ لا يقوده.
+  ///
+  /// ومسؤولُ النظام لا يطلب: يعدّل مباشرةً — هو المعتمِد النهائي، فلا معنى
+  /// لأن يرفع طلباً إلى نفسه.
+  bool canRequestProjectEdit(Project project) {
+    final uid = currentUser?.id;
+    if (uid == null || isAdmin) return false;
+    if (project.isManager(uid)) return true;
+    return isManager && myDepartmentIds.contains(project.departmentId);
+  }
+
+  /// طلبٌ معلّقٌ على هذا المشروع — يُعرض لمقدّمه فلا يقدّم ثانياً.
+  ApprovalRequest? pendingEditFor(Project project) {
+    for (final r in approvalRequests) {
+      if (r.type != ApprovalType.projectEdit) continue;
+      if (r.status != DecisionStatus.pending) continue;
+      if (r.projectId != project.id) continue;
+      return r;
+    }
+    return null;
+  }
+
+  /// يرفع طلبَ تعديل بيانات المشروع.
+  ///
+  /// ــ ولماذا تُحسب الفروقُ هنا لا في الشاشة ــ
+  ///
+  /// لأن ما يُرسَل هو ما يُعتمد. وحسابُها في الشاشة يعني أن نافذةً أخرى قد
+  /// تُرسل شكلاً آخر، فيصل المعتمِدَ طلبان بصيغتين. والحسابُ في
+  /// `diffProjectFields` — وحدةٌ نقيّة لها اختبارات.
+  ///
+  /// وتُعيد رسالةَ خطأٍ عند التعذّر، و`null` عند النجاح.
+  Future<String?> submitProjectEditRequest(
+    Project project, {
+    required Map<String, Object?> proposed,
+    String reason = '',
+  }) async {
+    if (!canRequestProjectEdit(project)) {
+      return 'لا تملك صلاحية طلب تعديل هذا المشروع.';
+    }
+    final changes = diffProjectFields(project, proposed);
+    if (changes.isEmpty) return 'لم تُغيّر شيئاً.';
+
+    final nameChange = changes.where((c) => c.field == 'name').firstOrNull;
+    if (nameChange != null && (nameChange.after as String? ?? '').trim().isEmpty) {
+      return 'اسم المشروع مطلوب.';
+    }
+
+    // طلبان متطابقان معلَّقان على المشروع نفسه: يُردّ الثاني قبل كتابته —
+    // وهو عطلُ «المشروع يُضاف مرّتين» بعينه (`9c1d546`).
+    final existing = pendingEditFor(project);
+    if (existing != null) {
+      return 'لهذا المشروع طلبُ تعديلٍ معلّق بالفعل — راجعه قبل تقديم طلبٍ جديد.';
+    }
+
+    final stage = firstStageFor(
+      requesterIsDepartmentManager: isManager && myDepartmentIds.contains(project.departmentId),
+    );
+
+    try {
+      await _db.collection('approvalRequests').add(ApprovalRequest(
+            id: '',
+            type: ApprovalType.projectEdit,
+            status: DecisionStatus.pending,
+            title: 'تعديل بيانات المشروع: ${project.name}',
+            description: 'الحقول المطلوب تعديلها: ${describeChanges(changes)}'
+                '${reason.trim().isEmpty ? '' : ' — السبب: ${reason.trim()}'}',
+            priority: priorityForChanges(changes),
+            delayImpactDays: 0,
+            // إدارةُ **المشروع** لا إدارةُ الطالب: عليها يُفحص من يبتّ.
+            departmentId: project.departmentId,
+            projectId: project.id,
+            requestedByUid: currentUser?.id ?? '',
+            requestedByName: currentUser?.name ?? '',
+            requestedDate: DateTime.now(),
+            stage: stage,
+            payload: {
+              'projectId': project.id,
+              'projectName': project.name,
+              'reason': reason.trim(),
+              'changes': {
+                for (final c in changes) c.field: c.toMap(),
+              },
+            },
+          ).toMap());
+    } catch (e) {
+      return readableWriteError(e);
+    }
+
+    await _log('طلب تعديل مشروع',
+        'قدّم ${currentUser?.name} طلب تعديل بيانات المشروع "${project.name}"');
+    return null;
+  }
+
+  /// يُعيد طلباً إلى مقدّمه ليصحّحه — **وهو غيرُ الرفض**.
+  Future<String?> returnRequestForRevision(ApprovalRequest request, String note) async {
+    try {
+      await _functions.httpsCallable('returnRequestForRevision').call({
+        'requestId': request.id,
+        'note': note,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّرت إعادة الطلب';
+    } catch (e) {
+      return e.toString();
+    }
   }
 
   /// يحوّل مشروعاً إلى عمل أو عملاً إلى مشروع — **عبر الخادم وحده**.
@@ -1492,7 +1609,24 @@ class AppStore extends ChangeNotifier {
   PeriodicReportSettings periodicReportSettings = const PeriodicReportSettings();
 
   Future<void> savePeriodicReportSettings(PeriodicReportSettings settings) async {
+    final before = periodicReportSettings.inactiveAfterDays;
     await _db.collection('settings').doc('periodicReports').set(settings.toMap());
+    // ــ ويُسجَّل: معيارُ «الجمود» يحكم على أداء أشخاص ــ
+    //
+    // رفعُه من سبعةٍ إلى ثلاثين يُخرج من قائمة «غير النشط» من هو فيها،
+    // ورقمٌ يُغيَّر بلا سطرٍ يقول من غيّره ومتى يجعل التقريرَ يتبدّل بلا
+    // تفسير. وهو إعدادُ الوزارة لا تفضيلٌ شخصي.
+    await _log(
+      'تعديل معيار الجمود في التقارير الدورية',
+      'غيّر ${currentUser?.name ?? 'النظام'} حدَّ عدم النشاط '
+          'من $before يوماً إلى ${settings.inactiveAfterDays} يوماً',
+      type: ChangeType.update$,
+      targetType: 'settings',
+      targetId: 'periodicReports',
+      targetName: 'إعدادات التقارير الدورية',
+      before: {'inactiveAfterDays': before},
+      after: settings.toMap(),
+    );
   }
 
   // ------------------------- لوحة مخصّصة لكل مستخدم -------------------------
@@ -3046,6 +3180,18 @@ class AppStore extends ChangeNotifier {
   /// أما **إضافة المشاريع** فقد قرّر فتحها بمفتاح بيده: `apr` ضمن نطاق.
   /// و**إضافة الأعمال** ليست بوابة: يعتمدها مدير الإدارة صاحبتها.
   bool canApprove(ApprovalRequest r) {
+    // ــ تعديلُ بيانات المشروع يُفحص **قبل** `isAdmin` ــ
+    //
+    // لأن مسؤول النظام لا يبتّ في مرحلة مدير الإدارة، وهذا النوعُ وحده فيه
+    // مرحلةٌ ليست له. ولو مرّ في `isAdmin` أعلاه لَظهر له زرُّ «موافقة» على
+    // طلبٍ عند مديرِ إدارته، ثم رُدّ عند الضغط — وذلك أسوأُ من إخفائه:
+    // يقرؤه المسؤولُ عطلاً في المنصة لا حدّاً مقصوداً.
+    //
+    // والحَكَم `canActAtStage` على الخادم، وهذه مرآتُه.
+    if (r.type == ApprovalType.projectEdit) {
+      if (r.stage == EditStage.systemAdmin) return isAdmin;
+      return isManager && myDepartmentIds.contains(r.departmentId);
+    }
     if (isAdmin) return true;
     switch (r.type) {
       case ApprovalType.decision:
@@ -3072,6 +3218,15 @@ class AppStore extends ChangeNotifier {
       // يد — والثانية بقيت لمسؤول النظام وحده كما قرّر.
       case ApprovalType.projectManagerAppointment:
         return isManager && myDepartmentIds.contains(r.departmentId);
+      // ــ تعديلُ بيانات المشروع: **المرحلةُ هي الحَكَم لا الدور** ــ
+      //
+      // ومسؤولُ النظام مرّ في `isAdmin` أعلاه، فيصل هنا غيرُه وحده. ومديرُ
+      // إدارة المشروع يبتّ في مرحلته الأولى، ولا يبتّ في الأخيرة.
+      //
+      // وقد بُتّ فيه أعلاه قبل `isAdmin` — والفرعُ هنا ليُغلق `switch`
+      // إغلاقاً شاملاً: نوعٌ جديد بلا فرعٍ يُوقف الترجمة، وهو المقصود.
+      case ApprovalType.projectEdit:
+        return false;
     }
   }
 

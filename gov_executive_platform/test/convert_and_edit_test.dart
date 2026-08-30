@@ -180,7 +180,13 @@ void main() {
       ));
       await tester.pump();
 
-      expect(find.text('تعديل بيانات المشروع'), findsOneWidget);
+      // ــ الترويسةُ تقول ما يقع: مديرُ الإدارة **يطلب** لا يكتب ــ
+      //
+      // وكانت «تعديل بيانات المشروع» حين كان يكتب مباشرةً. ثم صار التعديلُ
+      // يمرّ بالاعتماد بقرارٍ صريح، فلو بقيت الترويسةُ على حالها لَوعدت
+      // بحفظٍ لا يقع.
+      expect(find.text('طلب تعديل بيانات المشروع'), findsOneWidget);
+      expect(find.text('تعديل بيانات المشروع'), findsNothing);
       expect(find.text('اسم المشروع'), findsOneWidget);
       expect(find.text('الوصف'), findsOneWidget);
       expect(find.text('الأولوية'), findsOneWidget);
@@ -190,6 +196,32 @@ void main() {
       expect(find.byIcon(Icons.calendar_month), findsNothing);
       // ويُقال أين يُعدَّل بدل أن يُترك القارئ يبحث في كل شاشة.
       expect(find.textContaining('الموعد النهائي يُعدَّل بطلبٍ'), findsOneWidget);
+      // والزرُّ يقول ما يفعل: «حفظ» على فعلٍ ينتظر اعتماداً وعدٌ لا يُوفى.
+      expect(find.text('إرسال للاعتماد'), findsOneWidget);
+      expect(find.text('حفظ'), findsNothing);
+      // وحقلُ السبب يُعرض لمن يرفع طلباً — يُقرأ عند الاعتماد ويُحفظ.
+      expect(find.textContaining('سبب التعديل'), findsOneWidget);
+    });
+
+    // ومسؤولُ النظام يكتب مباشرةً — هو المعتمِد النهائي، فلا يطلب من نفسه.
+    testWidgets('ومسؤولُ النظام يحفظ مباشرةً بلا طلب', (tester) async {
+      final store = _storeWithoutManageWorks(UserRole.systemAdmin);
+      await tester.pumpWidget(ChangeNotifierProvider<AppStore>.value(
+        value: store,
+        child: MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: ProjectFormDialog(project: _project()),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      expect(find.text('تعديل بيانات المشروع'), findsOneWidget);
+      expect(find.text('حفظ'), findsOneWidget);
+      expect(find.text('إرسال للاعتماد'), findsNothing);
+      // ولا جدولَ فروقٍ ولا سبب: يكتب فيرى الأثر فوراً.
+      expect(find.textContaining('سبب التعديل'), findsNothing);
     });
   });
 }

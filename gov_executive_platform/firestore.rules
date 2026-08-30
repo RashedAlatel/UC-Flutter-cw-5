@@ -468,10 +468,35 @@ service cloud.firestore {
                     // وحالته. و`canAccessProjectDocOrMember` لا
                     // `canAccessProjectDoc`: الثانية تقرأ الحقل المفرد وحده،
                     // فيسقط منها المدير الثاني فصاعداً.
+                    // ــــ البياناتُ الأساسية تمرّ بالاعتماد لا تُكتب هنا ــــ
+                    //
+                    // كانت القائمةُ تمنع الموعدَ والإدارةَ والعضوية وحدها،
+                    // فكان مديرُ الإدارة ومديرُ المشروع يكتبان الاسمَ والوصفَ
+                    // والأولويةَ والتصنيفَ وحقولَ العقد **مباشرةً**. وقيس
+                    // ذلك على المحاكي قبل التضييق: مرّت ثلاثٌ وعشرون كتابةً
+                    // كان يجب أن تُردّ (`test_rules/project_edit.rules.test.mjs`).
+                    //
+                    // فصارت تمرّ بمسار الاعتماد، ويُطبّقها الخادمُ بصلاحية
+                    // المدير بعد فحص المرحلة — راجع `projectEdit` في
+                    // `functions/src/index.ts`.
+                    //
+                    // **وقائمةُ منعٍ لا سماح** عمداً: قائمةُ السماح تُردّ كلَّ
+                    // حقلٍ يُضاف مستقبلاً عند أوّل تعديل — وهو الفخُّ الذي
+                    // عضّ الأعمالَ (`ba220b7`) والمهامَّ (`completedAt`).
+                    //
+                    // وما بقي مباشراً بقرارٍ صريح: نسبةُ الإنجاز والحالة
+                    // (التحديثُ اليومي)، و`sectionId` (تنظيمٌ داخلي لا يغيّر
+                    // من يرى المشروع)، و`executorNames` (أسماءٌ نصّية تتبدّل
+                    // في العمل اليومي).
                     || (canAccessProjectDocOrMember(resource.data)
                         && !request.resource.data.diff(resource.data).affectedKeys()
                               .hasAny(['dueDate', 'departmentId', 'createdByUid',
-                                       'managerUid', 'managerUids', 'executorUids']))
+                                       'managerUid', 'managerUids', 'executorUids',
+                                       'name', 'description', 'priority', 'categoryIds',
+                                       'contractDate', 'contractStartDate',
+                                       'contractEndDate', 'invoiceDueDate',
+                                       'durationDays', 'contractValue',
+                                       'contractorName']))
                     // وكان هنا فرعٌ يسمح لمدير الإدارة وصاحب `mpr` بكتابة
                     // العضوية مباشرةً. وسقط: القاعدة لا تستطيع فحص **رتبة**
                     // من في القائمتين (لا حلقات في لغتها)، فكان الفرع باباً

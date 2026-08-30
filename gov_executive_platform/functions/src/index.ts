@@ -18,6 +18,13 @@ import {childMembershipPatch} from "./child_membership";
 import {mayDeleteDailyUpdate} from "./daily_update_delete";
 import {buildWorkDoc} from "./work_create";
 import {
+  canActAtStage,
+  nextStage,
+  appliesAt,
+  judgeChanges,
+  EditStage,
+} from "./approval_stage";
+import {
   claimDepartments,
   mayConvertIn,
   projectToWork,
@@ -354,6 +361,32 @@ function uidList(raw: unknown): string[] {
 }
 
 /**
+ * الاسمُ العربي لحقل المشروع — نظيرُ `projectFieldLabel` في العميل.
+ *
+ * ويُستعمل في رسالة «تغيّرت قيمةُ …»: اسمُ الحقل بالإنجليزية في رسالةٍ
+ * تُعرض لمسؤول نظامٍ عربيّ لا يُفهم، فيُقرأ عطلاً لا سبباً.
+ *
+ * @param {string} field مفتاحُ الحقل.
+ * @return {string} اسمُه، أو المفتاحُ نفسه إن كان مجهولاً.
+ */
+function fieldLabel(field: string): string {
+  const names: Record<string, string> = {
+    name: "اسم المشروع",
+    description: "الوصف",
+    priority: "الأولوية",
+    categoryIds: "التصنيفات",
+    contractDate: "تاريخ العقد",
+    contractStartDate: "تاريخ بداية العقد",
+    contractEndDate: "تاريخ انتهاء العقد",
+    invoiceDueDate: "تاريخ استحقاق الفاتورة",
+    durationDays: "مدة المشروع",
+    contractValue: "قيمة العقد",
+    contractorName: "الجهة المنفّذة",
+  };
+  return names[field] ?? field;
+}
+
+/**
  * تاريخٌ من حمولة الطلب، أو `null` — و«غير مسجّل» لا تُملأ بتاريخ اليوم.
  *
  * ونصٌّ لا يُفهم تاريخاً يُقرأ `null` كذلك: `new Date("كلام")` تُنتج
@@ -529,6 +562,11 @@ function checkApprovalPermission(
   type: string,
   auth: CallableRequest["auth"],
   departmentId: string | null,
+  /**
+   * مرحلةُ الطلب — تلزم في المسارات متعدّدة المراحل وحدها. ومبدئيُّها
+   * `systemAdmin`: مرحلةٌ واحدةٌ كما كان كلُّ ما سبق.
+   */
+  stage: EditStage = "systemAdmin",
 ) {
   const callerRole = auth?.token.role as string | undefined;
   const perms = auth?.token.perms as Record<string, boolean> | undefined;
@@ -563,6 +601,21 @@ function checkApprovalPermission(
       allowed = isAdmin || (departmentId !== null && myDepts.includes(departmentId));
       break;
     }
+    // ــ تعديلُ بيانات المشروع: **المرحلةُ هي الحَكَم لا الدور** ــ
+    //
+    // ولا يُفحص هنا `isAdmin` أوّلاً كما في غيره: مسؤولُ النظام **لا يبتّ في
+    // مرحلة مدير الإدارة**. ولو فعل لَاختصر مساراً طُلب أن يكون مرحلتين،
+    // وسقط رأيُ صاحب الإدارة الذي هو أعلمُ بمشاريعها.
+    //
+    // والحكمُ في `approval_stage.ts` — وحدةٌ نقيّة لها مجموعةُ اختبارات،
+    // لأن هذا الملفّ لا تقرؤه مجموعة.
+    case "projectEdit":
+      allowed = canActAtStage(stage, {
+        isAdmin,
+        role: callerRole,
+        departmentIds: (auth?.token.departmentIds as string[] | undefined) ?? [],
+      }, departmentId);
+      break;
     // registration و deadlineChange و notifySend و managerChange: مسؤول
     // النظام وحده، بلا استثناء. و`notifySend` أُلحقت بهنّ بقرار صريح منه: كل بريد يخرج باسم
     // المنصة يمرّ بموافقته. ولا يفتحها مفتاح مفوَّض — لا `ntf` ولا غيرها —
@@ -590,7 +643,9 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
   const data = snap.data()!;
   if (data.status !== "pending") throw new HttpsError("failed-precondition", "تم البت في هذا الطلب مسبقاً");
 
-  checkApprovalPermission(data.type, auth, (data.departmentId as string | null) ?? null);
+  // المرحلةُ من مستند الطلب لا من العميل — وهي ما يُفحص عليه البتّ.
+  const stage: EditStage = data.stage === "departmentManager" ? "departmentManager" : "systemAdmin";
+  checkApprovalPermission(data.type, auth, (data.departmentId as string | null) ?? null, stage);
 
   const stored = (data.payload ?? {}) as Record<string, unknown>;
 
@@ -878,6 +933,109 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       );
       break;
     }
+    // ــــ تعديلُ البيانات الأساسية للمشروع ــــ
+    //
+    // مسارٌ بمرحلتين، وهذا الفرعُ **لا يُطبّق شيئاً عند الأولى**: يرفع
+    // المرحلةَ ويكتب من وافق ومتى، ويبقى الطلبُ معلّقاً. والتطبيقُ عند
+    // الأخيرة وحدها — راجع `appliesAt`.
+    //
+    // ولو طُبّق عند الأولى لَسقط دورُ مسؤول النظام كلُّه بلا أن يظهر في شيء:
+    // الطلبُ يُعرض معتمَداً، والمشروعُ تغيّر، ولا أحد يعلم أن مرحلةً لم تقع.
+    case "projectEdit": {
+      const projectId = payload.projectId as string | undefined;
+      if (!projectId) {
+        throw new HttpsError("failed-precondition", "الطلب لا يحمل مشروعاً");
+      }
+      const projectRef = db().collection("projects").doc(projectId);
+      const projectSnap = await projectRef.get();
+      if (!projectSnap.exists) {
+        throw new HttpsError("failed-precondition", "المشروع لم يعد موجوداً");
+      }
+
+      const actorName = auth.token.name ?? "مستخدم";
+      const step = {
+        stage,
+        byUid: auth.uid,
+        byName: actorName,
+        at: now(),
+        action: "approved",
+      };
+
+      // ــ المرحلةُ الأولى: تُرفع ولا تُطبَّق ــ
+      if (!appliesAt(stage)) {
+        await ref.update({
+          stage: nextStage(stage),
+          stageTrail: admin.firestore.FieldValue.arrayUnion(step),
+        });
+        await logAudit(
+          actorName,
+          "موافقة مرحلية على تعديل مشروع",
+          `وافق ${actorName} على طلب تعديل بيانات المشروع ` +
+            `"${payload.projectName ?? projectId}" — وأُحيل إلى مسؤول النظام للاعتماد النهائي`,
+        );
+        if (data.requestedByUid) {
+          await notifyUser(
+            data.requestedByUid as string,
+            "تقدّم طلبك خطوة",
+            `وافق مدير الإدارة على طلب تعديل "${payload.projectName ?? ""}"، ` +
+              "وهو الآن لدى مسؤول النظام للاعتماد النهائي.",
+          );
+        }
+        // ويُعاد من هنا: الطلبُ **لم يُبتّ فيه** بعد، فلا يُختم أدناه.
+        return {ok: true, stage: nextStage(stage)};
+      }
+
+      // ــ المرحلةُ الأخيرة: يُفحص التبدُّل ثم يُطبَّق ــ
+      //
+      // والفحصُ ليس تزيّداً: الطلبُ يُعتمد بعد يومٍ أو يومين، ولو صحّح أحدٌ
+      // الاسمَ في تلك المدّة ثم طُبّق المسجَّل، مُحي التصحيحُ بلا أن يعلم به
+      // المعتمِد ولا من صحّح.
+      const changes = (payload.changes ?? {}) as Record<string, unknown>;
+      const {patch, stale, rejected} = judgeChanges(changes, projectSnap.data() ?? {});
+
+      if (stale.length) {
+        throw new HttpsError(
+          "failed-precondition",
+          `تغيّرت قيمةُ ${stale.map(fieldLabel).join("، ")} منذ تقديم الطلب. ` +
+            "راجع البيانات الحالية، وأعد الطلب من صفحة المشروع.",
+        );
+      }
+      if (rejected.length) {
+        throw new HttpsError(
+          "failed-precondition",
+          `الطلب يحمل حقولاً لا تمرّ من هذا المسار: ${rejected.join("، ")}`,
+        );
+      }
+      if (!Object.keys(patch).length) {
+        throw new HttpsError("failed-precondition", "الطلب لا يحمل تغييراً");
+      }
+
+      const before: Record<string, unknown> = {};
+      const current = projectSnap.data() ?? {};
+      for (const key of Object.keys(patch)) before[key] = current[key] ?? null;
+
+      await projectRef.update(patch);
+      await ref.update({stageTrail: admin.firestore.FieldValue.arrayUnion(step)});
+      await logAudit(
+        actorName,
+        "اعتماد تعديل مشروع",
+        `اعتُمد تعديل بيانات المشروع "${payload.projectName ?? projectId}" ` +
+          `بطلبٍ من ${data.requestedByName ?? "مستخدم"}` +
+          `${payload.reason ? ` — السبب: ${payload.reason}` : ""}`,
+        {
+          // `update` لا `approval`: ما وقع فعلاً هو **تعديلُ المشروع**،
+          // وبه تُصفّى شاشةُ السجل. والاعتمادُ ظرفُ وقوعه لا نوعُه.
+          type: "update",
+          actorUid: auth.uid,
+          targetType: "project",
+          targetId: projectId,
+          targetName: String(payload.projectName ?? projectId),
+          before,
+          after: patch,
+        },
+      );
+      break;
+    }
     case "deadlineChange": {
       await db()
         .collection("projects")
@@ -970,6 +1128,67 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
   return {ok: true};
 });
 
+/**
+ * يُعيد الطلبَ إلى مقدّمه ليصحّحه — **وهو غيرُ الرفض**.
+ *
+ * ــــ ولماذا دالّةٌ ثالثة لا معاملٌ في الرفض ــــ
+ *
+ * لأن الأثرَ مختلف: الرفضُ يُنهي الطلب ويُخلي مكتبَ المعتمِد، وهذه تُبقيه
+ * حيّاً عند مقدّمه. ولو كانا فعلاً واحداً بمعامل لَمرّ يوماً استدعاءٌ بلا
+ * المعامل فأُنهي طلبٌ أُريد إرجاعُه — وذلك خطأٌ لا يُسترجَع منه: البياناتُ
+ * تبقى، لكن مقدّمَ الطلب يقرأ رفضاً حيث أُريد تصحيح.
+ *
+ * والصلاحيةُ هي صلاحيةُ البتّ نفسُها: من يستطيع أن يرفض يستطيع أن يُعيد.
+ */
+export const returnRequestForRevision = onCall({secrets: notificationSecrets}, async (request) => {
+  const auth = requireAuth(request);
+  const {requestId, note} = (request.data ?? {}) as {requestId?: string; note?: string};
+  if (!requestId) throw new HttpsError("invalid-argument", "معرف الطلب مطلوب");
+
+  const ref = db().collection("approvalRequests").doc(requestId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "الطلب غير موجود");
+  const data = snap.data()!;
+  if (data.status !== "pending") {
+    throw new HttpsError("failed-precondition", "تم البت في هذا الطلب مسبقاً");
+  }
+
+  const stage: EditStage = data.stage === "departmentManager" ? "departmentManager" : "systemAdmin";
+  checkApprovalPermission(data.type, auth, (data.departmentId as string | null) ?? null, stage);
+
+  const actorName = auth.token.name ?? "مستخدم";
+  await ref.update({
+    status: "returnedForRevision",
+    resolutionNote: note ?? null,
+    resolvedDate: now(),
+    stageTrail: admin.firestore.FieldValue.arrayUnion({
+      stage,
+      byUid: auth.uid,
+      byName: actorName,
+      at: now(),
+      action: "returned",
+    }),
+  });
+  await logAudit(
+    actorName,
+    "إعادة طلب للتعديل",
+    `أعاد ${actorName} الطلب "${data.title}" إلى مقدّمه للتعديل` +
+      `${note ? ` — الملاحظة: ${note}` : ""}`,
+    {type: "approval", actorUid: auth.uid},
+  );
+
+  if (data.requestedByUid) {
+    await notifyUser(
+      data.requestedByUid as string,
+      "طلبك أُعيد إليك للتعديل",
+      `أُعيد طلبك "${data.title}" لتعديله وإعادة إرساله.` +
+        `${note ? ` الملاحظة: ${note}` : ""}`,
+    );
+  }
+
+  return {ok: true};
+});
+
 export const rejectRequest = onCall({secrets: notificationSecrets}, async (request) => {
   const auth = requireAuth(request);
   const {requestId, note} = (request.data ?? {}) as {requestId?: string; note?: string};
@@ -981,7 +1200,9 @@ export const rejectRequest = onCall({secrets: notificationSecrets}, async (reque
   const data = snap.data()!;
   if (data.status !== "pending") throw new HttpsError("failed-precondition", "تم البت في هذا الطلب مسبقاً");
 
-  checkApprovalPermission(data.type, auth, (data.departmentId as string | null) ?? null);
+  // المرحلةُ من مستند الطلب لا من العميل — وهي ما يُفحص عليه البتّ.
+  const stage: EditStage = data.stage === "departmentManager" ? "departmentManager" : "systemAdmin";
+  checkApprovalPermission(data.type, auth, (data.departmentId as string | null) ?? null, stage);
 
   if (data.type === "registration") {
     const uid = (data.payload as Record<string, unknown>)?.uid as string;

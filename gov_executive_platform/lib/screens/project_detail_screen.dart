@@ -6,6 +6,7 @@ import '../models/assignment_policy.dart';
 import '../models/closure_trail.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
+import '../models/approval_request.dart';
 import '../models/project_task.dart';
 import '../theme/app_theme.dart';
 import '../widgets/responsive_header_row.dart';
@@ -169,10 +170,17 @@ class ProjectDetailScreen extends StatelessWidget {
                       //
                       // ولم يكن له نموذجٌ قبل اليوم إطلاقاً، ولا لمسؤول
                       // النظام: خطأٌ مطبعي في اسم مشروع يبقى سنة.
-                      if (store.canEditProjectDetails(project))
+                      //
+                      // وصار التعديلُ يمرّ بالاعتماد لغير مسؤول النظام: القلمُ
+                      // يفتح **طلباً** لا كتابةً، ويقول ذلك في تلميحه — فلا
+                      // يضغطه أحدٌ متوقّعاً حفظاً فوريّاً.
+                      if (store.canEditProjectDetails(project) ||
+                          store.canRequestProjectEdit(project))
                         IconButton(
                           icon: Icon(Icons.edit_outlined, size: 20, color: AppColors.primary),
-                          tooltip: 'تعديل بيانات المشروع',
+                          tooltip: store.isAdmin
+                              ? 'تعديل بيانات المشروع'
+                              : 'طلب تعديل بيانات المشروع',
                           onPressed: () => showProjectFormDialog(context, project),
                         ),
                       if (store.canConvertIn(project.departmentId))
@@ -294,6 +302,15 @@ class ProjectDetailScreen extends StatelessWidget {
               ),
             ),
           ),
+          // ــ طلبُ تعديلٍ معلّق: يُقال لصاحبه أين وصل ــ
+          //
+          // ولولاه لَظنّ مقدّمُ الطلب أن طلبه ضاع، فأعاد تقديمه — وهو ما
+          // وقع في «المشروع يُضاف مرّتين». والحالُ هنا أوضح: البياناتُ لم
+          // تتغيّر بعد، فيبدو للعين أن شيئاً لم يحدث.
+          if (store.pendingEditFor(project) case final pending?) ...[
+            const SizedBox(height: 16),
+            _PendingEditBanner(request: pending),
+          ],
           if (project.hasContractData) ...[
             const SizedBox(height: 16),
             _ContractCard(project: project),
@@ -1528,6 +1545,71 @@ class _ContractCard extends StatelessWidget {
                     contractor.isEmpty ? null : contractor),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// لافتةُ «لك طلبُ تعديلٍ معلّق» — ومرحلتُه.
+class _PendingEditBanner extends StatelessWidget {
+  final ApprovalRequest request;
+  const _PendingEditBanner({required this.request});
+
+  @override
+  Widget build(BuildContext context) {
+    final changes = request.editChanges;
+    final waiting = request.stage.label;
+    return Card(
+      color: AppColors.info.withValues(alpha: 0.06),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.hourglass_top_rounded, size: 18, color: AppColors.info),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'طلبُ تعديلٍ معلّق — بانتظار $waiting',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            Text(
+              'قدّمه ${request.requestedByName} في ${Formatters.date(request.requestedDate)}. '
+              'والبياناتُ أدناه هي **الحالية** — لا تتغيّر حتى يُعتمد الطلب.',
+              style: const TextStyle(fontSize: 12, height: 1.7, color: AppColors.textSecondary),
+            ),
+            if (changes.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final c in changes)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: (c.isSensitive ? AppColors.warning : AppColors.textSecondary)
+                            .withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        c.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: c.isSensitive ? AppColors.warning : AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

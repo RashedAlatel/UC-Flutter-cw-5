@@ -48,11 +48,20 @@ else
       exit 1
     fi
   }
+  # ــ الترتيبُ مقصود: حالُ الشجرة أولاً، ثم محتواها ــ
+  #
+  # حارسُ «فرعك متأخّر» كان **آخرَ** الخمسة. فمن كان فرعُه متأخّراً يسقط
+  # عنده حارسُ محتوىً على شيفرةٍ قديمة، فيقرأ اتّهاماً لمنصّته والسببُ أنه
+  # لم يسحب — ولا يبلغ السطرَ الذي يقول له ذلك. وقد وقع.
+  #
+  # ثم المحمولية: هي التي تكشف ما **يقتل** السكربتات لا ما يخالف فيها.
+  # وسكربتٌ يموت لا يطبع فحصاً واحداً، فيبدو كأن كل شيءٍ سقط.
+  guard ./tool/test/worktree_state_test.sh
+  guard ./tool/test/shell_portability_test.sh
   guard ./tool/test/firebase_sdk_modules_test.sh
   guard ./tool/test/storage_message_test.sh
   guard ./tool/test/approval_gates_test.sh
   guard ./tool/test/assignment_rank_parity_test.sh
-  guard ./tool/test/worktree_state_test.sh
 fi
 
 # استضافة حزم Firebase محلياً حتى لا تُجلب من www.gstatic.com عند كل فتح.

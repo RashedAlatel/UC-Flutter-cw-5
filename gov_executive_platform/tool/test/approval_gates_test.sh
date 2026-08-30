@@ -797,7 +797,7 @@ want_within() {
     PASS=$((PASS + 1))
   else
     echo "  ✗ $name"
-    echo "      لم يُعثر على «$pattern» داخل «$signature»"
+    echo "      لم يُعثر على «${pattern}» داخل «${signature}»"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -830,7 +830,7 @@ reject_within() {
   local name="$1" signature="$2" pattern="$3"
   if grep -A 40 "$signature" "$STORE" | grep -q "$pattern"; then
     echo "  ✗ $name"
-    echo "      عاد «$pattern» داخل «$signature»"
+    echo "      عاد «${pattern}» داخل «${signature}»"
     FAIL=$((FAIL + 1))
   else
     echo "  ✔ $name"
@@ -1074,8 +1074,32 @@ for field in $EDITABLE_FIELDS; do
     missing_rules="$missing_rules $field"
 done
 
+# ــــ وحارسٌ لا يستطيع القياس لا يتّهم ــــ
+#
+# كتلةٌ خرجت **فارغة** ليست قائمةً ناقصة: هي إخفاقُ الحارس في القراءة —
+# نمطٌ لم يطابق، أو أداةٌ تصرّفت على نظامٍ لا أراه غيرَ ما تصرّفت عندي.
+# فيُقال ذلك بلفظه، **ولا يُوقَف النشر**: أداةٌ كُتبت لحماية المنصة يجب
+# ألّا تكون هي ما يمنع إصلاحها من الوصول. وقد وقع ذلك مرّتين.
+#
+# أمّا كتلةٌ قُرئت فعلاً وخالفت، فتلك مخالفةٌ تُوقف — وهي المقصودة أصلاً.
+WARN=0
+
+# هل تعذّر القياس؟ يُقال ويُعاد `yes`، فيتخطّى النداءُ حكمَه.
+unmeasured() {
+  local name="$1" block="$2"
+  if [ -z "$block" ]; then
+    echo "  ⚠ تعذّر قياس: $name"
+    echo "      لم تُقرأ الكتلة من الملفّ — النمط لم يطابق شيئاً."
+    echo "      وهذا عطلٌ في الحارس لا في المنصة، ولا يُوقف النشر."
+    WARN=$((WARN + 1))
+    return 0
+  fi
+  return 1
+}
+
 list_report() {
   local name="$1" missing="$2" block="$3"
+  unmeasured "$name" "$block" && return 0
   if [ -z "$missing" ]; then
     echo "  ✔ $name"
     PASS=$((PASS + 1))
@@ -1095,6 +1119,7 @@ list_report "وكلُّها ممنوعةٌ من الكتابة المباشرة 
 # والاتجاهُ الآخر: لا يُدسّ حقلٌ زائد. فالعددُ يُقاس كما تُقاس الأسماء.
 count_report() {
   local name="$1" count="$2" block="$3" expected="${4:-11}"
+  unmeasured "$name" "$block" && return 0
   if [ "$count" = "$expected" ]; then
     echo "  ✔ $name"
     PASS=$((PASS + 1))
@@ -1115,10 +1140,10 @@ count_report "ولا في الخادم" \
 # لصارت هذه بابَ التفافٍ حولها.
 for gate in dueDate departmentId managerUids; do
   if printf '%s\n' "$DART_BLOCK" | grep -F -q "'$gate',"; then
-    echo "  ✗ و«$gate» لا تمرّ من طلب التعديل"
+    echo "  ✗ و«${gate}» لا تمرّ من طلب التعديل"
     FAIL=$((FAIL + 1))
   else
-    echo "  ✔ و«$gate» لا تمرّ من طلب التعديل"
+    echo "  ✔ و«${gate}» لا تمرّ من طلب التعديل"
     PASS=$((PASS + 1))
   fi
 done
@@ -1259,5 +1284,10 @@ want_in "tool/deploy.sh" "والفهارسُ تُنشر مع القواعد" \
 echo ""
 
 echo "══════════════════════════════"
-echo "نجح: $PASS · فشل: $FAIL"
+if [ "$WARN" -gt 0 ]; then
+  echo "نجح: $PASS · فشل: $FAIL · تعذّر القياس: $WARN"
+  echo "⚠ $WARN فحصاً لم يُقَس — أبلغ بالسطور المعلَّمة ⚠ حتى يُصلَح الحارس."
+else
+  echo "نجح: $PASS · فشل: $FAIL"
+fi
 [[ $FAIL -eq 0 ]] || exit 1

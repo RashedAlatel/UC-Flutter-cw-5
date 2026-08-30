@@ -1719,7 +1719,14 @@ class AppStore extends ChangeNotifier {
   /// المشاريع، فيسِم مديرُ الإدارة مشاريعَ إدارته كما يعدّل تقدّمها.
   Future<void> setProjectCategories(Project project, List<String> ids) async {
     await _db.collection('projects').doc(project.id).update({'categoryIds': ids});
-    await _log('تصنيفات المشاريع', 'حُدّثت تصنيفات المشروع "${project.name}"');
+    await _log(
+      'تصنيفات المشاريع',
+      'حُدّثت تصنيفات المشروع "${project.name}"',
+      type: ChangeType.update$,
+      targetType: 'project',
+      targetId: project.id,
+      targetName: project.name,
+    );
   }
 
   /// المشاريع المميّزة ضمن نطاق رؤية المستخدم الحالي فقط (تُرشَّح تلقائياً
@@ -3227,6 +3234,185 @@ class AppStore extends ChangeNotifier {
       // إغلاقاً شاملاً: نوعٌ جديد بلا فرعٍ يُوقف الترجمة، وهو المقصود.
       case ApprovalType.projectEdit:
         return false;
+      // ــ نقلُ المشروع بين الإدارات: مسؤولُ النظام وحده ــ
+      //
+      // وقد مرّ في `isAdmin` أعلاه، فيصل هنا غيرُه ويُردّ. وهو أوسعُ أثراً
+      // من تغيير المدير: ذاك ينقل القيادة، وهذا ينقل **من يرى** — المشروعَ
+      // وتوابعَه كاملةً من نطاق إدارةٍ إلى نطاق أخرى.
+      case ApprovalType.departmentTransfer:
+        return false;
+    }
+  }
+
+  /// هل يستطيع هذا المستخدم **طلب** نقل مشروعٍ إلى إدارة أخرى؟
+  ///
+  /// مديرُ إدارة المشروع (هو من يعرف أن المشروع لم يعد من اختصاصه)،
+  /// والمستخدمُ التنفيذي في نطاق ما يراه، ومسؤولُ النظام — وهو ينقل مباشرةً
+  /// بلا طلبٍ يرفعه إلى نفسه.
+  ///
+  /// والموظفُ ومديرُ المشروع لا يطلبان نقلَ ما يعملان فيه إلى إدارة أخرى.
+  bool canRequestDepartmentTransfer(Project project) {
+    if (isAdmin) return true;
+    if (canViewAllDepartments) return true;
+    return isManager && myDepartmentIds.contains(project.departmentId);
+  }
+
+  /// طلبُ نقلٍ معلَّقٌ على هذا المشروع — يُعرض لمقدّمه فلا يقدّم ثانياً.
+  ApprovalRequest? pendingTransferFor(Project project) {
+    for (final r in approvalRequests) {
+      if (r.type != ApprovalType.departmentTransfer) continue;
+      if (r.status != DecisionStatus.pending) continue;
+      if (r.projectId != project.id) continue;
+      return r;
+    }
+    return null;
+  }
+
+  /// يرفع طلبَ نقل مشروعٍ إلى إدارة أخرى — ولا يبتّ فيه إلا مسؤول النظام.
+  ///
+  /// وتُعيد رسالةَ خطأٍ عند التعذّر، و`null` عند النجاح.
+  Future<String?> submitDepartmentTransferRequest({
+    required Project project,
+    required String newDepartmentId,
+    required String reason,
+  }) async {
+    if (!canRequestDepartmentTransfer(project)) {
+      return 'لا تملك صلاحية طلب نقل هذا المشروع.';
+    }
+    if (newDepartmentId == project.departmentId) {
+      return 'المشروع في هذه الإدارة أصلاً.';
+    }
+    if (departmentById(newDepartmentId) == null) {
+      return 'الإدارة المستقبِلة غير موجودة.';
+    }
+    if (pendingTransferFor(project) != null) {
+      return 'على هذا المشروع طلبُ نقلٍ معلّق بانتظار مسؤول النظام.';
+    }
+
+    final oldName = departmentById(project.departmentId)?.name ?? project.departmentId;
+    final newName = departmentById(newDepartmentId)?.name ?? newDepartmentId;
+    try {
+      await _db.collection('approvalRequests').add(ApprovalRequest(
+            id: '',
+            type: ApprovalType.departmentTransfer,
+            status: DecisionStatus.pending,
+            title: 'نقل المشروع "${project.name}" إلى إدارة "$newName"',
+            description: reason.trim(),
+            priority: project.priority,
+            delayImpactDays: 0,
+            // إدارةُ المشروع **الحالية**: عليها يُفحص من يبتّ، وبها يُقرأ
+            // الطلبُ في مركز القرارات قبل وقوع النقل.
+            departmentId: project.departmentId,
+            projectId: project.id,
+            requestedByUid: currentUser?.id ?? '',
+            requestedByName: currentUser?.name ?? '',
+            requestedDate: DateTime.now(),
+            payload: {
+              'projectId': project.id,
+              'projectName': project.name,
+              // الأسماءُ تُنسخ وقت الطلب لا تُقرأ وقت البتّ: مسؤول النظام
+              // يبتّ بعد يومٍ أو يومين، وما يراه يجب أن يكون ما كان.
+              'oldDepartmentId': project.departmentId,
+              'oldDepartmentName': oldName,
+              'newDepartmentId': newDepartmentId,
+              'newDepartmentName': newName,
+              'reason': reason.trim(),
+            },
+          ).toMap());
+    } catch (e) {
+      return readableWriteError(e);
+    }
+    await _log(
+      'نقل المشروع بين الإدارات',
+      'طلب ${currentUser?.name} نقل المشروع "${project.name}" من "$oldName" إلى "$newName"'
+          '${reason.trim().isEmpty ? '' : ' — السبب: ${reason.trim()}'}',
+      type: ChangeType.other,
+      targetType: 'project',
+      targetId: project.id,
+      targetName: project.name,
+    );
+    return null;
+  }
+
+  /// ينقل المشروع مباشرةً — لمسؤول النظام وحده، **عبر الخادم**.
+  ///
+  /// ولا يقع من العميل ولو كان مسؤولَ النظام: التوابعُ الأربعة تُختم بإدارة
+  /// المشروع الجديدة، وقواعدُ المهام والمخاطر والعوائق تمنع تعديل
+  /// `departmentId` على أيٍّ كان، والتحديثاتُ اليومية لا تُعدَّل بحال. فلا
+  /// سبيل إلى الختم إلا بصلاحية المدير على الخادم.
+  Future<String?> transferProjectDepartment({
+    required Project project,
+    required String newDepartmentId,
+    String reason = '',
+  }) async {
+    if (!isAdmin) return 'نقل المشاريع بين الإدارات لمسؤول النظام وحده.';
+    try {
+      await _functions.httpsCallable('transferProjectDepartment').call({
+        'projectId': project.id,
+        'newDepartmentId': newDepartmentId,
+        'reason': reason.trim(),
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر نقل المشروع';
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// يُعيد ختمَ إدارة كل مشروعٍ على توابعه — إصلاحاً لما نُقل قبل هذه الدفعة.
+  ///
+  /// وتُعاد أعدادُ ما فُحص وما أُصلح لتُعرض: فعلٌ يُضغط مرّةً ولا يقول ماذا
+  /// فعل لا يُعرف أوقع أم لم يقع.
+  Future<({String? error, int scanned, int restamped, int orphaned})>
+      restampChildDepartments() async {
+    if (!isAdmin) {
+      return (error: 'هذا الإجراء لمسؤول النظام وحده.', scanned: 0, restamped: 0, orphaned: 0);
+    }
+    try {
+      final res = await _functions.httpsCallable('restampChildDepartments').call();
+      final data = Map<String, dynamic>.from(res.data as Map);
+      return (
+        error: null,
+        scanned: (data['scanned'] as num?)?.toInt() ?? 0,
+        restamped: (data['restamped'] as num?)?.toInt() ?? 0,
+        orphaned: (data['orphaned'] as num?)?.toInt() ?? 0,
+      );
+    } on FirebaseFunctionsException catch (e) {
+      return (
+        error: e.message ?? 'تعذّرت إعادة الختم',
+        scanned: 0,
+        restamped: 0,
+        orphaned: 0
+      );
+    } catch (e) {
+      return (error: e.toString(), scanned: 0, restamped: 0, orphaned: 0);
+    }
+  }
+
+  /// سجلُّ تعديلات مشروعٍ بعينه **منذ إنشائه** — لمسؤول النظام وحده.
+  ///
+  /// ــ ولماذا استعلامٌ مستقلّ لا تصفيةُ [auditLog] ــ
+  ///
+  /// لأن [auditLog] نافذةٌ متحرّكة بآخر [auditLogWindow] سطر من المنصة
+  /// كلِّها. ومشروعٌ عمرُه سنة تكون سطورُه قد خرجت منها من زمان، فتصفيتُها
+  /// تُخرج «لا تعديلات» على مشروعٍ عُدّل عشراً — وهو أسوأ من ألّا تُعرض.
+  ///
+  /// و«منذ الإنشاء» لا تصحّ على نافذة.
+  Future<({String? error, List<AuditLogEntry> entries})> projectHistory(String projectId) async {
+    if (!isAdmin) {
+      return (error: 'سجل التعديلات لمسؤول النظام وحده.', entries: <AuditLogEntry>[]);
+    }
+    try {
+      final snap = await _db
+          .collection('auditLog')
+          .where('targetId', isEqualTo: projectId)
+          .orderBy('timestamp', descending: true)
+          .limit(500)
+          .get();
+      return (error: null, entries: snap.docs.map(AuditLogEntry.fromDoc).toList());
+    } catch (e) {
+      return (error: readableWriteError(e), entries: <AuditLogEntry>[]);
     }
   }
 
@@ -3285,8 +3471,13 @@ class AppStore extends ChangeNotifier {
             'reason': reason,
           },
         ).toMap());
-    await _log('تغيير مدير المشروع',
-        'طلب ${currentUser?.name} تغيير مدير المشروع "${project.name}" إلى $newManagerName');
+    await _log(
+      'تغيير مدير المشروع',
+      'طلب ${currentUser?.name} تغيير مدير المشروع "${project.name}" إلى $newManagerName',
+      targetType: 'project',
+      targetId: project.id,
+      targetName: project.name,
+    );
   }
 
   /// تغيير مدير المشروع مباشرةً — لمسؤول النظام وحده.
@@ -3670,7 +3861,16 @@ class AppStore extends ChangeNotifier {
   Future<void> assignProjectSection(Project project, String? sectionId) async {
     await _db.collection('projects').doc(project.id).update({'sectionId': sectionId});
     final where = sectionId == null ? 'الإدارة مباشرةً' : sectionPathLabel(sectionId);
-    await _log('أقسام الإدارات', 'نُقل مشروع "${project.name}" إلى $where');
+    await _log(
+      'أقسام الإدارات',
+      'نُقل مشروع "${project.name}" إلى $where',
+      type: ChangeType.update$,
+      targetType: 'project',
+      targetId: project.id,
+      targetName: project.name,
+      before: {'sectionId': project.sectionId},
+      after: {'sectionId': sectionId},
+    );
   }
 
   // ------------------------- دوال مساعدة -------------------------
@@ -4360,7 +4560,16 @@ class AppStore extends ChangeNotifier {
         'executorUids': executorUids,
       });
     }
-    await _log('إضافة مشروع', 'أضاف ${currentUser?.name} مشروعاً جديداً "$name" مباشرة');
+    // وسطرُ الإنشاء يُختم بهدفه كغيره: هو **أوّلُ** سطرٍ في سجل تعديلات
+    // المشروع، ومن غيره يبدأ تاريخُ المشروع من ثاني تعديلٍ عليه.
+    await _log(
+      'إضافة مشروع',
+      'أضاف ${currentUser?.name} مشروعاً جديداً "$name" مباشرة',
+      type: ChangeType.create$,
+      targetType: 'project',
+      targetId: ref.id,
+      targetName: name,
+    );
   }
 
   // ------------------------- عضوية المشروع -------------------------
@@ -4490,8 +4699,14 @@ class AppStore extends ChangeNotifier {
     try {
       await _writeTeam(project, managers, executors);
       final name = users.where((u) => u.id == uid).map((u) => u.name).firstOrNull ?? uid;
-      await _log('تعديل فريق المشروع',
-          'عُدِّلت صفة "$name" في مشروع "${project.name}" إلى ${role == 'manager' ? 'مدير' : role == 'executor' ? 'منفّذ' : 'مُزال'}');
+      await _log(
+        'تعديل فريق المشروع',
+        'عُدِّلت صفة "$name" في مشروع "${project.name}" إلى ${role == 'manager' ? 'مدير' : role == 'executor' ? 'منفّذ' : 'مُزال'}',
+        type: ChangeType.update$,
+        targetType: 'project',
+        targetId: project.id,
+        targetName: project.name,
+      );
       return null;
     } catch (e) {
       return describeWriteFailure(e);
@@ -4590,7 +4805,16 @@ class AppStore extends ChangeNotifier {
       managerUid == null || managerUid.isEmpty ? const [] : [managerUid],
       project.executorUids,
     );
-    await _log('تعيين مدير مشروع', 'تم تعيين مدير المشروع لمشروع "${project.name}"');
+    await _log(
+      'تعيين مدير مشروع',
+      'تم تعيين مدير المشروع لمشروع "${project.name}"',
+      type: ChangeType.update$,
+      targetType: 'project',
+      targetId: project.id,
+      targetName: project.name,
+      before: {'managerUids': project.managerUids},
+      after: {'managerUids': managerUid == null || managerUid.isEmpty ? const [] : [managerUid]},
+    );
   }
 
   /// المشاريع التي يخالف حقلها المخزَّن ما يقوله تاريخ الاستحقاق.
@@ -4621,7 +4845,16 @@ class AppStore extends ChangeNotifier {
   /// تحديث قائمة الأشخاص المنفذين للمشروع (يمكن أن يكون أكثر من شخص).
   Future<void> updateProjectExecutors(Project project, List<String> executorNames) async {
     await _db.collection('projects').doc(project.id).update({'executorNames': executorNames});
-    await _log('تحديث المنفذين', 'تم تحديث قائمة منفذي مشروع "${project.name}"');
+    await _log(
+      'تحديث المنفذين',
+      'تم تحديث قائمة منفذي مشروع "${project.name}"',
+      type: ChangeType.update$,
+      targetType: 'project',
+      targetId: project.id,
+      targetName: project.name,
+      before: {'executorNames': project.executorNames},
+      after: {'executorNames': executorNames},
+    );
   }
 
   /// وتُعيد رسالةً إن كان الطلب مكرّراً — راجع [findDuplicatePending].
@@ -4658,7 +4891,13 @@ class AppStore extends ChangeNotifier {
             'reason': reason,
           },
         ).toMap());
-    await _log('طلب تعديل موعد', 'قدّم ${currentUser?.name} طلب تعديل الموعد النهائي لمشروع "${project.name}"');
+    await _log(
+      'طلب تعديل موعد',
+      'قدّم ${currentUser?.name} طلب تعديل الموعد النهائي لمشروع "${project.name}"',
+      targetType: 'project',
+      targetId: project.id,
+      targetName: project.name,
+    );
     return null;
   }
 

@@ -281,6 +281,16 @@ enum ApprovalType {
   // والمرحلةُ على مستند الطلب (`stage`)، ومن يبتّ فيها يقرّره
   // `functions/src/approval_stage.ts` — لا الدورُ وحده.
   projectEdit,
+  // ــــ نقلُ المشروع من إدارة إلى أخرى ــــ
+  //
+  // بوابةٌ من صنف تغيير المدير، وأوسعُ منها أثراً: تلك تنقل **القيادة**
+  // وهذه تنقل **من يرى**. يطلبها مديرُ إدارة المشروع أو المستخدم التنفيذي،
+  // ولا يبتّ فيها إلا مسؤولُ النظام.
+  //
+  // وتنتقل بها توابعُ المشروع كلُّها — مهامُّه وتحديثاتُه ومخاطرُه وعوائقُه
+  // — لأنها تنسخ إدارتَه على نفسها، ومن نقل المشروعَ وحده تركها خلفه.
+  // راجع `transferProjectDepartment` على الخادم.
+  departmentTransfer,
   decision; // قرار تنفيذي عام مطلوب من القيادة
 
   String get label {
@@ -301,6 +311,8 @@ enum ApprovalType {
         return 'تعيين مدير مشروع';
       case ApprovalType.projectEdit:
         return 'تعديل بيانات مشروع';
+      case ApprovalType.departmentTransfer:
+        return 'نقل مشروع بين الإدارات';
       case ApprovalType.decision:
         return 'قرار تنفيذي';
     }

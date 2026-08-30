@@ -46,6 +46,23 @@ want_in() {
   fi
 }
 
+# ونظيرُ `want_in` بنصٍّ حرفيّ لا تعبيرٍ نمطي.
+#
+# وسببُه أن `[` و`(` و`.` محارفُ معنى في `grep`، فنمطٌ فيه قائمةٌ حرفية
+# (`["tasks", "risks"]`) يُقرأ صنفَ محارف ولا يطابق نفسه — فيسقط الحارس على
+# شيفرةٍ صحيحة، أو أسوأ: يمرّ على شيفرةٍ حُذفت.
+want_fixed_in() {
+  local file="$1" name="$2" pattern="$3"
+  if grep -F -q "$pattern" "$file"; then
+    echo "  ✔ $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ $name"
+    echo "      لم يُعثر في $file على: $pattern"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 # ونقيضُها: نمطٌ يجب ألّا يوجد.
 reject_in() {
   local file="$1" name="$2" pattern="$3"
@@ -1077,8 +1094,8 @@ list_report "وكلُّها ممنوعةٌ من الكتابة المباشرة 
 
 # والاتجاهُ الآخر: لا يُدسّ حقلٌ زائد. فالعددُ يُقاس كما تُقاس الأسماء.
 count_report() {
-  local name="$1" count="$2" block="$3"
-  if [ "$count" = "11" ]; then
+  local name="$1" count="$2" block="$3" expected="${4:-11}"
+  if [ "$count" = "$expected" ]; then
     echo "  ✔ $name"
     PASS=$((PASS + 1))
   else
@@ -1137,6 +1154,108 @@ case "$NEXT_LINE" in
     PASS=$((PASS + 1))
     ;;
 esac
+echo ""
+
+# ــــ الجوهريُّ: نسختان تُقارنان بمرجعٍ ثابت ــــ
+#
+# القائمةُ تقرّر شيئين: ما يُميَّز بلونٍ للمعتمِد في البطاقة، **ومن يُشعَر**
+# بعد الاعتماد. فحقلٌ يسقط منها يمرّ في سطرٍ يُشبه تصحيح إملاء، ولا يعلم به
+# مديرُ الإدارة ولا مديرُ المشروع.
+#
+# وهي في موضعين: `kSensitiveProjectFields` في العميل و`SENSITIVE_FIELDS` على
+# الخادم. وتُقارنان بالقائمة المرجعية أدناه لا ببعضهما — فحذفٌ وقع فيهما
+# معاً يُلتقط.
+echo "والقائمةُ الجوهرية واحدة:"
+
+SENSITIVE_FIELDS="name departmentId managerUids startDate dueDate \
+contractStartDate contractEndDate invoiceDueDate contractValue durationDays"
+
+DART_SENSITIVE="$(grep -F -A 12 "const Set<String> kSensitiveProjectFields = {" \
+  lib/models/project_edit.dart)"
+TS_SENSITIVE="$(grep -F -A 12 "export const SENSITIVE_FIELDS" \
+  functions/src/approval_stage.ts)"
+
+missing_dart_s=""
+missing_ts_s=""
+for field in $SENSITIVE_FIELDS; do
+  printf '%s\n' "$DART_SENSITIVE" | grep -F -q "'$field'," || missing_dart_s="$missing_dart_s $field"
+  printf '%s\n' "$TS_SENSITIVE" | grep -F -q "\"$field\"," || missing_ts_s="$missing_ts_s $field"
+done
+
+list_report "العشرةُ الجوهرية في العميل" "$missing_dart_s" "$DART_SENSITIVE"
+list_report "وهي نفسُها في الخادم" "$missing_ts_s" "$TS_SENSITIVE"
+
+count_report "ولا حقلَ جوهريٌّ زائد في العميل" \
+  "$(printf '%s\n' "$DART_SENSITIVE" | grep -c "^  '")" "$DART_SENSITIVE" 10
+count_report "ولا في الخادم" \
+  "$(printf '%s\n' "$TS_SENSITIVE" | grep -c '^  "')" "$TS_SENSITIVE" 10
+
+# والإشعارُ يقع عند الجوهريّ، وعند المرحلة الأخيرة وحدها.
+want_in "$SRC" "والإشعارُ يُسمّي ما تغيّر لا يقول «تغيّر شيء»" \
+  "sensitive.map(fieldLabel).join"
+echo ""
+
+# ــــ نقلُ المشروع: التوابعُ تنتقل معه ــــ
+#
+# ــ العطلُ الذي أوجب هذا الحارس ــ
+#
+# المهامُّ والتحديثاتُ والمخاطرُ والعوائق تنسخ إدارةَ المشروع على نفسها،
+# وقاعدةُ قراءتها تقرأ المنسوخ. فمن نقل المشروعَ وحده ترك مديرَ الإدارة
+# الجديدة يرى المشروع ولا يرى مهامَّه. وهو ما كان يقع في `moveSectionToDepartment`
+# ويُقاس في `test_rules/department_transfer.rules.test.mjs`.
+#
+# فيُحرس أن الأربعة تُختم، وأن النقل من الخادم لا من العميل.
+echo "ونقلُ المشروع ينقل توابعَه:"
+want_fixed_in "$SRC" "المجموعاتُ الأربع في موضعٍ واحد" \
+  'const CHILD_COLLECTIONS = ["tasks", "dailyUpdates", "risks", "blockers"];'
+want_fixed_in "$SRC" "والتوابعُ تُختم بالإدارة الجديدة" \
+  'batch.update(child.ref, {departmentId: newDepartmentId});'
+want_in "$SRC" "والقسمُ يُفرَّغ فلا يشير إلى إدارةٍ أخرى" "sectionId: null,"
+want_in "$SRC" "وتاريخُ النقل يُسجَّل" "departmentTransferredAt: now(),"
+want_in "$SRC" "ولإصلاح ما نُقل سابقاً دالّةٌ تُعاد بلا ضرر" \
+  "export const restampChildDepartments"
+# والنقلُ لا يقع من العميل: التوابعُ تُختم بصلاحية المدير وحدها.
+want_in "lib/data/app_store.dart" "والعميلُ ينقل عبر الخادم لا بيده" \
+  "httpsCallable('transferProjectDepartment')"
+reject_in "lib/data/app_store.dart" "ولا يكتب الإدارة على المشروع مباشرةً" \
+  "'departmentId': newDepartmentId"
+echo ""
+
+# ــــ وسجلُّ المشروع لا يُفتح على فراغ ــــ
+#
+# السجلُّ يُقرأ باستعلامٍ على `targetId`. فما لم تُختم الأفعالُ بهدفها لم
+# يظهر منها شيء — وشاشةٌ تقول «لا تعديلات» على مشروعٍ عُدّل عشراً أسوأ من
+# ألّا تُعرض.
+echo "وأفعالُ المشروع تُختم بهدفها:"
+# ــ والعددُ **مضبوطٌ** لا «على الأقلّ» ــ
+#
+# حدٌّ أدنى لا يكشف حذفَ واحدٍ من اثني عشر: يبقى فوق الحدّ فيمرّ. وقد قيس
+# ذلك بطفرة، فصار العددُ مضبوطاً.
+#
+# ومن أضاف فعلاً جديداً يمسّ مشروعاً وختمه يرفع الرقم هنا **عن قصد**، ويُقرأ
+# رفعُه في المراجعة — كما في حدّ قائمة الاستثناء في `audit_coverage_test.sh`.
+STAMPED="$(grep -c "targetType: 'project'" lib/data/app_store.dart)"
+if [ "$STAMPED" = "12" ]; then
+  echo "  ✔ اثنا عشرَ فعلاً مختوماً في العميل"
+  PASS=$((PASS + 1))
+else
+  echo "  ✗ اثنا عشرَ فعلاً مختوماً في العميل"
+  echo "      عُدَّ $STAMPED لا ١٢ — أحُذف ختمٌ من فعلٍ يمسّ مشروعاً، أم أُضيف فعلٌ ولم يُرفع الرقم؟"
+  FAIL=$((FAIL + 1))
+fi
+SERVER_STAMPED="$(grep -c 'targetType: "project"' "$SRC")"
+if [ "$SERVER_STAMPED" = "5" ]; then
+  echo "  ✔ وخمسةٌ على الخادم: الإنشاءُ والموعدُ والمديرُ والتعديلُ والنقل"
+  PASS=$((PASS + 1))
+else
+  echo "  ✗ وخمسةٌ على الخادم"
+  echo "      عُدَّ $SERVER_STAMPED لا ٥ — الإنشاءُ والموعدُ والمديرُ والتعديلُ والنقل"
+  FAIL=$((FAIL + 1))
+fi
+# والفهرسُ يُنشر مع القواعد، وإلا لم يصل أبداً.
+want_in "firestore.indexes.json" "وفهرسُ سجل المشروع موجود" '"collectionGroup": "auditLog"'
+want_in "tool/deploy.sh" "والفهارسُ تُنشر مع القواعد" \
+  "firestore:rules,firestore:indexes"
 echo ""
 
 echo "══════════════════════════════"

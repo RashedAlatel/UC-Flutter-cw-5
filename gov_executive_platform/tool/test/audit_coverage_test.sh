@@ -46,6 +46,8 @@ applyRolePermissions
 generateDailyReportNow
 bootstrapFirstAdmin
 returnRequestForRevision
+transferProjectDepartment
+restampChildDepartments
 "
 
 # (ب) ما ليس تغييراً على بيانات الوزارة: تفضيلاتٌ شخصية لا يراها غير
@@ -85,8 +87,23 @@ UNLOGGED="$(python3 - "$STORE" <<'PY'
 import re, sys
 src = open(sys.argv[1], encoding='utf-8').read()
 lines = src.split('\n')
-pat = re.compile(r'^  (?:Future<[^>]*>|Future) ([a-z][A-Za-z0-9_]*)\(')
-funcs = [(m.group(1), i) for i, l in enumerate(lines) if (m := pat.match(l))]
+# ــ التوقيعُ قد يلتفّ على سطرين ــ
+#
+# نوعُ الإرجاع الطويل (سجلٌّ بحقولٍ عدّة) يدفع الاسمَ إلى السطر التالي.
+# ونمطٌ يقرأ سطراً واحداً لا يراه، فتمرّ دالّةُ كتابةٍ كاملة بلا فحص —
+# وقد وقع ذلك فعلاً، وقيس بطفرةٍ لم تعضّ.
+#
+# ولا يُشترط خلوُّ السطر من قوس: نوعُ السجلّ نفسُه فيه أقواس
+# (`Future<({String? error, int scanned})>`). فالشرطُ أن يخفق النمطُ على
+# السطر وحده — وحينها وحدها يُضمّ إليه تاليه.
+pat = re.compile(r'^  Future(?:<.*>)?\s+([a-z][A-Za-z0-9_]*)\(')
+funcs = []
+for i, line in enumerate(lines):
+    m = pat.match(line)
+    if m is None and line.startswith('  Future') and i + 1 < len(lines):
+        m = pat.match(line.rstrip() + ' ' + lines[i + 1].strip())
+    if m:
+        funcs.append((m.group(1), i))
 for idx, (name, i) in enumerate(funcs):
     end = funcs[idx + 1][1] if idx + 1 < len(funcs) else len(lines)
     body = '\n'.join(lines[i:end])
@@ -128,9 +145,14 @@ fi
 # ورُفع ثانيةً إلى ٢٢ لـ`returnRequestForRevision`: إعادةُ الطلب للتعديل
 # قرارُ معتمِدٍ لا كتابةُ عميل — تفحص الدالّةُ الخلفية المرحلةَ والرتبة ثم
 # تكتب السطر بصلاحية المدير («إعادة طلب للتعديل»)، وهو مفحوصٌ أدناه.
+#
+# ثم إلى ٢٤ لـ`transferProjectDepartment` و`restampChildDepartments`: نقلُ
+# المشروع بين الإدارتين يختم توابعَه الأربعة بالإدارة الجديدة، وقواعدُها
+# تمنع ذلك على كل متصل — فلا سبيل إليه إلا بصلاحية المدير على الخادم،
+# وسطرُه يُكتب هناك. وكلاهما مفحوصٌ أدناه.
 ALLOWED_COUNT="$(printf '%s\n' "$ALLOWED" | grep -c .)"
-if [ "$ALLOWED_COUNT" -le 22 ]; then
-  report "وقائمة الاستثناء لم تتضخّم ($ALLOWED_COUNT من ٢٢)" 1
+if [ "$ALLOWED_COUNT" -le 24 ]; then
+  report "وقائمة الاستثناء لم تتضخّم ($ALLOWED_COUNT من ٢٤)" 1
 else
   report "وقائمة الاستثناء لم تتضخّم" 0 \
     "صارت $ALLOWED_COUNT استثناءً — راجعها قبل رفع الحدّ."

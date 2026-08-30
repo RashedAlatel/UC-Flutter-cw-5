@@ -157,7 +157,7 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: entries.length,
                             separatorBuilder: (_, _) => const Divider(height: 1),
-                            itemBuilder: (context, i) => _EntryTile(entry: entries[i]),
+                            itemBuilder: (context, i) => AuditEntryTile(entry: entries[i]),
                           ),
                   ),
                 ),
@@ -170,9 +170,14 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
   }
 }
 
-class _EntryTile extends StatelessWidget {
+/// سطرٌ واحد من السجل — **عامٌّ ليُعاد استعماله**.
+///
+/// يُعرض في شاشة السجل العامة وفي سجل تعديلات مشروعٍ بعينه. ونسختان منه
+/// تفترقان بأول تعديل، فيقرأ مسؤول النظام السطرَ نفسَه بشكلين — وأشدُّ ما
+/// يفترق فيه جدولُ «قبل ← بعد»، وهو موضعُ الحكم لا الزينة.
+class AuditEntryTile extends StatelessWidget {
   final AuditLogEntry entry;
-  const _EntryTile({required this.entry});
+  const AuditEntryTile({super.key, required this.entry});
 
   @override
   Widget build(BuildContext context) {

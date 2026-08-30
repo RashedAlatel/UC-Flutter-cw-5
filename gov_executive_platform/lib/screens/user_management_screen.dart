@@ -59,6 +59,50 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     ));
   }
 
+  /// يُعيد ختمَ إدارة كل مشروع على توابعه — إصلاحاً لما نُقل قبل هذه الدفعة.
+  ///
+  /// ــ العطلُ الذي يُصلحه ــ
+  ///
+  /// نقلُ قسمٍ إلى إدارة أخرى (أو تحويلُ إدارةٍ إلى قسم) كان ينقل المشاريع
+  /// **ولا ينقل توابعها**: تبقى مهامُّها وتحديثاتُها ومخاطرُها وعوائقُها
+  /// مختومةً بالإدارة القديمة. فمديرُ الإدارة الجديدة يرى المشروع ولا يرى
+  /// مهامَّه، ومديرُ القديمة يراها وقد خرج المشروع من إدارته.
+  ///
+  /// ويُقاس في `test_rules/department_transfer.rules.test.mjs`.
+  Future<void> _restampDepartments(BuildContext context) async {
+    final store = context.read<AppStore>();
+    final messenger = ScaffoldMessenger.of(context);
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إعادة ختم إدارات التوابع'),
+        content: const Text(
+          'يفحص مهامّ كل مشروع وتحديثاته اليومية ومخاطره وعوائقه، ويُعيد ختم '
+          'ما اختلفت إدارتُه عن إدارة مشروعه.\n\n'
+          'ويلزم مرّةً واحدة إن كنتَ قد نقلتَ قسماً إلى إدارة أخرى أو حوّلتَ '
+          'إدارةً إلى قسم قبل هذا التحديث: المشاريع انتقلت حينها ولم تنتقل '
+          'توابعُها معها. وإعادتُه لا تضرّ — لا يُكتب على مستندٍ مطابقٍ سلفاً.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('ابدأ')),
+        ],
+      ),
+    );
+    if (go != true) return;
+    messenger.showSnackBar(const SnackBar(content: Text('جارٍ الفحص وإعادة الختم…')));
+    final r = await store.restampChildDepartments();
+    messenger.showSnackBar(SnackBar(
+      // ويُقال العددُ حتى لو كان صفراً: «فُحص ٤٠٠ وأُصلح ٠» خبرٌ يطمئن،
+      // و«تم» وحدها لا تقول أوقع شيءٌ أم لم يقع.
+      content: Text(r.error ??
+          'فُحص ${r.scanned} مستنداً تابعاً، وأُعيد ختم ${r.restamped} منها'
+              '${r.orphaned > 0 ? '، و${r.orphaned} تابعٌ لمشروعٍ لم يعد موجوداً فتُرك' : ''}.'),
+      backgroundColor: r.error == null ? AppColors.success : AppColors.danger,
+      duration: const Duration(seconds: 8),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
@@ -103,6 +147,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 label: 'ختم عضوية المشاريع',
                 icon: Icons.published_with_changes_rounded,
                 onPressed: () => _stampMembership(context),
+              ),
+              // ــ وإعادةُ ختم الإدارات: إصلاحُ ما نُقل قبل هذه الدفعة ــ
+              //
+              // نقلُ الأقسام بين الإدارات كان ينقل المشاريع ولا ينقل توابعها.
+              // يُضغط مرّةً، وإعادتُه بلا ضرر.
+              BandButton(
+                label: 'إعادة ختم إدارات التوابع',
+                icon: Icons.drive_file_move_rtl_outlined,
+                onPressed: () => _restampDepartments(context),
               ),
               BandButton(
                 label: 'إضافة مستخدم مباشرة',

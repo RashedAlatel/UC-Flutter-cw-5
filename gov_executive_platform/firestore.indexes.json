@@ -17,6 +17,15 @@
       ]
     },
     {
+      "_comment": "سجلُّ تعديلات مشروعٍ بعينه منذ إنشائه — لا تصفيةُ النافذة المتحرّكة. راجع AppStore.projectHistory",
+      "collectionGroup": "auditLog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "targetId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "reports",
       "queryScope": "COLLECTION",
       "fields": [

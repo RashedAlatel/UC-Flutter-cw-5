@@ -35,6 +35,21 @@ class Project {
   /// null يعني مشروعاً تحت الإدارة مباشرةً بلا قسم.
   final String? sectionId;
 
+  /// الإدارةُ التي كان فيها قبل آخر نقل — و`null` لمشروعٍ لم يُنقل قطّ.
+  ///
+  /// ولا يُقرأ منها تاريخٌ كامل: هي **آخرُ** نقلة لا كلُّ النقلات. وسجلُّ
+  /// النقلات كاملاً في سجل التدقيق، وهو موضعُه: لا يُعدَّل ولا يُحذف.
+  final String? previousDepartmentId;
+
+  /// متى نُقل المشروع آخرَ مرّة — «تاريخ النقل» الذي طُلب تسجيلُه.
+  ///
+  /// ويُكتب من **الخادم** وحده مع النقل نفسه، فلا يُدّعى نقلٌ لم يقع.
+  final DateTime? departmentTransferredAt;
+
+  /// هل نُقل هذا المشروع بين الإدارات؟ وبها يُعرض سطرُ النقل في صفحته.
+  bool get wasTransferred =>
+      departmentTransferredAt != null && (previousDepartmentId ?? '').isNotEmpty;
+
   /// تاريخ **إضافة** المشروع إلى المنصة — لا تاريخ بدئه.
   ///
   /// والفرق جوهري لترتيب «الأحدث»: مشروعٌ خُطّط بدؤه العام الماضي وأُضيف
@@ -106,6 +121,8 @@ class Project {
     this.managerUids = const [],
     this.executorUids = const [],
     this.sectionId,
+    this.previousDepartmentId,
+    this.departmentTransferredAt,
     this.categoryIds = const [],
     this.createdAt,
     this.contractDate,
@@ -273,6 +290,13 @@ class Project {
       managerUids: managerUids ?? this.managerUids,
       executorUids: executorUids ?? this.executorUids,
       sectionId: clearSection ? null : (sectionId ?? this.sectionId),
+      // ــ أثرُ النقل يُنقَل مع النسخة، كعلامات الحذف تماماً ــ
+      //
+      // `toMap` تكتب المستند كاملاً، ونسخةٌ بلا هذين الحقلين تمحو من
+      // مشروعٍ منقولٍ أنه نُقل — بلا أن يقصد ذلك أحد. وهما يُكتبان من
+      // الخادم وحده، فلا سبيل إلى إعادتهما من هنا لو مُحيا.
+      previousDepartmentId: previousDepartmentId,
+      departmentTransferredAt: departmentTransferredAt,
       categoryIds: categoryIds ?? this.categoryIds,
       createdAt: createdAt,
       contractDate: clearContract ? null : (contractDate ?? this.contractDate),
@@ -316,6 +340,15 @@ class Project {
         // وإلا صار باباً لإسناد المشروع لمن ليس فيه.
         'managerUid': managerUids.isEmpty ? null : managerUids.first,
         'sectionId': sectionId,
+        // ــ أثرُ النقل يُكتب كما قُرئ، ولا يُختلق ــ
+        //
+        // والشرطُ هنا لا كحقول العقد: تلك تُكتب فارغةً لأنها **قيمةٌ** يملؤها
+        // المستخدم، وهذان أثرُ فعلٍ يكتبه الخادم. ومشروعٌ لم يُنقل لا مفتاحَ
+        // له أصلاً، وكتابةُ `null` عليه من العميل تعني أن العميل يقرّر أنه لم
+        // يُنقل — وهو لا يقرّر ذلك.
+        if (previousDepartmentId != null) 'previousDepartmentId': previousDepartmentId,
+        if (departmentTransferredAt != null)
+          'departmentTransferredAt': Timestamp.fromDate(departmentTransferredAt!),
         'categoryIds': categoryIds,
         if (createdAt != null) 'createdAt': Timestamp.fromDate(createdAt!),
         // ــ حقولُ العقد تُكتب **دائماً ولو فارغة** ــ
@@ -381,6 +414,11 @@ class Project {
       managerUids: _uidList(json['managerUids'], legacy: json['managerUid'] as String?),
       executorUids: _uidList(json['executorUids']),
       sectionId: (json['sectionId'] as String?)?.isEmpty ?? true ? null : json['sectionId'] as String?,
+      // وغيابُ المفتاح يُقرأ «لم يُنقل» — وهو الصادق: كلُّ ما كُتب قبل هذه
+      // الدفعة لم يُنقل بهذا المسار، وما نُقل بالمسار القديم لا أثرَ له.
+      previousDepartmentId:
+          (json['previousDepartmentId'] as String?)?.isEmpty ?? true ? null : json['previousDepartmentId'] as String?,
+      departmentTransferredAt: (json['departmentTransferredAt'] as Timestamp?)?.toDate(),
       // المستندات المكتوبة قبل التصنيفات — وهي كل مشاريع الوزارة المستوردة —
       // تفتقد الحقل، فتُقرأ بقائمة فارغة بلا ترحيل ولا انهيار.
       createdAt: (json['createdAt'] as Timestamp?)?.toDate(),

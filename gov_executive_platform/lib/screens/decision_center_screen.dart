@@ -197,6 +197,12 @@ class _RequestCardState extends State<_RequestCard> {
               const SizedBox(height: 12),
               _ProjectEditPanel(request: r),
             ],
+            // نقلُ المشروع بين الإدارتين: القديمةُ والجديدة جنباً إلى جنب،
+            // ومعهما ما يقع عند الاعتماد — فلا يوقّع المسؤول على أثرٍ لا يعرفه.
+            if (r.type == ApprovalType.departmentTransfer) ...[
+              const SizedBox(height: 12),
+              _DepartmentTransferPanel(request: r),
+            ],
             // ــ تعيين مدير مشروع: ما الذي يُمنَح باعتماد هذا الطلب؟ ــ
             //
             // المعتمِد مدير إدارة لا مسؤول نظام، وقد لا يعرف ماذا تعني
@@ -1119,6 +1125,66 @@ class _ProjectEditPanel extends StatelessWidget {
               emphasis: true,
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// «من إدارة → إلى إدارة» لطلب نقل المشروع، ومعه أثرُ الاعتماد.
+///
+/// والأسماءُ من **الحمولة** لا من المشروع وقت العرض: مسؤول النظام يبتّ بعد
+/// يومٍ أو يومين، وما يراه يجب أن يكون ما كان وقت الطلب — كما في
+/// [_ManagerChangePanel] حرفاً بحرف.
+class _DepartmentTransferPanel extends StatelessWidget {
+  final ApprovalRequest request;
+  const _DepartmentTransferPanel({required this.request});
+
+  @override
+  Widget build(BuildContext context) {
+    final payload = request.payload;
+    final from = payload['oldDepartmentName']?.toString() ?? 'غير معروفة';
+    final to = payload['newDepartmentName']?.toString() ?? 'غير معروفة';
+    final reason = payload['reason']?.toString().trim() ?? '';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('نقل المشروع بين الإدارات', style: AppText.label),
+          const SizedBox(height: 8),
+          _ChangeLine(
+            label: 'الإدارة الحالية',
+            value: from,
+            icon: Icons.account_balance_outlined,
+          ),
+          const SizedBox(height: 6),
+          _ChangeLine(
+            label: 'الإدارة المستقبِلة',
+            value: to,
+            icon: Icons.account_balance_rounded,
+            emphasis: true,
+          ),
+          if (reason.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _ChangeLine(label: 'السبب', value: reason, icon: Icons.notes_rounded),
+          ],
+          const SizedBox(height: 10),
+          // ما يقع عند الضغط — بالحرف، وقبل الضغط لا بعده.
+          const Text(
+            'باعتماد هذا الطلب ينتقل المشروع وكلُّ ما فيه: مهامُّه وتحديثاته '
+            'اليومية ومخاطره وعوائقه ومرفقاته — لا يُحذف منها شيء. ويكسب مديرُ '
+            'الإدارة المستقبِلة رؤيتَها وإدارتَها، ويفقدها مديرُ الإدارة '
+            'الحالية. ويُفرَّغ القسمُ داخل الإدارة، ويُسجَّل تاريخ النقل.',
+            style: TextStyle(fontSize: 11.5, height: 1.8, color: AppColors.textPrimary),
+          ),
         ],
       ),
     );

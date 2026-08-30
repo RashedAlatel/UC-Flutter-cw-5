@@ -29,6 +29,8 @@ import '../widgets/section_picker.dart';
 import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
 import 'project_form_dialog.dart';
+import 'project_history_screen.dart';
+import 'project_transfer_dialog.dart';
 import 'request_deadline_change_dialog.dart';
 
 class ProjectDetailScreen extends StatelessWidget {
@@ -183,6 +185,32 @@ class ProjectDetailScreen extends StatelessWidget {
                               : 'طلب تعديل بيانات المشروع',
                           onPressed: () => showProjectFormDialog(context, project),
                         ),
+                      // ــ نقلُ المشروع إلى إدارة أخرى ــ
+                      //
+                      // ولا يبتّ فيه إلا مسؤول النظام: ينتقل به المشروعُ
+                      // وتوابعُه كاملةً من نطاق إدارةٍ إلى نطاق أخرى، فيتبدّل
+                      // **من يرى** لا من يقود وحسب.
+                      if (store.canRequestDepartmentTransfer(project))
+                        IconButton(
+                          icon: const Icon(Icons.drive_file_move_outlined,
+                              size: 20, color: AppColors.textSecondary),
+                          tooltip: store.isAdmin
+                              ? 'نقل المشروع إلى إدارة أخرى'
+                              : 'طلب نقل المشروع إلى إدارة أخرى',
+                          onPressed: () => showTransferProjectDialog(context, project),
+                        ),
+                      // ــ سجلُّ تعديلات المشروع: لمسؤول النظام وحده ــ
+                      //
+                      // وقاعدةُ `auditLog` تقرأ له وحده أصلاً، فهذا الشرطُ
+                      // مرآةُ القاعدة لا حارسُها: لو عُرض لغيره لَفتح شاشةً
+                      // فارغةً بخطأ صلاحية.
+                      if (store.isAdmin)
+                        IconButton(
+                          icon: const Icon(Icons.history_rounded,
+                              size: 20, color: AppColors.textSecondary),
+                          tooltip: 'سجل تعديلات المشروع',
+                          onPressed: () => showProjectHistory(context, project),
+                        ),
                       if (store.canConvertIn(project.departmentId))
                         IconButton(
                           icon: const Icon(Icons.swap_horiz_rounded,
@@ -310,6 +338,22 @@ class ProjectDetailScreen extends StatelessWidget {
           if (store.pendingEditFor(project) case final pending?) ...[
             const SizedBox(height: 16),
             _PendingEditBanner(request: pending),
+          ],
+          // ــ وطلبُ نقلٍ معلّق كذلك: أثرُه أوسع، وسكوتُه أضرّ ــ
+          //
+          // من يرى مشروعاً في إدارته ولا يعلم أن نقله مطلوبٌ يخطّط له
+          // ويوزّع مهامَّه، ثم يجده خارج نطاقه صباحاً.
+          if (store.pendingTransferFor(project) case final transfer?) ...[
+            const SizedBox(height: 16),
+            _PendingTransferBanner(request: transfer),
+          ],
+          // ــ وأثرُ النقل يبقى معروضاً بعد وقوعه ــ
+          //
+          // مشروعٌ ظهر في إدارةٍ فجأةً بلا سطرٍ يقول من أين جاء يُقرأ خطأً
+          // في البيانات. وهذا السطر هو «تاريخ النقل» الذي طُلب تسجيلُه.
+          if (project.wasTransferred) ...[
+            const SizedBox(height: 16),
+            _TransferredLine(project: project),
           ],
           if (project.hasContractData) ...[
             const SizedBox(height: 16),
@@ -1610,6 +1654,82 @@ class _PendingEditBanner extends StatelessWidget {
                 ],
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// لافتةُ «على هذا المشروع طلبُ نقلٍ معلّق».
+class _PendingTransferBanner extends StatelessWidget {
+  final ApprovalRequest request;
+  const _PendingTransferBanner({required this.request});
+
+  @override
+  Widget build(BuildContext context) {
+    final to = request.payload['newDepartmentName']?.toString() ?? 'إدارة أخرى';
+    final reason = request.payload['reason']?.toString().trim() ?? '';
+    return Card(
+      color: AppColors.warning.withValues(alpha: 0.07),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.drive_file_move_outline, size: 18, color: AppColors.warning),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'طلبُ نقلٍ معلّق إلى «$to» — بانتظار مسؤول النظام',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            Text(
+              'قدّمه ${request.requestedByName} في ${Formatters.date(request.requestedDate)}. '
+              'والمشروعُ وتوابعُه في إدارتهما الحالية حتى يُعتمد الطلب.'
+              '${reason.isEmpty ? '' : ' السبب: $reason'}',
+              style: const TextStyle(fontSize: 12, height: 1.7, color: AppColors.textSecondary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// «نُقل من إدارة كذا في تاريخ كذا» — أثرُ النقل بعد وقوعه.
+class _TransferredLine extends StatelessWidget {
+  final Project project;
+  const _TransferredLine({required this.project});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    // والإدارةُ القديمة قد تكون حُذفت أو حُوّلت إلى قسم؛ فيُعرض معرّفُها
+    // حينئذٍ ولا يُخفى السطرُ كلُّه: نقلٌ وقع خبرٌ صحيح ولو غاب اسمُ مصدره.
+    final from = store.departmentById(project.previousDepartmentId ?? '')?.name ??
+        project.previousDepartmentId ??
+        'إدارة سابقة';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.lg),
+        child: Row(
+          children: [
+            const Icon(Icons.drive_file_move_rtl_outlined,
+                size: 17, color: AppColors.textSecondary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'نُقل هذا المشروع من إدارة «$from» في '
+                '${Formatters.date(project.departmentTransferredAt!)}، '
+                'وانتقلت معه مهامُّه وتحديثاته ومخاطره وعوائقه كاملةً.',
+                style: const TextStyle(fontSize: 12, height: 1.7, color: AppColors.textSecondary),
+              ),
+            ),
           ],
         ),
       ),

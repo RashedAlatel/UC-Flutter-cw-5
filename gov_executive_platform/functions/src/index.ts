@@ -22,6 +22,7 @@ import {
   nextStage,
   appliesAt,
   judgeChanges,
+  sensitiveOf,
   EditStage,
 } from "./approval_stage";
 import {
@@ -616,8 +617,12 @@ function checkApprovalPermission(
         departmentIds: (auth?.token.departmentIds as string[] | undefined) ?? [],
       }, departmentId);
       break;
-    // registration و deadlineChange و notifySend و managerChange: مسؤول
-    // النظام وحده، بلا استثناء. و`notifySend` أُلحقت بهنّ بقرار صريح منه: كل بريد يخرج باسم
+    // registration و deadlineChange و notifySend و managerChange
+    // و departmentTransfer: مسؤول النظام وحده، بلا استثناء.
+    //
+    // ونقلُ الإدارة منهنّ بقرارٍ صريح: هو أوسعُ أثراً من تغيير المدير —
+    // يُخرج المشروعَ وتوابعَه كاملةً من نطاق إدارةٍ ويُدخلها أخرى، فيتبدّل
+    // **من يرى** لا من يقود وحسب. و`notifySend` أُلحقت بهنّ بقرار صريح منه: كل بريد يخرج باسم
     // المنصة يمرّ بموافقته. ولا يفتحها مفتاح مفوَّض — لا `ntf` ولا غيرها —
     // وإلا لعاد الإرسال بلا رقابة من باب آخر.
     default:
@@ -803,7 +808,10 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         String(data.requestedByUid ?? ""),
         requesterSnap.data()?.role as string | undefined,
       );
-      await db().collection("projects").doc().set({
+      // والمرجعُ يُسمّى قبل الكتابة ليُختم به سطرُ السجل: هو **أوّلُ** سطرٍ
+      // في تاريخ هذا المشروع، ومن غير معرّفه يبدأ تاريخُه من ثاني تعديل.
+      const newProjectRef = db().collection("projects").doc();
+      await newProjectRef.set({
         departmentId: payload.departmentId,
         name: payload.name,
         description: payload.description,
@@ -838,6 +846,18 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
         contractValue: typeof payload.contractValue === "number" ? payload.contractValue : null,
         contractorName: typeof payload.contractorName === "string" ? payload.contractorName : "",
       });
+      await logAudit(
+        auth.token.name ?? "مسؤول النظام",
+        "اعتماد إضافة مشروع",
+        `اعتُمد إنشاء المشروع "${payload.name ?? ""}" بطلبٍ من ${data.requestedByName ?? "مستخدم"}`,
+        {
+          type: "create",
+          actorUid: auth.uid,
+          targetType: "project",
+          targetId: newProjectRef.id,
+          targetName: String(payload.name ?? newProjectRef.id),
+        },
+      );
       break;
     }
     case "workCreate": {
@@ -1034,13 +1054,66 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
           after: patch,
         },
       );
+
+      // ــ الإشعارُ عند الجوهريّ وحده، وبعد وقوعه ــ
+      //
+      // ولا يُشعَر عند المرحلة الأولى: لم يقع تغييرٌ بعد، وإشعارٌ بما لم يقع
+      // يُفقد الإشعاراتِ معناها. وهذا الفرعُ هو الأخيرة، فقد وقع.
+      //
+      // ويُسمَّى **ما تغيّر** لا «تغيّر شيء»: من يقرأ «عُدّلت بيانات
+      // المشروع» يفتح المنصة ليعرف ماذا، ومن يقرأ «تغيّرت قيمةُ العقد»
+      // يعرف قبل أن يفتح.
+      const sensitive = sensitiveOf(patch);
+      if (sensitive.length) {
+        const current = projectSnap.data() ?? {};
+        const recipients = new Set<string>(
+          (current.managerUids as string[] | undefined) ?? [],
+        );
+        const heads = await db()
+          .collection("users")
+          .where("departmentIds", "array-contains", String(current.departmentId ?? ""))
+          .where("role", "==", "departmentManager")
+          .get();
+        for (const head of heads.docs) recipients.add(head.id);
+        // ومقدّمُ الطلب يصله إشعارُ الاعتماد العام أدناه، فلا يُثنّى عليه.
+        recipients.delete(String(data.requestedByUid ?? ""));
+
+        for (const uid of recipients) {
+          await notifyUser(
+            uid,
+            "اعتُمد تعديل جوهري على مشروع",
+            `اعتُمد تعديل ${sensitive.map(fieldLabel).join("، ")} ` +
+              `في المشروع "${payload.projectName ?? projectId}"، ` +
+              `بطلبٍ من ${data.requestedByName ?? "مستخدم"}.`,
+          );
+        }
+      }
       break;
     }
     case "deadlineChange": {
+      const projectId = payload.projectId as string;
       await db()
         .collection("projects")
-        .doc(payload.projectId as string)
+        .doc(projectId)
         .update({dueDate: admin.firestore.Timestamp.fromDate(new Date(payload.newDueDate as string))});
+      // والموعدُ النهائي بوابةٌ محصورة بمسؤول النظام، فسطرُه أولى الأسطر
+      // بأن يُختم بهدفه: من غيّر موعدَ مشروعٍ ومتى وممّ إلى ماذا.
+      await logAudit(
+        auth.token.name ?? "مسؤول النظام",
+        "تعديل الموعد النهائي",
+        `اعتُمد تعديل الموعد النهائي للمشروع "${payload.projectName ?? projectId}" ` +
+          `بطلبٍ من ${data.requestedByName ?? "مستخدم"}` +
+          `${payload.reason ? ` — السبب: ${payload.reason}` : ""}`,
+        {
+          type: "update",
+          actorUid: auth.uid,
+          targetType: "project",
+          targetId: projectId,
+          targetName: String(payload.projectName ?? projectId),
+          before: {dueDate: payload.oldDueDate ?? null},
+          after: {dueDate: payload.newDueDate ?? null},
+        },
+      );
       break;
     }
     // ــ تغيير مدير المشروع ــ
@@ -1074,7 +1147,45 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
           `${oldNames.length ? oldNames.join("، ") : "بلا مدير"} إلى ` +
           `${payload.newManagerName ?? newUid} — بطلب من ${data.requestedByName ?? "مستخدم"}` +
           `${payload.reason ? ` — السبب: ${payload.reason}` : ""}`,
+        {
+          type: "update",
+          actorUid: auth.uid,
+          targetType: "project",
+          targetId: projectId,
+          targetName: String(payload.projectName ?? projectId),
+          before: {managerUids: (payload.currentManagerUids as string[] | undefined) ?? []},
+          after: {managerUids: [newUid]},
+        },
       );
+      break;
+    }
+    // ــــ نقلُ المشروع بين الإدارتين ــــ
+    //
+    // يطلبه مديرُ إدارة المشروع أو المستخدم التنفيذي، ولا يبتّ فيه إلا
+    // مسؤولُ النظام (يقع في `default` من `checkApprovalPermission`). فلا
+    // يخرج مشروعٌ من إدارةٍ ولا يدخل أخرى بقرار طرفٍ واحد.
+    //
+    // والإدارةُ المستقبِلة تُقرأ من الحمولة، والحاليةُ من **المستند الآن**
+    // لا من الحمولة: لو نُقل المشروعُ بينهما بطريقٍ آخر فما سُجّل وقت الطلب
+    // لم يعد صحيحاً، والنقلُ يقع من حيث هو لا من حيث كان.
+    case "departmentTransfer": {
+      const projectId = payload.projectId as string | undefined;
+      const newDepartmentId = payload.newDepartmentId as string | undefined;
+      if (!projectId || !newDepartmentId) {
+        throw new HttpsError("failed-precondition", "الطلب لا يحمل مشروعاً أو إدارةً مستقبِلة");
+      }
+      const projectSnap = await db().collection("projects").doc(projectId).get();
+      const projectName = String(projectSnap.data()?.name ?? payload.projectName ?? projectId);
+      const managerUids = (projectSnap.data()?.managerUids as string[] | undefined) ?? [];
+
+      const {oldDepartmentId} = await moveProjectToDepartment(
+        projectId,
+        newDepartmentId,
+        auth.token.name ?? "مسؤول النظام",
+        auth.uid,
+        String(payload.reason ?? ""),
+      );
+      await notifyTransfer(projectName, oldDepartmentId, newDepartmentId, managerUids);
       break;
     }
     case "notifySend": {
@@ -1738,6 +1849,243 @@ export const adminRestampClaims = onCall(async (request) => {
     `أُعيد ختم بصمات الدخول للمستخدم ${uid} من سجله دون تغيير دوره`,
   );
   return {ok: true, claims};
+});
+
+// ــــــــــــــ نقلُ المشروع بين الإدارتين ــــــــــــــ
+
+/** مجموعاتُ التوابع التي تنسخ إدارةَ المشروع على نفسها. */
+const CHILD_COLLECTIONS = ["tasks", "dailyUpdates", "risks", "blockers"];
+
+/** حدُّ الدفعة الواحدة في Firestore خمسمئة؛ ويُترك هامشٌ للمستند الأب. */
+const BATCH_CHUNK = 400;
+
+/**
+ * ينقل مشروعاً إلى إدارةٍ أخرى — **هو وتوابعُه**.
+ *
+ * ــــ ولماذا لا يكفي تغييرُ حقلٍ على المشروع ــــ
+ *
+ * لأن المهامّ والتحديثات اليومية والمخاطر والعوائق **تنسخ `departmentId`
+ * على نفسها**، وقاعدةُ قراءتها تقرأ المنسوخ لا إدارةَ المشروع. فمن نقل
+ * المشروعَ وحده ترك مديرَ الإدارة الجديدة يرى المشروع ولا يرى مهامَّه،
+ * ومديرَ القديمة يرى المهامّ ولا يرى مشروعَها.
+ *
+ * وهو عطلٌ **واقعٌ اليوم** في `moveSectionToDepartment` — ويُقاس في
+ * `test_rules/department_transfer.rules.test.mjs`.
+ *
+ * ــــ ومن هنا لا من العميل ــــ
+ *
+ * قواعدُ المهام والمخاطر والعوائق تمنع تعديل `departmentId` صراحةً،
+ * والتحديثاتُ اليومية `update: if false`. فلا سبيل إلى الختم إلا بصلاحية
+ * المدير، وهي هنا وحدها.
+ *
+ * ولا يُحذف شيء ولا يُنشأ شيء: التوابعُ هي هي، يتغيّر فيها حقلٌ واحد.
+ *
+ * @param {string} projectId معرّف المشروع.
+ * @param {string} newDepartmentId الإدارةُ المستقبِلة.
+ * @param {string} actorName اسمُ من نفّذ — للسجل.
+ * @param {string} actorUid معرّفُه.
+ * @param {string} reason سببٌ يُكتب في السجل، إن وُجد.
+ * @return {Promise<{oldDepartmentId: string, moved: number}>} ما كان، وكم تابعاً خُتم.
+ */
+async function moveProjectToDepartment(
+  projectId: string,
+  newDepartmentId: string,
+  actorName: string,
+  actorUid: string,
+  reason = "",
+): Promise<{oldDepartmentId: string; moved: number}> {
+  const projectRef = db().collection("projects").doc(projectId);
+  const snap = await projectRef.get();
+  if (!snap.exists) {
+    throw new HttpsError("failed-precondition", "المشروع لم يعد موجوداً");
+  }
+  const project = snap.data() ?? {};
+  const oldDepartmentId = String(project.departmentId ?? "");
+  if (oldDepartmentId === newDepartmentId) {
+    throw new HttpsError("failed-precondition", "المشروع في هذه الإدارة أصلاً");
+  }
+
+  const target = await db().collection("departments").doc(newDepartmentId).get();
+  if (!target.exists) {
+    throw new HttpsError("failed-precondition", "الإدارة المستقبِلة غير موجودة");
+  }
+
+  await projectRef.update({
+    departmentId: newDepartmentId,
+    // ــ والقسمُ يُفرَّغ ــ
+    //
+    // القسمُ الذي كان فيه يتبع الإدارة القديمة، ولو بقي لأشار المشروعُ إلى
+    // قسمٍ في إدارةٍ أخرى. وهو المنطق نفسه الذي يُفرّغ `parentId` في نقل
+    // الأقسام. ومديرُ الإدارة الجديدة يُسنده إلى قسمٍ من أقسامه.
+    sectionId: null,
+    previousDepartmentId: oldDepartmentId,
+    departmentTransferredAt: now(),
+  });
+
+  let moved = 0;
+  for (const name of CHILD_COLLECTIONS) {
+    const children = await db().collection(name).where("projectId", "==", projectId).get();
+    const stale = children.docs.filter((d) => d.data().departmentId !== newDepartmentId);
+    for (let i = 0; i < stale.length; i += BATCH_CHUNK) {
+      const batch = db().batch();
+      for (const child of stale.slice(i, i + BATCH_CHUNK)) {
+        batch.update(child.ref, {departmentId: newDepartmentId});
+      }
+      await batch.commit();
+      moved += Math.min(BATCH_CHUNK, stale.length - i);
+    }
+  }
+
+  await logAudit(
+    actorName,
+    "نقل المشروع بين الإدارات",
+    `نُقل المشروع "${project.name ?? projectId}" من إدارةٍ إلى أخرى، ` +
+      `وانتقل معه ${moved} مستنداً تابعاً` +
+      `${reason ? ` — السبب: ${reason}` : ""}`,
+    {
+      type: "update",
+      actorUid,
+      targetType: "project",
+      targetId: projectId,
+      targetName: String(project.name ?? projectId),
+      before: {departmentId: oldDepartmentId, sectionId: project.sectionId ?? null},
+      after: {departmentId: newDepartmentId, sectionId: null},
+    },
+  );
+
+  return {oldDepartmentId, moved};
+}
+
+/**
+ * يُشعر من تغيّرت مسؤوليتُه بالنقل: مديرا الإدارتين ومديرو المشروع.
+ *
+ * ونقلُ مشروعٍ بلا إشعارٍ يعني أن مديراً يجد في قائمته صباحاً مشروعاً لا
+ * يعرف من أين جاء، وآخرَ يفقد مشروعاً كان يتابعه بلا أن يعلم لماذا.
+ *
+ * @param {string} projectName اسمُ المشروع.
+ * @param {string} oldDepartmentId الإدارةُ التي خرج منها.
+ * @param {string} newDepartmentId الإدارةُ التي دخلها.
+ * @param {string[]} managerUids مديرو المشروع.
+ * @return {Promise<void>} لا شيء.
+ */
+async function notifyTransfer(
+  projectName: string,
+  oldDepartmentId: string,
+  newDepartmentId: string,
+  managerUids: string[],
+): Promise<void> {
+  const [oldDept, newDept] = await Promise.all([
+    db().collection("departments").doc(oldDepartmentId).get(),
+    db().collection("departments").doc(newDepartmentId).get(),
+  ]);
+  const oldName = String(oldDept.data()?.name ?? oldDepartmentId);
+  const newName = String(newDept.data()?.name ?? newDepartmentId);
+
+  const recipients = new Set<string>(managerUids);
+  for (const deptId of [oldDepartmentId, newDepartmentId]) {
+    const heads = await db()
+      .collection("users")
+      .where("departmentIds", "array-contains", deptId)
+      .where("role", "==", "departmentManager")
+      .get();
+    for (const head of heads.docs) recipients.add(head.id);
+  }
+
+  for (const uid of recipients) {
+    await notifyUser(
+      uid,
+      "نُقل مشروع بين الإدارات",
+      `نُقل المشروع "${projectName}" من إدارة "${oldName}" إلى إدارة "${newName}". ` +
+        "وانتقلت معه مهامُّه وتحديثاته ومخاطره وعوائقه كاملةً، ولم يُحذف منها شيء.",
+    );
+  }
+}
+
+/** نقلٌ مباشر — لمسؤول النظام وحده، بلا طلبٍ يرفعه إلى نفسه. */
+export const transferProjectDepartment = onCall(
+  {secrets: notificationSecrets},
+  async (request) => {
+    const auth = requireAdmin(request);
+    const {projectId, newDepartmentId, reason} = (request.data ?? {}) as {
+      projectId?: string;
+      newDepartmentId?: string;
+      reason?: string;
+    };
+    if (!projectId || !newDepartmentId) {
+      throw new HttpsError("invalid-argument", "الرجاء تحديد المشروع والإدارة المستقبِلة");
+    }
+
+    const snap = await db().collection("projects").doc(projectId).get();
+    const projectName = String(snap.data()?.name ?? projectId);
+    const managerUids = (snap.data()?.managerUids as string[] | undefined) ?? [];
+
+    const {oldDepartmentId, moved} = await moveProjectToDepartment(
+      projectId,
+      newDepartmentId,
+      auth.token.name ?? "مسؤول النظام",
+      auth.uid,
+      reason ?? "",
+    );
+    await notifyTransfer(projectName, oldDepartmentId, newDepartmentId, managerUids);
+    return {ok: true, moved};
+  },
+);
+
+/**
+ * يُعيد ختمَ إدارةِ المشروع على توابعه — إصلاحاً لما نُقل قبل هذه الدفعة.
+ *
+ * نظيرةُ `stampChildMembership` وعلى نمطها: تفحص، وتقارن، وتُصلح ما اختلف
+ * وحده، وتقول ماذا فعلت بالعدد. وهي **قابلة للإعادة بلا ضرر**: التابعُ
+ * المطابقُ سلفاً لا يُكتب.
+ *
+ * وسببُ وجودها: `moveSectionToDepartment` و`convertDepartmentToSection`
+ * نقلتا مشاريعَ ولم تنقلا توابعها، فبقيت مختومةً بإدارةٍ لم تعد إدارتَها.
+ */
+export const restampChildDepartments = onCall(async (request) => {
+  const auth = requireAdmin(request);
+
+  const projects = await db().collection("projects").get();
+  const deptOf = new Map<string, string>();
+  for (const p of projects.docs) deptOf.set(p.id, String(p.data().departmentId ?? ""));
+
+  let scanned = 0;
+  let restamped = 0;
+  let orphaned = 0;
+
+  for (const name of CHILD_COLLECTIONS) {
+    const snap = await db().collection(name).get();
+    const pending: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+
+    for (const child of snap.docs) {
+      scanned++;
+      const projectDept = deptOf.get(String(child.data().projectId ?? ""));
+      // تابعٌ لمشروعٍ لم يعد موجوداً: لا إدارةَ تُنسخ عنه، ولا يُخمَّن له
+      // شيء. يُعدّ ويُقال، ولا يُمسّ.
+      if (projectDept === undefined) {
+        orphaned++;
+        continue;
+      }
+      if (child.data().departmentId !== projectDept) pending.push(child);
+    }
+
+    for (let i = 0; i < pending.length; i += BATCH_CHUNK) {
+      const batch = db().batch();
+      for (const child of pending.slice(i, i + BATCH_CHUNK)) {
+        batch.update(child.ref, {departmentId: deptOf.get(String(child.data().projectId))});
+      }
+      await batch.commit();
+      restamped += Math.min(BATCH_CHUNK, pending.length - i);
+    }
+  }
+
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "إعادة ختم إدارات التوابع",
+    `فُحص ${scanned} مستنداً تابعاً، وأُعيد ختم ${restamped} منها بإدارة مشروعه` +
+      (orphaned > 0 ? `، و${orphaned} تابعٌ لمشروعٍ لم يعد موجوداً فتُرك` : "") + ".",
+  );
+
+  return {ok: true, scanned, restamped, orphaned};
 });
 
 // ــــــــــــــ ختم عضوية المشروع على توابعه ــــــــــــــ

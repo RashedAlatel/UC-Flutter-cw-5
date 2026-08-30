@@ -22,7 +22,9 @@ import {
   firstStageFor,
   judgeChanges,
   sameStoredValue,
+  sensitiveOf,
   EDITABLE_FIELDS,
+  SENSITIVE_FIELDS,
 } from "../lib/approval_stage.js";
 
 const DEPT = "d-justice";
@@ -208,5 +210,48 @@ describe("وقائمةُ الحقول تطابق نظيرَها في العمي�
     for (const gate of ["dueDate", "departmentId", "managerUids", "executorUids"]) {
       assert.equal(EDITABLE_FIELDS.includes(gate), false, `«${gate}» لا يمرّ من هنا`);
     }
+  });
+});
+
+describe("والجوهريُّ يُعرف — وبه يقع الإشعار", () => {
+  test("عشرةُ حقولٍ جوهرية، وهي نظيرُ ما في العميل", () => {
+    assert.equal(SENSITIVE_FIELDS.length, 10);
+    for (const field of ["name", "contractValue", "durationDays", "dueDate"]) {
+      assert.equal(SENSITIVE_FIELDS.includes(field), true, `«${field}» جوهري`);
+    }
+  });
+
+  // وليست كلُّ حقول المسار جوهرية: تصحيحُ وصفٍ ليس كتغيير قيمة عقد. ولو
+  // عُدَّت كلُّها جوهرية لَخرج إشعارٌ عن كل فاصلة، فتُقرأ الإشعاراتُ ولا
+  // تُقرأ — وهو أسوأ من ألّا تخرج.
+  test("والوصفُ والجهةُ المنفّذة ليسا جوهريَّين", () => {
+    assert.equal(SENSITIVE_FIELDS.includes("description"), false);
+    assert.equal(SENSITIVE_FIELDS.includes("contractorName"), false);
+    assert.equal(SENSITIVE_FIELDS.includes("priority"), false);
+    assert.equal(SENSITIVE_FIELDS.includes("categoryIds"), false);
+  });
+
+  test("يُخرج الجوهريَّ من المُطبَّق وحده", () => {
+    assert.deepEqual(sensitiveOf({description: "x", contractValue: 1}), ["contractValue"]);
+    assert.deepEqual(sensitiveOf({description: "x"}), []);
+    assert.deepEqual(sensitiveOf({}), []);
+  });
+
+  // ــ والترتيبُ من القائمة لا من الحمولة ــ
+  //
+  // مفاتيحُ الكائن ترتيبُها ترتيبُ إدخالها، فرسالتان عن التغيير نفسه تخرجان
+  // بترتيبين. ونصُّ إشعارٍ يتبدّل بلا سببٍ يُقرأ تبدُّلاً في الأمر لا في
+  // العرض.
+  test("والترتيبُ ثابتٌ مهما اختلف ترتيب الحمولة", () => {
+    assert.deepEqual(
+      sensitiveOf({contractValue: 1, name: "x"}),
+      sensitiveOf({name: "x", contractValue: 1}),
+    );
+    assert.deepEqual(sensitiveOf({contractValue: 1, name: "x"}), ["name", "contractValue"]);
+  });
+
+  // وقيمةٌ تُمسح (`null`) تغييرٌ كغيرها: المفتاحُ موجود، والفعلُ وقع.
+  test("ومسحُ قيمةٍ جوهرية جوهريّ", () => {
+    assert.deepEqual(sensitiveOf({contractValue: null}), ["contractValue"]);
   });
 });

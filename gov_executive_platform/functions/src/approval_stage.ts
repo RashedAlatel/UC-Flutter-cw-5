@@ -113,6 +113,45 @@ export const EDITABLE_FIELDS: readonly string[] = [
 ];
 
 /**
+ * الحقولُ **الجوهرية** — نظيرُ `kSensitiveProjectFields` في العميل.
+ *
+ * وليست كلُّ حقول المسار جوهرية: تصحيحُ وصفٍ ليس كتغيير قيمة عقد. فما
+ * يُعدّ جوهرياً هو ما يُغيّر التزاماً أو مسؤوليةً أو موعداً — وهو ما
+ * يُميَّز للمعتمِد في البطاقة، **وما يُشعَر به بعد الاعتماد**.
+ *
+ * وفيها ما لا يمرّ بهذا المسار أصلاً (`departmentId` و`managerUids`
+ * و`startDate` و`dueDate`): لها بواباتُها، وتُذكر هنا لأن الجوهرية وصفٌ
+ * للحقل لا إذنٌ به. راجع `EDITABLE_FIELDS` — تلك تقرّر ما يُقبل.
+ */
+export const SENSITIVE_FIELDS: readonly string[] = [
+  "name",
+  "departmentId",
+  "managerUids",
+  "startDate",
+  "dueDate",
+  "contractStartDate",
+  "contractEndDate",
+  "invoiceDueDate",
+  "contractValue",
+  "durationDays",
+];
+
+/**
+ * أيُّ حقولِ هذا التغيير جوهريّ — مرتَّبةً كما وردت في [SENSITIVE_FIELDS].
+ *
+ * والترتيبُ من القائمة لا من الحمولة: مفاتيحُ الكائن ترتيبُها ترتيبُ
+ * إدخالها، فرسالتان عن التغيير نفسه تخرجان بترتيبين. ونصُّ إشعارٍ يتبدّل
+ * بلا سببٍ يُقرأ تبدُّلاً في الأمر لا في العرض.
+ *
+ * @param {Record<string, unknown>} patch ما طُبّق على المشروع.
+ * @return {string[]} الجوهريُّ منه.
+ */
+export function sensitiveOf(patch: Record<string, unknown>): string[] {
+  return SENSITIVE_FIELDS.filter((field) =>
+    Object.prototype.hasOwnProperty.call(patch, field));
+}
+
+/**
  * يفحص حمولةَ التغييرات: أيُّها مقبول، وهل تبدّلت القيمةُ المخزَّنة منذ
  * تقديم الطلب.
  *

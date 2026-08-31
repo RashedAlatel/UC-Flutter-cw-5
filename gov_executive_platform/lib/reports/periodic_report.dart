@@ -666,17 +666,54 @@ ReportInput applyFilters(ReportInput input, ReportFilters f, ReportRange range) 
   final projectIds = projects.map((p) => p.id).toSet();
   final workIds = works.map((w) => w.id).toSet();
 
+  final tasks = input.tasks
+      .where((t) =>
+          projectIds.contains(t.projectId) &&
+          (f.taskStatus == null || t.status == f.taskStatus))
+      .toList();
+  final dailyUpdates =
+      input.dailyUpdates.where((u) => projectIds.contains(u.projectId)).toList();
+  final workUpdates = input.workUpdates.where((u) => workIds.contains(u.workId)).toList();
+
+  // ــــ والأشخاصُ يُصفَّون كما تُصفّى بقيّةُ المدخلات ــــ
+  //
+  // ولم يكونوا يُصفَّون: كانت الدالّة تُضيّق سبعَ قوائم وتترك `users`، فيبقى
+  // موظفو الوزارة كلُّهم في جدول الأشخاص وأكثرُهم بأصفار — لأن مشاريعهم
+  // صُفّيت عنهم وبقيت أسماؤهم. وهو ما بلّغ عنه مسؤول النظام: «اخترتُ إدارةً
+  // محدّدة ويظهر موظفو الإدارات كلِّها».
+  //
+  // ــ والقاعدةُ: من بقي له أثرٌ في التقرير يظهر ــ
+  //
+  // عضوٌ في مشروعٍ باقٍ، أو مُسنَدةٌ إليه مهمّةٌ أو عملٌ باقٍ، أو كتب تحديثاً
+  // باقياً. وأرقامُ هؤلاء محسوبةٌ في جداول المشاريع والأعمال، فإخفاؤهم يجعل
+  // الجدولين لا يتطابقان — ويسأل القارئ عن رقمٍ لا يجد له صاحباً.
+  //
+  // فمنفّذٌ من إدارةٍ أخرى يعمل في مشروع هذه الإدارة **يظهر**.
+  //
+  // ــ ويُضاف الانتماءُ حين تُختار إدارة ــ
+  //
+  // ليظهر الخاملُ فيها بأصفاره: كشفُ من لم يعمل هو أصلُ الغرض من الجدول،
+  // ولو اقتُصر على «من له أثر» لَاختفى المقصّر — وهو أوّلُ من يُراد.
+  final memberUids = <String>{
+    for (final p in projects) ...p.managerUids,
+    for (final p in projects) ...p.executorUids,
+    for (final t in tasks) t.assigneeUid,
+    for (final w in works) w.assigneeUid,
+    for (final u in dailyUpdates) u.authorUid,
+    for (final u in workUpdates) u.authorUid,
+  }..removeWhere((uid) => uid.isEmpty);
+
+  final users = input.users
+      .where((u) => memberUids.contains(u.id) || u.belongsToDepartment(f.departmentId))
+      .toList();
+
   return input.copyWith(
     projects: projects,
     works: works,
-    tasks: input.tasks
-        .where((t) =>
-            projectIds.contains(t.projectId) &&
-            (f.taskStatus == null || t.status == f.taskStatus))
-        .toList(),
-    dailyUpdates:
-        input.dailyUpdates.where((u) => projectIds.contains(u.projectId)).toList(),
-    workUpdates: input.workUpdates.where((u) => workIds.contains(u.workId)).toList(),
+    tasks: tasks,
+    dailyUpdates: dailyUpdates,
+    workUpdates: workUpdates,
+    users: users,
     risks: input.risks.where((r) => projectIds.contains(r.projectId)).toList(),
     blockers: input.blockers.where((b) => projectIds.contains(b.projectId)).toList(),
     departments: f.departmentId == null

@@ -1556,8 +1556,11 @@ class AppStore extends ChangeNotifier {
     final approved = users.where((u) => u.status == UserStatus.approved && u.role != UserRole.systemAdmin).toList();
     if (canViewAllDepartments) return approved;
     if (isManager) {
+      // والقراءةُ من [AppUser.allDepartmentIds] لا نسخةٌ ثالثةٌ هنا: كانت
+      // مكتوبةً بالمفرد والقائمة معاً، وهي القراءةُ التي كلّفت جولةً حين
+      // افترقت عن نظيراتها.
       return approved
-          .where((u) => myDepartmentIds.contains(u.departmentId) || u.departmentIds.any(myDepartmentIds.contains))
+          .where((u) => u.allDepartmentIds.any(myDepartmentIds.contains))
           .toList();
     }
     return const [];
@@ -3514,12 +3517,10 @@ class AppStore extends ChangeNotifier {
   /// أُنشئت قبله تحمل المفرد وحده. ومدير إدارة بقائمة فارغة يصير استعلامه
   /// `where('departmentId', isEqualTo: '__none__')` — أي **لا شيء إطلاقاً**،
   /// فيرى منصة خالية ولا يفهم لماذا.
-  List<String> get myDepartmentIds {
-    final many = currentUser?.departmentIds ?? const <String>[];
-    if (many.isNotEmpty) return many;
-    final one = currentUser?.departmentId;
-    return (one == null || one.isEmpty) ? const [] : [one];
-  }
+  ///
+  /// والقراءةُ نفسُها على [AppUser.allDepartmentIds] — موضعٌ واحد يقرّرها،
+  /// وهذه تطبّقها على المستخدم الحالي وحده.
+  List<String> get myDepartmentIds => currentUser?.allDepartmentIds ?? const [];
 
   /// من يعدّل المشروع ويكتب تحديثاته اليومية.
   ///

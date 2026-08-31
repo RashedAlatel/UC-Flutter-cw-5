@@ -388,4 +388,111 @@ void main() {
       expect(String.fromCharCodes(bytes.take(4)), '%PDF');
     });
   });
+
+  // ═════════════ تصفيةُ الإدارة تصل إلى جدول الأشخاص ═════════════
+  //
+  // ــــ العطلُ الذي بلّغ عنه مسؤول النظام ــــ
+  //
+  // «اخترتُ إدارةً محدّدة ويظهر موظفو الإدارات كلِّها». وسببُه أن
+  // `applyFilters` كانت تُضيّق المشاريعَ والأعمال ولا تمسّ `users`.
+  //
+  // ويُقاس هنا **على الشاشة نفسها وفي الملفّ المُصدَّر** لا في الوحدة
+  // النقيّة وحدها: ما يراه فاتحُ الشاشة هو الشكوى، وما يخرج في الملفّ
+  // يُرسَل إلى القيادة.
+  group('تصفيةُ الإدارة والأشخاص', () {
+    // ــ القوائمُ تُفتح بموضعها لا بنصّها ــ
+    //
+    // `find.text('إدارة النظم')` يطابق النصَّ المعروض في الحقل **وعنصرَ
+    // قائمةٍ أُغلقت** بقيت في شجرةٍ منفصلة، فيقع النقرُ على عنصرٍ بلا نافذة
+    // ويُرمى «No element». والترتيبُ في الشريط: الإدارة · المشروع · المدير
+    // · المنفّذ.
+    Future<void> openDropdown(WidgetTester tester, int index) async {
+      await tester.tap(find.byType(DropdownButtonFormField<String?>).at(index));
+      await tester.pumpAndSettle();
+    }
+
+    /// يختار عنصراً من قائمةٍ مفتوحة بنصّه — والعناصرُ المفتوحة وحدها ظاهرة.
+    Future<void> pickItem(WidgetTester tester, String name) async {
+      await tester.tap(find.text(name).hitTestable().last);
+      await tester.pumpAndSettle();
+    }
+
+    /// يختار إدارةً من قائمة الشريط بالاسم.
+    Future<void> pickDepartment(WidgetTester tester, String name) async {
+      await openDropdown(tester, 0);
+      await pickItem(tester, name);
+    }
+
+    testWidgets('جدولُ الأشخاص يعرض أهلَ الإدارة وحدهم', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1400, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await _pump(tester, _store(_user('a', UserRole.systemAdmin)));
+
+      // قبل التصفية: الاثنان معاً.
+      expect(find.text('مستخدم e1'), findsWidgets);
+      expect(find.text('مستخدم e2'), findsWidgets);
+
+      await pickDepartment(tester, 'إدارة النظم');
+
+      expect(find.text('مستخدم e1'), findsWidgets, reason: 'من الإدارة المختارة');
+      expect(find.text('مستخدم e2'), findsNothing, reason: 'من إدارةٍ أخرى');
+    });
+
+    // قائمةٌ تعرض مشروعاً خارج الإدارة المختارة تُنتج تقريراً فارغاً بلا
+    // تفسير — فلترانِ يتقاطعان على لا شيء.
+    testWidgets('وقائمةُ المشاريع لا تعرض ما خرج عن الإدارة', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1400, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await _pump(tester, _store(_user('a', UserRole.systemAdmin)));
+      await pickDepartment(tester, 'إدارة النظم');
+
+      await openDropdown(tester, 1);
+      expect(find.text('مشروع p1'), findsWidgets);
+      expect(find.text('مشروع p2'), findsNothing);
+    });
+
+    // `DropdownButtonFormField` يرمي إن كانت قيمتُه ليست في عناصره. فمن
+    // اختار مشروعاً ثم بدّل الإدارة كان يُسقط الشاشة.
+    testWidgets('وتبديلُ الإدارة بعد اختيار مشروعٍ لا يُسقط الشاشة', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1400, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await _pump(tester, _store(_user('a', UserRole.systemAdmin)));
+
+      await pickDepartment(tester, 'إدارة النظم');
+      await openDropdown(tester, 1);
+      await pickItem(tester, 'مشروع p1');
+
+      // ثم يبدّل الإدارة والمشروعُ مختار.
+      await openDropdown(tester, 0);
+      await pickItem(tester, 'إدارة الشؤون');
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('كل المشاريع'), findsWidgets, reason: 'عاد فلترُ المشروع إلى الكل');
+
+      // ــ ولا يكفي أن يعود شكلُ القائمة إلى «الكل» ــ
+      //
+      // لو بقي `projectId` في الحالة ومعه إدارةٌ أخرى لَتقاطع الفلتران على
+      // لا شيء: يقرأ فاتحُ الشاشة «كل المشاريع» وتقريراً فارغاً، فيظنّ
+      // الإدارةَ بلا عمل. فيُقاس **الأثر** لا الشكل.
+      //
+      // ويُقاس بجدول المشاريع لا بجدول الأشخاص: أهلُ الإدارة يظهرون
+      // بانتمائهم ولو خلا التقريرُ من مشروع، فغيابُ الفلتر لا يظهر فيهم.
+      expect(find.text('مشروع p2'), findsWidgets,
+          reason: 'مشروعُ الإدارة الجديدة يُعرض — فلترُ المشروع القديم سقط فعلاً');
+    });
+
+    // والملفُّ يُرسَل إلى القيادة، فلا يخرج فيه من ليس في النطاق.
+    test('والملفُّ المُصدَّر مثلُ الشاشة', () {
+      final input = _store(_user('a', UserRole.systemAdmin)).periodicReportInput;
+      final range = ReportRange.weekEnding(DateTime(2026, 8, 28));
+      final bytes = ReportExporter.buildPeriodicExcelBytes(
+        report: buildPeriodicReport(input, range,
+            filters: const ReportFilters(departmentId: _d1)),
+        includeDepartments: true,
+      );
+      final people = _sheetText(bytes, 'أداء الأشخاص');
+      expect(people, contains('مستخدم e1'));
+      expect(people, isNot(contains('مستخدم e2')));
+    });
+  });
 }

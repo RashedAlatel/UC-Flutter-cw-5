@@ -212,6 +212,8 @@ DepartmentPerformance _department(PeriodicReport r, String id) =>
 void main() {
   // الجولة الثانية في آخر الملفّ — تُنادى هنا لتعمل في المجموعة نفسها.
   round2();
+  // وتصفيةُ الأشخاص كذلك.
+  peopleScope();
 
   group('الفترة تُحدَّد بطرفيها', () {
     test('الأسبوع سبعة أيامٍ شاملةً طرفيه', () {
@@ -1259,6 +1261,167 @@ void round2() {
       final r = buildPeriodicReport(twoDepts(), _range);
       expect(r.items.length, 4);
       expect(const ReportFilters().isEmpty, isTrue);
+    });
+  });
+}
+
+// ═══════════════════ تصفيةُ الأشخاص ═══════════════════
+//
+// ــــ العطلُ الذي أوجد هذا القسم ــــ
+//
+// بلّغ مسؤول النظام أنه يختار إدارةً محدّدة فتُصفَّى المشاريعُ والأعمال،
+// **ويبقى جدولُ الأشخاص يعرض موظفي الإدارات كلِّها**.
+//
+// وسببُه أن `applyFilters` كانت تُصفّي سبعَ قوائم ولا تمسّ `users`،
+// و`_buildPeople` تمرّ على `input.users` كلِّهم. فيبقى موظفُ الإدارة
+// الأخرى في الجدول بأصفارٍ — لأن مشاريعه صُفّيت عنه وبقي اسمُه.
+//
+// ــــ وقاعدةُ الإبقاء ــــ
+//
+// **من بقي له في التقرير أثرٌ يظهر**: عضوٌ في مشروعٍ باقٍ، أو مُسنَدةٌ إليه
+// مهمّةٌ أو عملٌ باقٍ، أو كتب تحديثاً باقياً. **ويُضاف الانتماءُ للإدارة**
+// حين تُختار إدارة — ليظهر الخاملُ فيها بأصفاره، وذلك أصلُ الغرض من
+// الجدول.
+//
+// فمنفّذٌ من إدارةٍ أخرى يعمل في مشروع هذه الإدارة يظهر: أرقامُه محسوبةٌ في
+// جدول المشاريع، فإخفاؤه يجعل الجدولين لا يتطابقان.
+void peopleScope() {
+  ReportInput twoDepartments() => ReportInput(
+        // مشروعٌ في كل إدارة، ولكلٍّ مديرُه ومنفّذُه من إدارته.
+        projects: [
+          _project(id: 'p1', dept: _d1, managers: ['u1'], executors: ['u2']),
+          _project(id: 'p2', dept: _d2, managers: ['v1'], executors: ['v2']),
+        ],
+        works: [_work(id: 'w1', assignee: 'u1', dept: _d1)],
+        tasks: [
+          _task(id: 't1', project: 'p1', dept: _d1, assignee: 'u2'),
+          _task(id: 't2', project: 'p2', dept: _d2, assignee: 'v2'),
+        ],
+        dailyUpdates: [
+          _update(id: 'du1', project: 'p1', author: 'u1'),
+        ],
+        workUpdates: const [],
+        users: [
+          _user('u1', dept: _d1),
+          _user('u2', dept: _d1),
+          // خاملٌ في الإدارة الأولى: لا مشروعَ ولا مهمّةَ ولا تحديث.
+          _user('u3', dept: _d1),
+          _user('v1', dept: _d2),
+          _user('v2', dept: _d2),
+        ],
+        departments: const [_dept1, _dept2],
+        inactiveAfterDays: kDefaultInactiveAfterDays,
+      );
+
+  final range = ReportRange(
+    start: DateTime(2026, 8, 1),
+    end: DateTime(2026, 8, 31),
+    period: ReportPeriod.monthly,
+  );
+
+  Set<String> uidsWith(ReportFilters f) =>
+      buildPeriodicReport(twoDepartments(), range, filters: f)
+          .people
+          .map((p) => p.uid)
+          .toSet();
+
+  group('تصفيةُ الأشخاص بالإدارة', () {
+    // هذا هو ما بلّغ عنه: الاثنان من إدارةٍ أخرى كانا يظهران.
+    test('لا يظهر موظفو الإدارات الأخرى', () {
+      final uids = uidsWith(const ReportFilters(departmentId: _d1));
+      expect(uids.contains('v1'), isFalse, reason: 'مديرُ مشروعٍ في إدارةٍ أخرى');
+      expect(uids.contains('v2'), isFalse, reason: 'منفّذٌ في إدارةٍ أخرى');
+    });
+
+    test('ويظهر موظفو الإدارة المختارة', () {
+      final uids = uidsWith(const ReportFilters(departmentId: _d1));
+      expect(uids, containsAll(['u1', 'u2']));
+    });
+
+    // الخاملُ هو أصلُ الغرض: جدولٌ لا يعرض من لم يعمل لا يكشف تقصيراً.
+    test('والخاملُ في الإدارة يبقى بأصفاره', () {
+      final report = buildPeriodicReport(
+        twoDepartments(),
+        range,
+        filters: const ReportFilters(departmentId: _d1),
+      );
+      final idle = report.people.firstWhere((p) => p.uid == 'u3');
+      expect(idle.dailyUpdates, 0);
+      expect(idle.lastActivity, isNull, reason: 'لا أثرَ له إطلاقاً');
+    });
+
+    test('والإدارةُ الأخرى تُخرج أهلَها هي', () {
+      final uids = uidsWith(const ReportFilters(departmentId: _d2));
+      expect(uids, containsAll(['v1', 'v2']));
+      expect(uids.contains('u1'), isFalse);
+      expect(uids.contains('u3'), isFalse);
+    });
+
+    // بلا فلتر لا تصفية: `applyFilters` تعود بالمدخلات كما هي.
+    test('وبلا تصفيةٍ يظهر الجميع', () {
+      expect(uidsWith(ReportFilters.none), {'u1', 'u2', 'u3', 'v1', 'v2'});
+    });
+  });
+
+  group('ومن عمل على المشروع يظهر ولو من إدارةٍ أخرى', () {
+    /// `v2` من الإدارة الثانية، ويعمل في مشروع الأولى بالسبب المذكور.
+    ReportInput outsiderBy(String reason) {
+      final base = twoDepartments();
+      return switch (reason) {
+        'member' => base.copyWith(
+            projects: [
+              _project(id: 'p1', dept: _d1, managers: ['u1'], executors: ['u2', 'v2']),
+              _project(id: 'p2', dept: _d2, managers: ['v1'], executors: []),
+            ],
+          ),
+        'task' => base.copyWith(
+            tasks: [
+              _task(id: 't1', project: 'p1', dept: _d1, assignee: 'v2'),
+            ],
+          ),
+        'work' => base.copyWith(
+            works: [_work(id: 'w1', assignee: 'v2', dept: _d1)],
+          ),
+        'update' => base.copyWith(
+            dailyUpdates: [_update(id: 'du1', project: 'p1', author: 'v2')],
+          ),
+        _ => base,
+      };
+    }
+
+    for (final reason in ['member', 'task', 'work', 'update']) {
+      test('يظهر إن كان: $reason', () {
+        final uids = buildPeriodicReport(
+          outsiderBy(reason),
+          range,
+          filters: const ReportFilters(departmentId: _d1),
+        ).people.map((p) => p.uid).toSet();
+        expect(uids.contains('v2'), isTrue,
+            reason: 'أثرُه في التقرير محسوبٌ، فاسمُه يُعرض');
+      });
+    }
+
+    // ومن لا أثرَ له يخرج: `v1` مديرُ مشروعٍ في الإدارة الأخرى وحدها.
+    test('ولا يظهر من لا أثرَ له في النطاق', () {
+      for (final reason in ['member', 'task', 'work', 'update']) {
+        final uids = buildPeriodicReport(
+          outsiderBy(reason),
+          range,
+          filters: const ReportFilters(departmentId: _d1),
+        ).people.map((p) => p.uid).toSet();
+        expect(uids.contains('v1'), isFalse, reason: 'في الحالة: $reason');
+      }
+    });
+  });
+
+  group('وتصفيةٌ بغير الإدارة تُضيّق الأشخاص كذلك', () {
+    // من صفّى بمشروعٍ بعينه يريد أشخاصَ ذلك المشروع لا الوزارة كلَّها.
+    test('فلترُ المشروع يُبقي أهلَه', () {
+      final uids = uidsWith(const ReportFilters(projectId: 'p2'));
+      expect(uids, containsAll(['v1', 'v2']));
+      expect(uids.contains('u2'), isFalse);
+      // ولا انتماءَ يُضاف هنا: لم تُختر إدارة، فالأثرُ وحده هو المقياس.
+      expect(uids.contains('u3'), isFalse);
     });
   });
 }

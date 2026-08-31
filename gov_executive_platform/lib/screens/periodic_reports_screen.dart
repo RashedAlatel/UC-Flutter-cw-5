@@ -176,6 +176,7 @@ class _PeriodicReportsScreenState extends State<PeriodicReportsScreen> {
           child: _ReportFilterBar(
             filters: _filters,
             store: store,
+            range: range,
             onChanged: (f) => setState(() => _filters = f),
           ),
         ),
@@ -643,20 +644,51 @@ class _Empty extends StatelessWidget {
 class _ReportFilterBar extends StatelessWidget {
   final ReportFilters filters;
   final AppStore store;
+  final ReportRange range;
   final ValueChanged<ReportFilters> onChanged;
 
   const _ReportFilterBar({
     required this.filters,
     required this.store,
+    required this.range,
     required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     final input = store.periodicReportInput;
+
+    // ــــ الخياراتُ من داخل الإدارة المختارة وحدها ــــ
+    //
+    // كانت تُبنى من المدخلات الخام، فبعد اختيار إدارةٍ تبقى قائمةُ المشاريع
+    // تعرض مشاريعَ الوزارة كلَّها وقائمةُ الأسماء أسماءَها كلَّها. ومن اختار
+    // منها مشروعاً من إدارةٍ أخرى خرج بتقريرٍ فارغٍ بلا تفسير — فالفلتران
+    // يتقاطعان على لا شيء.
+    //
+    // **وبالإدارة وحدها تُضيَّق**، لا ببقيّة الفلاتر: لو ضُيّقت باختيار
+    // المدير الحالي لَما بقي في القائمة غيرُه، فلا سبيل إلى تبديله.
+    //
+    // و`applyFilters` هي التي تُضيّق — لا تصفيةٌ ثانية تُكتب هنا فتفترق
+    // عنها بأول تعديل.
+    final scoped = applyFilters(
+      input,
+      ReportFilters(departmentId: filters.departmentId),
+      range,
+    );
     // المستخدمون من نطاق التقرير نفسه: لا يُعرض في منتقي المدير من لا
     // يظهر في جداوله.
-    final people = input.users;
+    final people = scoped.users;
+
+    // ــ واختيارٌ خرج من النطاق يُقرأ «الكل» ولا يُسقط الشاشة ــ
+    //
+    // `DropdownButtonFormField` يرمي إن كانت قيمتُه المبدئية ليست في
+    // عناصره. فمن اختار مشروعاً ثم بدّل الإدارة كان يُسقط الشاشة — ولذلك
+    // تُمسح الاختياراتُ عند تبديل الإدارة أدناه. وهذا حارسٌ ثانٍ خلفه:
+    // شاشةٌ تنهار أسوأ من فلترٍ يعود إلى «الكل».
+    String? inScope(String? value, Iterable<String> ids) =>
+        value != null && ids.contains(value) ? value : null;
+    final projectIds = scoped.projects.map((p) => p.id).toSet();
+    final peopleIds = people.map((u) => u.id).toSet();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -674,20 +706,30 @@ class _ReportFilterBar extends StatelessWidget {
                   ...input.departments
                       .map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))),
                 ],
+                // ــ وتبديلُ الإدارة يمسح ما صار خارجها ــ
+                //
+                // مشروعٌ من إدارةٍ سابقة مع إدارةٍ جديدة فلتران يتقاطعان على
+                // لا شيء، فيخرج التقريرُ فارغاً ويظنّ القارئ أن الإدارة بلا
+                // عمل. والتوسيعُ إلى «كل الإدارات» لا يُبطل شيئاً، فلا يمسح.
                 onChanged: (v) => onChanged(v == null
                     ? filters.copyWith(clearDepartment: true)
-                    : filters.copyWith(departmentId: v)),
+                    : filters.copyWith(
+                        departmentId: v,
+                        clearProject: true,
+                        clearManager: true,
+                        clearExecutor: true,
+                      )),
               ),
             ),
             (
               preferredWidth: 220,
               child: DropdownButtonFormField<String?>(
-                initialValue: filters.projectId,
+                initialValue: inScope(filters.projectId, projectIds),
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'المشروع', isDense: true),
                 items: [
                   const DropdownMenuItem(value: null, child: Text('كل المشاريع')),
-                  ...input.projects.map((p) => DropdownMenuItem(
+                  ...scoped.projects.map((p) => DropdownMenuItem(
                         value: p.id,
                         child: Text(p.name, overflow: TextOverflow.ellipsis),
                       )),
@@ -700,7 +742,7 @@ class _ReportFilterBar extends StatelessWidget {
             (
               preferredWidth: 200,
               child: DropdownButtonFormField<String?>(
-                initialValue: filters.managerUid,
+                initialValue: inScope(filters.managerUid, peopleIds),
                 isExpanded: true,
                 decoration:
                     const InputDecoration(labelText: 'مدير المشروع', isDense: true),
@@ -719,7 +761,7 @@ class _ReportFilterBar extends StatelessWidget {
             (
               preferredWidth: 200,
               child: DropdownButtonFormField<String?>(
-                initialValue: filters.executorUid,
+                initialValue: inScope(filters.executorUid, peopleIds),
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'المنفّذ', isDense: true),
                 items: [

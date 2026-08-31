@@ -885,7 +885,18 @@ want_in "$RULES" "القاعدة تقبل المفرد والقائمة" \
   "function canEditDept(deptId) { return isAdmin() || (isDeptManager() \&\& isMyDeptAny(deptId)); }"
 reject_in "$RULES" "ولا تقتصر على القائمة" \
   "canEditDept(deptId) { return isAdmin() || (isDeptManager() \&\& isMyDeptOfManager(deptId)); }"
-want_in "$STORE" "والعميل كذلك" "if (many.isNotEmpty) return many;"
+# ــ والعميلُ كذلك: والقراءةُ على `AppUser` لا في المتجر ــ
+#
+# كانت مكتوبةً في `app_store.dart` مرّتين (`myDepartmentIds`
+# و`trackablePeople`)، فصارت مرّةً واحدةً على النموذج ويُحوَّل إليها
+# الاثنان. وهذا الحارسُ يتبع الموضعَ الواحد لا أحدَ النسخ.
+want_in "lib/models/app_user.dart" "والعميل كذلك — على النموذج" \
+  "if (departmentIds.isNotEmpty) return departmentIds;"
+want_in "lib/models/app_user.dart" "ويرجع إلى المفرد الموروث" \
+  "return (one == null || one.isEmpty) ? const \[\] : \[one\];"
+want_in "$STORE" "والمتجرُ يُحوّل إليها ولا يعيدها" \
+  "currentUser?.allDepartmentIds"
+reject_in "$STORE" "ولا نسخةَ ثانيةً في المتجر" "if (many.isNotEmpty) return many;"
 # ورسالةُ الرفض تقول ما يُفعل لا رمزاً — راجع `readable_write_error_test.dart`.
 want_in "$STORE" "ورسالةُ الرفض تسمّي العلاج" "static String readableWriteError("
 echo ""

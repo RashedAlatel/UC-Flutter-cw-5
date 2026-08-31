@@ -1403,19 +1403,32 @@ export const setUserRole = onCall(async (request) => {
   if (!userDoc.exists) throw new HttpsError("not-found", "المستخدم غير موجود");
   const current = userDoc.data()!;
 
+  // ــــ الغيابُ يُبقي، والصريحُ ينزع ــــ
+  //
+  // كان يُكتب `departmentId ?? null` بلا تفريق، والعميلُ يُرسل `null` لكل
+  // دورٍ سوى دورين. **فكلُّ تعديلِ دورٍ على موظّف كان يمحو إدارته صامتاً**
+  // — من المستند ومن بطاقة الدخول معاً — فيفقد رؤية مشاريع إدارته ولا
+  // يُقال له لماذا.
+  //
+  // فصار: مفتاحٌ **غيرُ مُرسَل** يعني «اتركها كما هي»، و`null` **مُرسَلةٌ
+  // صراحةً** تعني «انزعها». وبه يَسلم كلُّ نداءٍ يغفل الحقل — اليوم أو بعد
+  // سنة — ويبقى النزعُ فعلاً يُقصد لا أثراً جانبياً.
+  const nextDepartmentId =
+    departmentId === undefined ? (current.departmentId ?? null) : departmentId;
+
   const claimPerms = claimPermissions(
-    await loadCustomRolePerms(role, customRoleId), current, departmentId ?? null);
+    await loadCustomRolePerms(role, customRoleId), current, nextDepartmentId);
   const deptIds = role === "departmentManager" ? departmentIds ?? [] : [];
 
   await userRef.update({
     role,
     customRoleId: role === "custom" ? customRoleId : null,
-    departmentId: departmentId ?? null,
+    departmentId: nextDepartmentId,
     departmentIds: deptIds,
   });
   await admin.auth().setCustomUserClaims(uid, {
     role,
-    departmentId: departmentId ?? null,
+    departmentId: nextDepartmentId,
     departmentIds: deptIds,
     approved: current.status === "approved",
     ...claimPerms,

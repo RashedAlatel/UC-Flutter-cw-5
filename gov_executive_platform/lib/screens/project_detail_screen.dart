@@ -30,6 +30,7 @@ import '../widgets/status_chip.dart';
 import 'daily_update_form.dart';
 import 'project_form_dialog.dart';
 import 'project_history_screen.dart';
+import 'project_progress_dialog.dart';
 import 'project_transfer_dialog.dart';
 import 'request_deadline_change_dialog.dart';
 
@@ -248,6 +249,22 @@ class ProjectDetailScreen extends StatelessWidget {
                   Text(project.description, style: const TextStyle(color: AppColors.textPrimary, fontSize: 13.5, height: 1.6)),
                   const SizedBox(height: 16),
                   LabeledProgressBar(value: project.progressPercent, label: 'نسبة الإنجاز الكلية', height: 10),
+                  // ــ تصحيحُ النسبة على المكتمل ــ
+                  //
+                  // ما دام المشروعُ جارياً فطريقُ نسبته التحديثُ اليومي.
+                  // أمّا المكتملُ فلا تحديثَ يُنتظر منه، ومن أدخل ١٠٠٪ سهواً
+                  // كان يبقى مشروعُه «مكتملاً» بلا سبيلٍ إلى تصحيحه.
+                  if (store.canEditProjectProgress(project)) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: TextButton.icon(
+                        onPressed: () => showProjectProgressDialog(context, project),
+                        icon: const Icon(Icons.percent_rounded, size: 16),
+                        label: const Text('تصحيح نسبة الإنجاز'),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   Wrap(
                     spacing: 22,

@@ -625,13 +625,29 @@ class _RoleFields extends StatelessWidget {
             onChanged: onCustomRoleChanged,
           ),
         ],
-        if (needsSingleDept || isCustom) ...[
+        // ــ حقلُ الإدارة لكلّ الأدوار إلا مديرَ الإدارة ــ
+        //
+        // كان يُعرض لدورين فقط، فالموظفُ الذي لم يختر إدارتَه عند التسجيل
+        // لا سبيلَ إلى ضمّه إلى واحدة. وهي رؤيةُ مشاريع إدارته كلِّها،
+        // فبقاؤه بلا إدارةٍ يعني منصّةً شبه فارغة أمامه.
+        //
+        // ومديرُ الإدارة وحده يُستثنى: إدارتُه **قائمةٌ** لا مفرد، وتُختار
+        // أدناه بمربّعات — وعرضُ الحقلين معاً يجعل الاثنين يتنازعان.
+        if (!isManagerRole) ...[
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: departmentId,
             isExpanded: true,
-            decoration: InputDecoration(labelText: isCustom ? 'الإدارة (اختياري)' : 'الإدارة'),
-            items: store.departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
+            // ومطلوبةٌ لمدير المشروع الموروث وحده — يُفحص عند الحفظ.
+            decoration: InputDecoration(
+                labelText: needsSingleDept ? 'الإدارة' : 'الإدارة (اختياري)'),
+            items: [
+              // و«بلا إدارة» خيارٌ صريح لا فراغ: مسؤولُ النظام والتنفيذي
+              // بلا إدارةٍ بطبعهما، ومن أراد نزعَها يقولها لا يتركها.
+              const DropdownMenuItem<String>(value: null, child: Text('بلا إدارة')),
+              ...store.departments
+                  .map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))),
+            ],
             onChanged: onDepartmentChanged,
           ),
         ],
@@ -672,6 +688,23 @@ class _RoleFields extends StatelessWidget {
   }
 }
 
+/// أيُّ إدارةٍ مفردة تُرسَل مع الدور — **قاعدةٌ واحدةٌ تُقاس وحدها**.
+///
+/// ــ العطلُ الذي أوجدها ــ
+///
+/// كانت مكتوبةً في موضع الإرسال شرطاً مضمَّناً:
+/// `(needsSingleDept || role == custom) ? _departmentId : null`. فالموظفُ —
+/// وهو أكثرُ الحسابات — يُرسل عنه `null` دائماً، والخادمُ يكتبها. فكلُّ
+/// تعديلِ دورٍ على موظّف كان **يمحو إدارته صامتاً**.
+///
+/// وصارت: تُرسَل إدارةُ من إدارتُه مفردة، ولا تُرسَل لمدير الإدارة —
+/// إدارتُه في القائمة لا في المفرد.
+String? departmentIdForSubmit({required UserRole role, required String? departmentId}) =>
+    role == UserRole.departmentManager ? null : departmentId;
+
+/// نافذةُ تعديل الدور — **عامّةٌ ليُقاس ما تعرضه**.
+typedef EditRoleDialog = _EditRoleDialog;
+
 class _EditRoleDialog extends StatefulWidget {
   final AppUser user;
   const _EditRoleDialog({required this.user});
@@ -711,7 +744,7 @@ class _EditRoleDialogState extends State<_EditRoleDialog> {
           widget.user,
           role: _role,
           customRoleId: _role == UserRole.custom ? _customRoleId : null,
-          departmentId: (needsSingleDept || _role == UserRole.custom) ? _departmentId : null,
+          departmentId: departmentIdForSubmit(role: _role, departmentId: _departmentId),
           departmentIds: isManagerRole ? _departmentIds : null,
         );
     if (!mounted) return;

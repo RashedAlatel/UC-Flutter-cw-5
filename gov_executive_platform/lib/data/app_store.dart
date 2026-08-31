@@ -27,6 +27,7 @@ import '../models/department_section.dart';
 import '../models/enums.dart';
 import '../models/feedback_item.dart';
 import '../models/project.dart';
+import '../models/project_progress.dart';
 import '../models/project_category.dart';
 import '../models/periodic_report_settings.dart';
 import '../models/project_edit.dart';
@@ -3559,11 +3560,93 @@ class AppStore extends ChangeNotifier {
     final uid = currentUser?.id;
     if (uid == null) return false;
     if (isAdmin) return true;
+    // ــ والتنفيذيُّ لا يحذف ولو كان هو الكاتب ــ
+    //
+    // ويسبق فحصَ الكاتب عمداً: هو يقرأ كلَّ الإدارات ولا يملك أيّاً منها،
+    // فلا يمحو من سجلٍّ لا يملكه. وقد سقط هذا الترتيبُ مرّةً في إعادة
+    // تنظيمٍ فكشفه `daily_update_delete_test.dart` — فيبقى مكتوباً هنا.
     if (isExecutive) return false;
     if (update.authorUid == uid) return true;
-    if (project == null) return false;
+    return project != null && ownsProject(project);
+  }
+
+  /// **مالكُ المشروع**: مسؤولُ النظام · مديرو المشروع · مديرُ إدارته.
+  ///
+  /// ــ وهي أضيقُ من [canEditProject] عمداً ــ
+  ///
+  /// تلك تُرجع `true` لكل موظّفٍ في إدارة المشروع، وهو الصواب للتحديث
+  /// اليومي: من يعمل فيه يكتب ما أنجزه. أمّا حذفُ سجلٍّ أو تصحيحُ رقمٍ
+  /// رسميّ فليس حقَّ كلِّ زميل.
+  ///
+  /// والمستخدمُ التنفيذي يقرأ كلَّ الإدارات ولا يملك أيّاً منها، فلا يدخل.
+  ///
+  /// وكانت مكتوبةً داخل [canDeleteDailyUpdate] وحدها؛ فلمّا صار لها مستعملٌ
+  /// ثانٍ أُخرجت باسمها — فلا دائرتان تفترقان.
+  bool ownsProject(Project project) {
+    final uid = currentUser?.id;
+    if (uid == null) return false;
+    if (isAdmin) return true;
+    if (isExecutive) return false;
     if (project.isManager(uid)) return true;
     return isManager && myDepartmentIds.contains(project.departmentId);
+  }
+
+  /// هل يصحّح هذا المستخدمُ نسبةَ إنجاز هذا المشروع؟
+  ///
+  /// ــ ولماذا للمكتمل وحده ــ
+  ///
+  /// ما دام المشروعُ جارياً فطريقُ نسبته **التحديثُ اليومي**، وهو سجلُّ
+  /// العمل: من رفع النسبة قال معها ماذا أنجز. وبابٌ ثانٍ دائم يجعل الرقم
+  /// يتحرّك بلا سطرٍ يفسّره.
+  ///
+  /// أمّا المكتملُ فلا تحديثَ يومياً يُنتظر منه، ومن أدخل ١٠٠٪ سهواً لا
+  /// سبيلَ له إلى التصحيح. فهذا البابُ للحال التي طُلبت، لا بابٌ عام.
+  bool canEditProjectProgress(Project project) =>
+      project.effectiveStatus == ProjectStatus.completed && ownsProject(project);
+
+  /// يصحّح نسبةَ إنجاز مشروعٍ اكتمل — ويُعيد حالتَه إلى ما يقوله موعدُه.
+  ///
+  /// وتُعيد رسالةَ خطأٍ عند التعذّر، و`null` عند النجاح.
+  Future<String?> setProjectProgress(
+    Project project,
+    double progress, {
+    String reason = '',
+  }) async {
+    if (!canEditProjectProgress(project)) {
+      return 'تصحيحُ نسبة الإنجاز لمدير الإدارة ومديري المشروع — على المشاريع المكتملة.';
+    }
+    if (progress < 0 || progress > 100) return 'النسبة بين ٠ و١٠٠.';
+    if (progress == project.progressPercent) return null;
+
+    final newStatus = statusForProgress(
+      progress: progress,
+      current: project.status,
+      delayDays: project.delayDays,
+      hasNewRisk: false,
+    );
+    try {
+      await _db.collection('projects').doc(project.id).update({
+        'progressPercent': progress,
+        'status': newStatus.name,
+      });
+    } catch (e) {
+      return readableWriteError(e);
+    }
+    // ورقمٌ رسميٌّ يُصحَّح بلا أثرٍ يقول من غيّره ومتى ليس تصحيحاً.
+    await _log(
+      'تصحيح نسبة إنجاز مشروع',
+      'صحّح ${currentUser?.name} نسبة إنجاز المشروع "${project.name}" '
+          'من ${project.progressPercent.toStringAsFixed(0)}٪ '
+          'إلى ${progress.toStringAsFixed(0)}٪'
+          '${reason.trim().isEmpty ? '' : ' — السبب: ${reason.trim()}'}',
+      type: ChangeType.update$,
+      targetType: 'project',
+      targetId: project.id,
+      targetName: project.name,
+      before: {'progressPercent': project.progressPercent, 'status': project.status.name},
+      after: {'progressPercent': progress, 'status': newStatus.name},
+    );
+    return null;
   }
 
   /// يحذف تحديثاً يومياً — بدالّةٍ على الخادم، لا بحذفٍ مباشر.
@@ -4110,16 +4193,18 @@ class AppStore extends ChangeNotifier {
       }
     }
 
-    ProjectStatus newStatus = project.status;
-    if (progressPercent >= 100) {
-      newStatus = ProjectStatus.completed;
-    } else if (project.delayDays > 5) {
-      newStatus = ProjectStatus.delayed;
-    } else if (newRisks.isNotEmpty || blockersText.isNotEmpty) {
-      newStatus = ProjectStatus.atRisk;
-    } else if (progressPercent > project.progressPercent) {
-      newStatus = ProjectStatus.onTrack;
-    }
+    // ــ القاعدةُ في `project_progress.dart` لا هنا ــ
+    //
+    // كانت مكتوبةً في هذا الموضع وحده. ثم صار للنسبة بابٌ ثانٍ — تصحيحُها
+    // على مشروعٍ اكتمل — فأُخرجت لتُنادى من الاثنين، فلا تفترق قاعدتان
+    // للحالة الواحدة. وبها كذلك صار النزولُ عن المئة يُخرج من الاكتمال.
+    final newStatus = statusForProgress(
+      progress: progressPercent,
+      current: project.status,
+      delayDays: project.delayDays,
+      hasNewRisk: newRisks.isNotEmpty || blockersText.isNotEmpty,
+      previousProgress: project.progressPercent,
+    );
     await tryWrite('تحديث نسبة إنجاز المشروع وحالته', () async {
       await _db.collection('projects').doc(project.id).update({
         'progressPercent': progressPercent,

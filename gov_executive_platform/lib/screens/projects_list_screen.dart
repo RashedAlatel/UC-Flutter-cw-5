@@ -439,6 +439,19 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700),
                     ),
+                    // ــ وما وصل من الخادم يُقال، فالصفرُ خبرٌ لا لغز ــ
+                    //
+                    // راجع [AppStore.projectsArrivalNote]: «لا توجد مشاريع»
+                    // جملةٌ تصف القائمة ولا تصف الحال.
+                    if (store.projectsArrivalNote != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        store.projectsArrivalNote!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            color: AppColors.textSecondary, fontSize: 12.5, height: 1.7),
+                      ),
+                    ],
                     if (store.myDepartmentIds.isEmpty && !store.canViewAllDepartments) ...[
                       const SizedBox(height: 6),
                       const Text(

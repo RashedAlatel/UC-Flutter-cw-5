@@ -58,9 +58,13 @@ class _DataAccessBannerState extends State<DataAccessBanner> {
     final store = context.watch<AppStore>();
     if (!store.hasDataErrors) return const SizedBox.shrink();
 
+    // ــ اللافتةُ لا تقرّر، بل تعرض قراراً يُقاس ــ
+    //
+    // صنفُ العطل ونصُّه في [AppStore.describeDataErrors] — دالّةٌ نقيّة
+    // تُقلب قواعدُها بطفرة. وكانت الأصنافُ الأربعة تُقال جملةً واحدة
+    // («تعذّر تحميل بعض البيانات») فلا يعرف أحدٌ أيَّها وقع ولا ما يفعله.
+    final report = AppStore.describeDataErrors(store.dataErrors, store.docCounts);
     final permissions = store.hasPermissionErrors;
-    final names = store.dataErrors.keys.take(4).join('، ');
-    final more = store.dataErrors.length > 4 ? ' و${store.dataErrors.length - 4} غيرها' : '';
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -79,16 +83,12 @@ class _DataAccessBannerState extends State<DataAccessBanner> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  permissions
-                      ? 'صلاحيات حسابك غير مكتملة — بعض بياناتك محجوبة عنك'
-                      : 'تعذّر تحميل بعض البيانات من الخادم',
+                  report.title,
                   style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.danger),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  permissions
-                      ? 'ما تراه الآن ناقص، وليس فارغاً لعدم وجود بيانات. رُفضت قراءة: $names$more.'
-                      : 'رُفضت قراءة: $names$more. تأكد من اتصال الشبكة ثم أعد المحاولة.',
+                  report.body,
                   style: const TextStyle(fontSize: 12.5, height: 1.8, color: AppColors.textSecondary),
                 ),
                 // إرشاد صريح بدل رسالة عامة: أكثر أسباب الرفض شيوعاً أن
@@ -117,6 +117,19 @@ class _DataAccessBannerState extends State<DataAccessBanner> {
                       : const Icon(Icons.sync_rounded, size: 16),
                   label: Text(_syncing ? 'جارٍ المزامنة…' : 'مزامنة صلاحيات حسابي'),
                 ),
+                // ــ وطريقُ الخروج الثاني يُقال ــ
+                //
+                // ختمُ الخادم قد يُخفق هو نفسه (دالّةٌ غير منشورة، أو شبكة)
+                // — وهو ما وقع. وحينها يبقى للمستخدم بابٌ واحد لا يحتاج
+                // الخادمَ: رمزٌ جديد بخروجٍ ودخول.
+                if (report.kind == DataTrouble.claims) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    'وإن لم تُجدِ المزامنة فسجّل خروجاً ثم دخولاً — يُجدَّد بها '
+                    'رمزُ دخولك من أصله.',
+                    style: TextStyle(fontSize: 12, height: 1.8, color: AppColors.textSecondary),
+                  ),
+                ],
                 if (_syncError != null) ...[
                   const SizedBox(height: 6),
                   Text('تعذّرت المزامنة: $_syncError',

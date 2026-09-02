@@ -17,6 +17,7 @@ import {storagePathsToDelete} from "./attachment_cleanup";
 import {childMembershipPatch} from "./child_membership";
 import {mayDeleteDailyUpdate} from "./daily_update_delete";
 import {buildWorkDoc} from "./work_create";
+import {stampClaims as stampClaimsCore} from "./claims_stamp";
 import {
   canActAtStage,
   nextStage,
@@ -48,6 +49,25 @@ setGlobalOptions({region: "europe-west1", maxInstances: 10, invoker: "public"});
 
 const db = () => admin.firestore();
 const now = () => admin.firestore.Timestamp.now();
+
+/**
+ * يختم بطاقةَ الدخول ويُعلم المتصفّح أنها خُتمت — بتبعيّات هذا الملفّ.
+ *
+ * والقرارُ نفسُه في `claims_stamp.ts` بلا Firebase، فيُقاس هناك.
+ *
+ * @param {string} uid صاحبُ البطاقة.
+ * @param {Record<string, unknown>} claims البطاقةُ كاملةً كما تُختم.
+ * @return {Promise<void>} لا شيء.
+ */
+async function stampClaims(uid: string, claims: Record<string, unknown>): Promise<void> {
+  await stampClaimsCore(uid, claims, {
+    setClaims: (id, c) => admin.auth().setCustomUserClaims(id, c),
+    markUser: async (id) => {
+      await db().collection("users").doc(id).set({claimsUpdatedAt: now()}, {merge: true});
+    },
+    warn: (message, err) => logger.warn(message, err),
+  });
+}
 
 function requireAuth(request: CallableRequest) {
   if (!request.auth) {
@@ -315,7 +335,7 @@ export const bootstrapFirstAdmin = onCall(async (request) => {
     tx.set(systemRef, {bootstrapped: true, bootstrappedBy: auth.uid, bootstrappedAt: now()}, {merge: true});
   });
 
-  await admin.auth().setCustomUserClaims(auth.uid, {role: "systemAdmin", departmentId: null, approved: true});
+  await stampClaims(auth.uid, {role: "systemAdmin", departmentId: null, approved: true});
   await db().collection("users").doc(auth.uid).update({role: "systemAdmin", status: "approved", departmentId: null});
   await logAudit(auth.token.name ?? "مستخدم", "تعيين أول مسؤول نظام", "تم تعيين أول مسؤول نظام للمنصة عبر إجراء التهيئة الأولى");
 
@@ -764,7 +784,7 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       // وغيابها كان عطلاً صامتاً: الحساب المعتمَد حديثاً يخرج بلا حقل `perms`
       // إطلاقاً، فكل `perm(key)` في القواعد يعود false مهما منح مسؤول النظام
       // لدوره — ولا يُصلَح إلا بإعادة ختم لاحقة قد لا تقع أبداً.
-      await admin.auth().setCustomUserClaims(uid, {
+      await stampClaims(uid, {
         role, departmentId, departmentIds, approved: true,
         ...claimPermissions(await loadCustomRolePerms(role, null), userSnap.data(), departmentId),
       });
@@ -1360,7 +1380,7 @@ export const adminCreateUser = onCall(async (request) => {
 
   const userRecord = await admin.auth().createUser({email, password, displayName: name});
   // حسابٌ جديد بلا منح نطاقات — تُمنح لاحقاً من شاشة صلاحيات المستخدم.
-  await admin.auth().setCustomUserClaims(userRecord.uid, {
+  await stampClaims(userRecord.uid, {
     role,
     departmentId: departmentId ?? null,
     departmentIds: deptIds,
@@ -1426,7 +1446,7 @@ export const setUserRole = onCall(async (request) => {
     departmentId: nextDepartmentId,
     departmentIds: deptIds,
   });
-  await admin.auth().setCustomUserClaims(uid, {
+  await stampClaims(uid, {
     role,
     departmentId: nextDepartmentId,
     departmentIds: deptIds,
@@ -1482,7 +1502,7 @@ export const setUserStatus = onCall(async (request) => {
       if (code !== "auth/user-not-found") throw e;
     }
   } else {
-    await admin.auth().setCustomUserClaims(uid, {
+    await stampClaims(uid, {
       role: current.role,
       departmentId: current.departmentId ?? null,
       departmentIds: current.departmentIds ?? [],
@@ -1526,7 +1546,7 @@ export const refreshRolePermissions = onCall(async (request) => {
     // الاستثناء الفردي يُطبَّق لكل حساب على حدة، وإلا محا تعديلُ صلاحيات
     // الدور استثناءاتٍ منحها مسؤول النظام لأشخاص بأعيانهم.
     try {
-      await admin.auth().setCustomUserClaims(doc.id, {
+      await stampClaims(doc.id, {
         role,
         departmentId: u.departmentId ?? null,
         departmentIds: u.departmentIds ?? [],
@@ -1630,7 +1650,7 @@ async function restampClaims(uid: string): Promise<Record<string, unknown>> {
       (u.departmentId as string | null) ?? null,
     ),
   };
-  await admin.auth().setCustomUserClaims(uid, claims);
+  await stampClaims(uid, claims);
   return claims;
 }
 

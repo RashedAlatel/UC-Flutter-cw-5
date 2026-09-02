@@ -85,6 +85,23 @@ String describeWriteFailure(Object error) {
 /// لا تُجرى أي عملية اعتماد (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي) مباشرة من
 /// هذا الملف؛ كل ما يفعله الطلب هو إنشاء وثيقة "طلب موافقة" في Firestore، والتنفيذ
 /// الفعلي يتم حصرياً داخل Cloud Functions بعد تحقق الخادم من صلاحية مسؤول النظام.
+/// صنفُ العطل الذي يمنع البيانات — ولكلٍّ علاجٌ مختلف.
+///
+/// وكانت الأربعةُ تُقال جملةً واحدة، فمضى يومٌ في التخمين أيُّها وقع.
+enum DataTrouble {
+  /// البطاقةُ تخالف السجل — يُصلَح بخروجٍ ودخول أو بختمٍ من الخادم.
+  claims,
+
+  /// القاعدةُ ردّت — صلاحيةٌ ناقصة، وتُزامَن بضغطة.
+  permission,
+
+  /// وصلت المستنداتُ ولم تُقرأ — عطلٌ في النموذج، يُصلحه المطوّر.
+  parse,
+
+  /// ما بقي: انقطاعٌ أو خطأٌ لا يُصنَّف.
+  network,
+}
+
 class AppStore extends ChangeNotifier {
   // مقيَّمة بكسل (late) لا فور الإنشاء: هذا يسمح ببناء AppStore في اختبارات
   // المعاينة وملء حقوله ببيانات تجريبية مباشرةً دون تهيئة Firebase، فنتمكن من
@@ -149,6 +166,91 @@ class AppStore extends ChangeNotifier {
   /// تُجمع هنا فتُعرض في لافتة أعلى المنصة، فيصير الرفض معلومة تُقرأ وتُصوَّر
   /// بدل شاشة فارغة غامضة.
   final Map<String, String> dataErrors = {};
+
+  /// كم مستنداً **وصل** من كل تدفّق وكم **قُرئ** منه.
+  ///
+  /// ــــ لماذا عدّادان لا قائمةٌ واحدة ــــ
+  ///
+  /// «صفرُ مشاريع» ثلاثةُ أخبارٍ مختلفة يقولها رقمٌ واحد، وقد كلّفنا خلطُها
+  /// يوماً كاملاً من التخمين:
+  ///
+  ///   • **لم يصل شيء ولا خطأ** — النطاق ضيّق: بطاقةُ دخولٍ بلا دورٍ أو بلا
+  ///     إدارة، فالاستعلام مشروعٌ ويعود فارغاً.
+  ///   • **رُفض الطلب** — القاعدة ردّت، ونصُّها في [dataErrors].
+  ///   • **وصل ولم يُقرأ** — عطلُ قراءةٍ في النموذج، ويُسمَّى المستند.
+  ///
+  /// فيُحفظ الرقمان ويُعرضان، فيصير الصفر خبراً يُقرأ لا لغزاً يُستنتج.
+  final Map<String, ({int received, int parsed})> docCounts = {};
+
+  /// مفتاحُ لافتة بطاقة الدخول في [dataErrors].
+  static const String claimsErrorLabel = 'بطاقة الدخول';
+
+  /// **ماذا تقول اللافتة؟** — قرارٌ واحد يُقاس بلا واجهة.
+  ///
+  /// ــــ لماذا صنفٌ لا نصٌّ واحد ــــ
+  ///
+  /// «تعذّر تحميل بعض البيانات» جملةٌ تصلح لأربعة أعطالٍ علاجُها مختلف:
+  /// بطاقةٌ ميتة تُصلَح بخروجٍ ودخول، وصلاحيةٌ ناقصة تُصلَح بمزامنة، وعطلُ
+  /// قراءةٍ في مستندٍ بعينه يُصلحه المطوّر، وانقطاعُ شبكةٍ لا يُصلحه أحد.
+  /// فقولُها واحدةً يُضيّع اليومَ الذي ضاع.
+  ///
+  /// والترتيبُ مقصود: البطاقةُ أوّلاً لأنها تُبطل كلَّ ما تحتها — من بطاقتُه
+  /// ميتة تُردّ قراءاتُه كلُّها، فلا معنى لأن يُقال له «تحقّق من الشبكة».
+  static ({DataTrouble kind, String title, String body}) describeDataErrors(
+    Map<String, String> errors,
+    Map<String, ({int received, int parsed})> counts,
+  ) {
+    final claims = errors[claimsErrorLabel];
+    if (claims != null) {
+      return (
+        kind: DataTrouble.claims,
+        title: 'بطاقةُ دخولك تخالف سجلَّك — والخادمُ يحتكم إلى البطاقة',
+        body: claims,
+      );
+    }
+
+    final others = Map<String, String>.from(errors)..remove(claimsErrorLabel);
+    final permission = others.values.any(
+        (e) => e.contains('permission-denied') || e.contains('PERMISSION_DENIED'));
+    final names = others.keys.take(4).join('، ');
+    final more = others.length > 4 ? ' و${others.length - 4} غيرها' : '';
+
+    if (permission) {
+      return (
+        kind: DataTrouble.permission,
+        title: 'صلاحيات حسابك غير مكتملة — بعض بياناتك محجوبة عنك',
+        body: 'ما تراه الآن ناقص، وليس فارغاً لعدم وجود بيانات. '
+            'رُفضت قراءة: $names$more.',
+      );
+    }
+
+    // ــ عطلُ قراءةٍ في مستندٍ بعينه ــ
+    //
+    // ويُقال بالأرقام: «وصل ١٨١ وقُرئ ٤» خبرٌ يُصلَح به شيء، و«تعذّر
+    // التحميل» ليس خبراً.
+    final parseLabels = others.keys.where((k) {
+      final c = counts[k];
+      return c != null && c.received > c.parsed;
+    }).toList();
+    if (parseLabels.isNotEmpty) {
+      final lines = parseLabels.take(3).map((k) {
+        final c = counts[k]!;
+        return '«$k»: وصل ${c.received} مستنداً وقُرئ ${c.parsed} — ${others[k]}';
+      }).join('\n');
+      return (
+        kind: DataTrouble.parse,
+        title: 'وصلت بياناتٌ من الخادم وتعذّرت قراءتها — ما تراه ناقص',
+        body: 'الخادمُ لم يمنع شيئاً؛ العطلُ في قراءة مستنداتٍ بعينها. '
+            'أبلِغ مسؤول النظام بهذا النص:\n$lines',
+      );
+    }
+
+    return (
+      kind: DataTrouble.network,
+      title: 'تعذّر تحميل بعض البيانات من الخادم',
+      body: 'رُفضت قراءة: $names$more. تأكد من اتصال الشبكة ثم أعد المحاولة.',
+    );
+  }
 
   /// المحذوفة منطقياً — لا تظهر في شيء، ويقرؤها مسؤول النظام ليستعيدها.
   ///
@@ -268,10 +370,116 @@ class AppStore extends ChangeNotifier {
     _dataSubs.add(stream.listen(
       (value) {
         if (dataErrors.remove(label) != null) notifyListeners();
-        onData(value);
+        // ــ وما يُرمى داخل [onData] يمرّ من هنا أيضاً ــ
+        //
+        // `onError` تلتقط أخطاء **التدفّق** وحدها؛ وما يُرمى في معالج
+        // البيانات يذهب إلى منطقة الأخطاء العامّة، فلا لافتة ولا سطر —
+        // شاشةٌ فارغة وصمت. وهو البابُ الذي وعدت هذه الدالّة بإغلاقه ولم
+        // تكن تُغلقه.
+        try {
+          onData(value);
+        } catch (e) {
+          _noteDataError(label, e);
+        }
       },
       onError: (Object e) => _noteDataError(label, e),
     ));
+  }
+
+  /// يقرأ لقطةً **مستنداً مستنداً** — فمشوَّهٌ واحد لا يُخفي إخوته.
+  ///
+  /// ــــ العطلُ الذي أوجبها ــــ
+  ///
+  /// `snap.docs.map(fromDoc).toList()` **ذرّية**: مستندٌ واحد يُخفق في
+  /// قراءته يرمي، فتسقط اللقطةُ كلُّها وتبقى القائمة على ما كانت. ومئةٌ
+  /// وثمانون مشروعاً تختفي من أجل حقلٍ واحدٍ في مستندٍ واحد، بلا رسالة.
+  ///
+  /// فيُقرأ كلٌّ على حدة: ما قُرئ يُنشر، وما أخفق يُعدّ ويُسمَّى.
+  List<T> _parseDocs<T>(
+    String label,
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    T Function(QueryDocumentSnapshot<Map<String, dynamic>>) fromDoc,
+  ) =>
+      recordParse<T, QueryDocumentSnapshot<Map<String, dynamic>>>(
+        label,
+        docs,
+        (d) => d.id,
+        fromDoc,
+      );
+
+  /// القراءةُ مع **تسجيل ما وصل وما قُرئ** — وهي ما يُبنى عليه خبرُ الشاشة.
+  ///
+  /// وهي مفصولةٌ عن [_parseDocs] لتُقاس: تلك تشترط `QueryDocumentSnapshot`،
+  /// أي Firestore حيّاً، أي خارج مدى أي اختبار. وقد نجت طفرةٌ على العدّاد
+  /// حين كان الوصلُ والقراءةُ يُكتبان في موضعٍ لا يبلغه قياس.
+  @visibleForTesting
+  List<T> recordParse<T, D>(
+    String label,
+    Iterable<D> docs,
+    String Function(D) idOf,
+    T Function(D) parse,
+  ) {
+    final out = parseEach<T, D>(docs, idOf, parse);
+    docCounts[label] = (received: out.received, parsed: out.items.length);
+    if (out.failures.isEmpty) {
+      if (dataErrors.remove(label) != null) notifyListeners();
+    } else {
+      _noteDataError(
+        label,
+        'وصل ${out.received} مستنداً وقُرئ ${out.items.length}. '
+        'تعذّرت قراءة ${out.failures.length}: ${out.failures.take(3).join(' · ')}',
+      );
+    }
+    return out.items;
+  }
+
+  /// القراءةُ مستنداً مستنداً — بلا Firestore، فتُقاس.
+  ///
+  /// تُعيد ما قُرئ، وكم وصل، ووصفَ كلِّ ما أخفق (معرّفُه ونصُّ الخطأ).
+  @visibleForTesting
+  static ({List<T> items, int received, List<String> failures}) parseEach<T, D>(
+    Iterable<D> docs,
+    String Function(D) idOf,
+    T Function(D) parse,
+  ) {
+    final items = <T>[];
+    final failures = <String>[];
+    var received = 0;
+    for (final doc in docs) {
+      received++;
+      try {
+        items.add(parse(doc));
+      } catch (e) {
+        // والمعرِّفُ معه: بلا اسمِ المستند يبقى الخطأ وصفاً لا يُصلَح به شيء.
+        failures.add('${idOf(doc)}: $e');
+      }
+    }
+    return (items: items, received: received, failures: failures);
+  }
+
+  /// يُنفّذ ختمَ البطاقة، **ويُعلن إخفاقه إن أخفق**.
+  ///
+  /// ــــ الصمتُ الذي كان هنا ــــ
+  ///
+  /// كانت `_reconcileClaims` تكتشف افتراق البطاقة عن السجل ثم تنادي
+  /// `syncMyClaims()` **وتُهمل ما تُعيده** — وهي تُعيد نصَّ الخطأ عند
+  /// إخفاقها. فمن أخفق ختمُه يمضي ببطاقةٍ ميتة: القواعد تقرأ البطاقة لا
+  /// السجل، فتُردّ قراءاتُه وكتاباتُه معاً، والشاشةُ لا تقول له شيئاً.
+  ///
+  /// وهي دالّةٌ على حدة لتُقاس: `_reconcileClaims` لا تعمل إلا بحسابٍ حيّ.
+  @visibleForTesting
+  Future<void> syncClaimsOrReport(Future<String?> Function() sync) async {
+    final error = await sync();
+    if (error == null) {
+      if (dataErrors.remove(claimsErrorLabel) != null) notifyListeners();
+      return;
+    }
+    _noteDataError(
+      claimsErrorLabel,
+      'بطاقةُ دخولك تخالف سجلَّك، وتعذّر ختمُها من جديد. وحتى تُختم '
+      'سيَردّ الخادمُ قراءاتِك وكتاباتِك وإن بدت الشاشةُ تسمح بها — '
+      'جرّب تسجيل الخروج والدخول. ($error)',
+    );
   }
 
   // ودجات مخصصة لكل مشروع على حدة (صفحة المشروع) — تُشترَك عند الطلب فقط
@@ -1896,7 +2104,13 @@ class AppStore extends ChangeNotifier {
           }
         }
         return false;
-      } catch (_) {
+      } catch (e) {
+        // ــ وفشلُ قراءة الرمز لا يُقرأ اتّفاقاً ــ
+        //
+        // كان يُبتلع فتقول الدالّة «متّفق» وهي لم تقرأ شيئاً، فيمضي
+        // التطبيق ببطاقةٍ لم تُفحص. ولا يُقال «مختلف» أيضاً — ذلك ختمٌ لا
+        // ينتهي على شكٍّ لا دليل عليه. فيُسجَّل الخبرُ ويمضي.
+        _noteDataError(claimsErrorLabel, 'تعذّرت قراءة بطاقة دخولك: $e');
         return false;
       }
     }
@@ -1909,7 +2123,8 @@ class AppStore extends ChangeNotifier {
     }
     if (_claimsSyncTried) return;
     _claimsSyncTried = true;
-    await syncMyClaims();
+    // وما تُعيده يُقال ولا يُهمَل — راجع [syncClaimsOrReport].
+    await syncClaimsOrReport(syncMyClaims);
   }
 
   /// يُعيد الفحص حين تصل إعدادات الصلاحيات **بعد** بدء الاشتراكات — أي حين
@@ -1934,7 +2149,14 @@ class AppStore extends ChangeNotifier {
     _dataSubs.clear();
     // أخطاء الاشتراك السابق لا تصف الاشتراك الجديد، فتُمسح معه — وإلا بقيت
     // لافتة خطأ معلّقة بعد أن صُحّحت صلاحيات الحساب فعلاً.
+    //
+    // **إلا خبرَ البطاقة**: هو وصفُ الحساب لا وصفُ اشتراك، ويُكتب قبل
+    // `_subscribeAppData` مباشرةً — فمسحُه هنا يمحوه في اللحظة التي كُتب
+    // فيها، فلا يراه أحد.
+    final claimsError = dataErrors[claimsErrorLabel];
     dataErrors.clear();
+    if (claimsError != null) dataErrors[claimsErrorLabel] = claimsError;
+    docCounts.clear();
     // وكذلك سطرٌ تعذّرت كتابته في جلسةٍ سابقة: لا يصف هذه الجلسة.
     auditWriteFailure = null;
     archivedProjects = [];
@@ -1993,6 +2215,20 @@ class AppStore extends ChangeNotifier {
 
   Timer? _readyFallbackTimer;
 
+  /// آخرُ ختمٍ عرفناه لبطاقة هذا الحساب — راجع [claimsRestamped].
+  DateTime? _lastClaimsStamp;
+
+  /// هل خُتمت البطاقةُ من جديد بعد الختم الذي نعرفه؟
+  ///
+  /// ــ ولماذا لا يُجدَّد الرمزُ في أوّل لقطة ــ
+  ///
+  /// أوّلُ لقطةٍ لا تقول إن شيئاً تغيّر؛ تقول ما هو قائم. وتجديدُ الرمز
+  /// عندها نداءُ شبكةٍ في كل فتحةِ صفحة بلا سبب — وافتراقُ البطاقة عند
+  /// البدء تكشفه `_reconcileClaims` على أي حال.
+  @visibleForTesting
+  static bool claimsRestamped(DateTime? known, DateTime? incoming) =>
+      known != null && incoming != null && incoming.isAfter(known);
+
   Future<void> _onAuthChanged(fb_auth.User? user) async {
     await _userDocSub?.cancel();
     _readyFallbackTimer?.cancel();
@@ -2012,6 +2248,25 @@ class AppStore extends ChangeNotifier {
       _readyFallbackTimer?.cancel();
       final wasApproved = currentUser?.status == UserStatus.approved;
       currentUser = doc.exists ? AppUser.fromDoc(doc) : null;
+
+      // ــ بطاقةٌ خُتمت من جديد: يُجدَّد الرمز فوراً ــ
+      //
+      // القواعدُ تحتكم إلى البطاقة لا إلى هذا السجل، والبطاقةُ في المتصفّح
+      // لا تتجدّد إلا بانتهاء أجل الرمز — وقد يبلغ ساعة. فمن غُيّر دورُه أو
+      // إدارتُه كان يجلس أمام منصّةٍ تردّ قراءاتِه وكتاباتِه والشاشةُ تقول
+      // إنه يملكها. والخادمُ يكتب `claimsUpdatedAt` مع كل ختم (راجع
+      // `stampClaims` في الدوالّ)، وهذا المستمعُ قائمٌ أصلاً — فيراه.
+      final stamp = (doc.data()?['claimsUpdatedAt'] as Timestamp?)?.toDate();
+      if (claimsRestamped(_lastClaimsStamp, stamp)) {
+        // ويسقط حدُّ «محاولةٌ واحدة لكل جلسة»: ختمٌ جديد حالٌ جديدة.
+        _claimsSyncTried = false;
+        try {
+          await user.getIdToken(true);
+        } catch (e) {
+          _noteDataError(claimsErrorLabel, 'تعذّر تجديد رمز دخولك بعد تحديث صلاحياتك: $e');
+        }
+      }
+      _lastClaimsStamp = stamp ?? _lastClaimsStamp;
       if (!wasApproved && currentUser?.status == UserStatus.approved) {
         // تحديث Custom Claims المخزّنة في التوكن بعد اعتماد الحساب لأول مرة
         await user.getIdToken(true);
@@ -2106,11 +2361,11 @@ class AppStore extends ChangeNotifier {
     // أقسام الإدارات: مجموعة صغيرة تُقرأ كاملةً — الفلترة بالإدارة تتم في
     // الذاكرة لأن الشجرة تُعرض كاملةً على أي حال.
     _listen('sections', _db.collection('sections').snapshots(), (snap) {
-      sections = snap.docs.map(DepartmentSection.fromDoc).toList();
+      sections = _parseDocs('sections', snap.docs, DepartmentSection.fromDoc);
       notifyListeners();
     });
     _listen('departments', _db.collection('departments').orderBy('name').snapshots(), (snap) {
-      departments = snap.docs.map(Department.fromDoc).toList();
+      departments = _parseDocs('departments', snap.docs, Department.fromDoc);
       notifyListeners();
     });
 
@@ -2157,7 +2412,7 @@ class AppStore extends ChangeNotifier {
       final col = _db.collection(collection);
       if (childFilters.isEmpty) {
         _listen(collection, col.snapshots(), (snap) {
-          publish(snap.docs.map(fromDoc).toList());
+          publish(_parseDocs(collection, snap.docs, fromDoc));
         });
         return;
       }
@@ -2167,7 +2422,7 @@ class AppStore extends ChangeNotifier {
         final f = childFilters[slot];
         final label = childFilters.length == 1 ? collection : '$collection/${f.field}';
         _listen(label, applyFilter(col, f).snapshots(), (snap) {
-          buckets[slot] = snap.docs.map(fromDoc).toList();
+          buckets[slot] = _parseDocs(label, snap.docs, fromDoc);
           publish(mergeById<T>(idOf, buckets));
         });
       }
@@ -2220,20 +2475,20 @@ class AppStore extends ChangeNotifier {
     }
 
     _listen('projects', projectsScope().snapshots(), (snap) {
-      _projectsByScope = snap.docs.map(Project.fromDoc).toList();
+      _projectsByScope = _parseDocs('projects', snap.docs, Project.fromDoc);
       publishProjects();
     });
     if (myUid != null && !canViewAllDepartments) {
       _listen('projects/عضويتي',
           _db.collection('projects').where('managerUids', arrayContains: myUid).snapshots(),
           (snap) {
-        _projectsByMembership = snap.docs.map(Project.fromDoc).toList();
+        _projectsByMembership = _parseDocs('projects/عضويتي', snap.docs, Project.fromDoc);
         publishProjects();
       });
       _listen('projects/تنفيذي',
           _db.collection('projects').where('executorUids', arrayContains: myUid).snapshots(),
           (snap) {
-        _projectsByExecution = snap.docs.map(Project.fromDoc).toList();
+        _projectsByExecution = _parseDocs('projects/تنفيذي', snap.docs, Project.fromDoc);
         publishProjects();
       });
     }
@@ -2269,7 +2524,7 @@ class AppStore extends ChangeNotifier {
 
     if (isAdmin || isExecutive) {
       _listen('approvalRequests', _db.collection('approvalRequests').snapshots(), (snap) {
-        _requestsByScope = snap.docs.map(ApprovalRequest.fromDoc).toList();
+        _requestsByScope = _parseDocs('approvalRequests', snap.docs, ApprovalRequest.fromDoc);
         publishRequests();
       });
     } else {
@@ -2277,25 +2532,25 @@ class AppStore extends ChangeNotifier {
       if (deptIds.isNotEmpty) {
         _listen('approvalRequests/إدارتي',
             _whereDeptIn(_db.collection('approvalRequests'), deptIds).snapshots(), (snap) {
-          _requestsByScope = snap.docs.map(ApprovalRequest.fromDoc).toList();
+          _requestsByScope = _parseDocs('approvalRequests/إدارتي', snap.docs, ApprovalRequest.fromDoc);
           publishRequests();
         });
       }
       if (myUid != null) {
         _listen('approvalRequests/طلباتي',
             _db.collection('approvalRequests').where('requestedByUid', isEqualTo: myUid).snapshots(), (snap) {
-          _requestsByMine = snap.docs.map(ApprovalRequest.fromDoc).toList();
+          _requestsByMine = _parseDocs('approvalRequests/طلباتي', snap.docs, ApprovalRequest.fromDoc);
           publishRequests();
         });
       }
     }
     _listen('reports', _db.collection('reports').snapshots(), (snap) {
-      reports = snap.docs.map(ReportSnapshot.fromDoc).toList()
+      reports = _parseDocs('reports', snap.docs, ReportSnapshot.fromDoc)
         ..sort((a, b) => b.generatedDate.compareTo(a.generatedDate));
       notifyListeners();
     });
     _listen('roles', _db.collection('roles').orderBy('name').snapshots(), (snap) {
-      customRoles = snap.docs.map(CustomRole.fromDoc).toList();
+      customRoles = _parseDocs('roles', snap.docs, CustomRole.fromDoc);
       notifyListeners();
     });
     // مستند واحد لكل طبقة داخل dashboardConfig: `main` اللوحة العامة،
@@ -2322,7 +2577,7 @@ class AppStore extends ChangeNotifier {
       notifyListeners();
     });
     _listen('announcements', _db.collection('announcements').orderBy('createdAt', descending: true).snapshots(), (snap) {
-      announcements = snap.docs.map(PlatformAnnouncement.fromDoc).toList();
+      announcements = _parseDocs('announcements', snap.docs, PlatformAnnouncement.fromDoc);
       notifyListeners();
     });
     _listen('settings/alertRules', _db.collection('settings').doc('alertRules').snapshots(), (doc) {
@@ -2347,7 +2602,7 @@ class AppStore extends ChangeNotifier {
 
     if (canViewAllDepartments) {
       _listen('works', _db.collection('works').snapshots(), (snap) {
-        _worksByScope = snap.docs.map(WorkItem.fromDoc).toList();
+        _worksByScope = _parseDocs('works', snap.docs, WorkItem.fromDoc);
         publishWorks();
       });
     } else {
@@ -2356,14 +2611,14 @@ class AppStore extends ChangeNotifier {
       final deptIds = myDepartmentIds;
       if ((isManager || canManageWorks) && deptIds.isNotEmpty) {
         _listen('works/إدارتي', _whereDeptIn(_db.collection('works'), deptIds).snapshots(), (snap) {
-          _worksByScope = snap.docs.map(WorkItem.fromDoc).toList();
+          _worksByScope = _parseDocs('works/إدارتي', snap.docs, WorkItem.fromDoc);
           publishWorks();
         });
       }
       if (myUid != null) {
         _listen('works/المسنَدة إليّ',
             _db.collection('works').where('assigneeUid', isEqualTo: myUid).snapshots(), (snap) {
-          _worksByAssignment = snap.docs.map(WorkItem.fromDoc).toList();
+          _worksByAssignment = _parseDocs('works/المسنَدة إليّ', snap.docs, WorkItem.fromDoc);
           publishWorks();
         });
       }
@@ -2383,7 +2638,7 @@ class AppStore extends ChangeNotifier {
 
     if (canViewAllDepartments) {
       _listen('workUpdates', _db.collection('workUpdates').snapshots(), (snap) {
-        _workUpdatesByScope = snap.docs.map(WorkUpdate.fromDoc).toList();
+        _workUpdatesByScope = _parseDocs('workUpdates', snap.docs, WorkUpdate.fromDoc);
         publishWorkUpdates();
       });
     } else {
@@ -2391,14 +2646,14 @@ class AppStore extends ChangeNotifier {
       if ((isManager || canManageWorks) && deptIds.isNotEmpty) {
         _listen('workUpdates/إدارتي', _whereDeptIn(_db.collection('workUpdates'), deptIds).snapshots(),
             (snap) {
-          _workUpdatesByScope = snap.docs.map(WorkUpdate.fromDoc).toList();
+          _workUpdatesByScope = _parseDocs('workUpdates/إدارتي', snap.docs, WorkUpdate.fromDoc);
           publishWorkUpdates();
         });
       }
       if (myUid != null) {
         _listen('workUpdates/المسنَدة إليّ',
             _db.collection('workUpdates').where('assigneeUid', isEqualTo: myUid).snapshots(), (snap) {
-          _workUpdatesByAssignment = snap.docs.map(WorkUpdate.fromDoc).toList();
+          _workUpdatesByAssignment = _parseDocs('workUpdates/المسنَدة إليّ', snap.docs, WorkUpdate.fromDoc);
           publishWorkUpdates();
         });
       }
@@ -2414,14 +2669,14 @@ class AppStore extends ChangeNotifier {
 
     if (isAdmin || canManageFeedback) {
       _listen('feedback', _db.collection('feedback').snapshots(), (snap) {
-        _feedbackAll = snap.docs.map(FeedbackItem.fromDoc).toList();
+        _feedbackAll = _parseDocs('feedback', snap.docs, FeedbackItem.fromDoc);
         publishFeedback();
       });
     }
     if (myUid != null) {
       _listen('feedback/ما رفعته',
           _db.collection('feedback').where('submittedByUid', isEqualTo: myUid).snapshots(), (snap) {
-        _feedbackMine = snap.docs.map(FeedbackItem.fromDoc).toList();
+        _feedbackMine = _parseDocs('feedback/ما رفعته', snap.docs, FeedbackItem.fromDoc);
         publishFeedback();
       });
     }
@@ -2465,7 +2720,7 @@ class AppStore extends ChangeNotifier {
 
     if (canViewAuditLog) {
       _listen('auditLog', _db.collection('auditLog').orderBy('timestamp', descending: true).limit(auditLogWindow).snapshots(), (snap) {
-        auditLog = snap.docs.map(AuditLogEntry.fromDoc).toList();
+        auditLog = _parseDocs('auditLog', snap.docs, AuditLogEntry.fromDoc);
         notifyListeners();
       });
     }
@@ -2474,7 +2729,7 @@ class AppStore extends ChangeNotifier {
     // المسجَّلين، وقواعد Firestore تسمح أصلاً بقراءة المجموعة لأي مستخدم
     // معتمد (allow list: if isApproved()) فلا يوجد كشف صلاحيات إضافي هنا.
     _listen('users', _db.collection('users').orderBy('createdAt', descending: true).snapshots(), (snap) {
-      users = snap.docs.map(AppUser.fromDoc).toList();
+      users = _parseDocs('users', snap.docs, AppUser.fromDoc);
       notifyListeners();
     });
   }
@@ -3414,7 +3669,13 @@ class AppStore extends ChangeNotifier {
           .orderBy('timestamp', descending: true)
           .limit(500)
           .get();
-      return (error: null, entries: snap.docs.map(AuditLogEntry.fromDoc).toList());
+      // وسطرٌ مشوَّهٌ لا يُخفي السجلَّ كلَّه — راجع [parseEach].
+      final read = parseEach<AuditLogEntry, QueryDocumentSnapshot<Map<String, dynamic>>>(
+        snap.docs,
+        (d) => d.id,
+        AuditLogEntry.fromDoc,
+      );
+      return (error: null, entries: read.items);
     } catch (e) {
       return (error: readableWriteError(e), entries: <AuditLogEntry>[]);
     }
@@ -3721,6 +3982,30 @@ class AppStore extends ChangeNotifier {
     final uid = currentUser?.id;
     final myDepts = {...myDepartmentIds, if (currentUser?.departmentId != null) currentUser!.departmentId!};
     return projects.where((p) => myDepts.contains(p.departmentId) || p.hasMember(uid)).toList();
+  }
+
+  /// خبرُ تدفّق المشاريع حين تكون الشاشةُ فارغة — أو `null` حين لا خبر فيه.
+  ///
+  /// ــــ «صفرُ مشاريع» ليس جواباً ــــ
+  ///
+  /// اختفت مشاريعُ الوزارة يوماً كاملاً، والشاشةُ تقول «لا توجد مشاريع
+  /// مسجّلة بعد» — وهي جملةٌ صادقةٌ في وصف القائمة وكاذبةٌ في وصف الحال.
+  /// فيُقال ما وصل من الخادم وما قُرئ منه، فيفترق الصفران:
+  ///
+  ///   • لم يصل شيء ⇒ **النطاق**: بطاقةٌ بلا دورٍ أو بلا إدارة.
+  ///   • وصل ولم يُقرأ ⇒ **النموذج**: مستنداتٌ تعذّرت قراءتها.
+  String? get projectsArrivalNote {
+    final c = docCounts['projects'];
+    if (c == null) return null;
+    if (c.received == 0) {
+      return 'ولم يصل من الخادم أيُّ مستندِ مشروع في نطاق حسابك — '
+          'وهذا يقوله النطاقُ لا الشبكة.';
+    }
+    if (c.received > c.parsed) {
+      return 'ووصل من الخادم ${c.received} مستنداً وقُرئ منها ${c.parsed} — '
+          'فالبياناتُ موجودة وتعذّرت قراءتها. أبلِغ مسؤول النظام.';
+    }
+    return null;
   }
 
   List<Project> projectsForDepartment(String departmentId) =>

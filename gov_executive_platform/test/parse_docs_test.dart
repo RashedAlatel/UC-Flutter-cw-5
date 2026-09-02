@@ -27,12 +27,17 @@ Map<String, dynamic> _good(int i) => {
       'durationDays': 90,
     };
 
-/// وخريطةٌ مشوَّهة: المدّةُ نصٌّ لا رقم — وهو ما يقع حين يُستورد حقلٌ من
-/// جدولٍ خارجي أو يكتبه مسارٌ لا يفحص نوعَه.
+/// وخريطةٌ مشوَّهة: الاسمُ رقمٌ لا نصّ.
+///
+/// ــ ولماذا الاسمُ لا التاريخُ ولا المدّة ــ
+///
+/// لأن التواريخَ والأرقام صارت تُقرأ بقارئٍ متسامح لا يرمي (راجع `_date`
+/// و`_num` في `project.dart`، وهما إصلاحُ الحادثة نفسِها). فلو بُني هذا
+/// الاختبار عليها لَما قاس شيئاً — والمقصودُ هنا **صنفُ الحماية** لا حقلٌ
+/// بعينه: أيُّ نوعٍ مفاجئ في أيّ حقلٍ لا يُسقط إخوةَ المستند.
 Map<String, dynamic> _bad() => {
-      'name': 'مشروع مشوَّه',
+      'name': 404,
       'departmentId': 'd-1',
-      'durationDays': '90',
     };
 
 List<Map<String, dynamic>> _hundredAndOne() => [
@@ -56,7 +61,7 @@ void main() {
       final maps = _hundredAndOne();
       final read = AppStore.parseEach<Project, Map<String, dynamic>>(
         maps,
-        (m) => m['name'] as String,
+        (m) => m['name'].toString(),
         (m) => Project.fromMapForTest('p', m),
       );
       expect(read.items.length, 100);
@@ -71,17 +76,17 @@ void main() {
     test('ويُسمَّى الساقطُ بمعرِّفه وبنصّ خطئه', () {
       final read = AppStore.parseEach<Project, Map<String, dynamic>>(
         _hundredAndOne(),
-        (m) => m['name'] as String,
+        (m) => m['name'].toString(),
         (m) => Project.fromMapForTest('p', m),
       );
-      expect(read.failures.single, contains('مشروع مشوَّه'));
+      expect(read.failures.single, contains('404'));
       expect(read.failures.single, contains('String'));
     });
 
     test('ولقطةٌ سليمةٌ كلُّها لا تُنتج شكوى', () {
       final read = AppStore.parseEach<Project, Map<String, dynamic>>(
         [for (var i = 0; i < 7; i++) _good(i)],
-        (m) => m['name'] as String,
+        (m) => m['name'].toString(),
         (m) => Project.fromMapForTest('p', m),
       );
       expect(read.items, hasLength(7));
@@ -150,13 +155,18 @@ void main() {
       expect(parseInts(store, ['1', 'س', '3']), [1, 3]);
     });
 
-    test('ويُكتب خبرُ الإخفاق بالعددين وباسم الساقط', () {
+    // ــ ولكلِّ خبرٍ موضعٌ واحد ــ
+    //
+    // العددان في `docCounts`، وأسماءُ الساقط في `dataErrors`. وكتابتُهما
+    // في الموضعين جعلت اللافتةَ تقول «وصل ١٨٤ وقُرئ ١٨٣ — وصل ١٨٤ وقُرئ
+    // ١٨٣» في سطرٍ واحد.
+    test('ويُكتب خبرُ الإخفاق باسم الساقط لا بعدديه', () {
       final store = AppStore();
       parseInts(store, ['1', 'س']);
       final text = store.dataErrors['projects']!;
-      expect(text, contains('وصل 2'));
-      expect(text, contains('قُرئ 1'));
       expect(text, contains('س'));
+      expect(text, contains('تعذّرت قراءة 1'));
+      expect(text, isNot(contains('وصل 2')), reason: 'العددان في docCounts');
     });
 
     // ــ ولا يبقى خبرُ إخفاقٍ بعد لقطةٍ سليمة ــ

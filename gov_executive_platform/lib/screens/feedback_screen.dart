@@ -6,7 +6,6 @@ import '../models/feedback_item.dart';
 import '../theme/app_theme.dart';
 import '../widgets/command_band.dart';
 import '../utils/formatters.dart';
-import '../widgets/data_access_banner.dart';
 
 /// الشكاوى والاقتراحات: ما يرفعه الموظف، وما يرده لمن يتابعها.
 ///
@@ -40,7 +39,6 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const DataAccessBanner(),
           CommandBand(
             title: 'الشكاوى والاقتراحات',
             subtitle: 'قناة مباشرة لرفع ما يعترض العمل وما يقترحه الموظفون لتحسينه',

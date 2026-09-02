@@ -7,7 +7,6 @@ import '../models/work_item.dart';
 import '../theme/app_theme.dart';
 import '../widgets/command_band.dart';
 import '../utils/formatters.dart';
-import '../widgets/data_access_banner.dart';
 import '../widgets/meta_row.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
@@ -44,7 +43,6 @@ class MyAssignmentsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-          const DataAccessBanner(),
           // ــــ إشعار الاعتماد: فوريٌّ وفي طريقه ــــ
           //
           // «يظهر إشعار لمدير المشروع بأن الإدارة أفادت بإتمام المطلوب» —

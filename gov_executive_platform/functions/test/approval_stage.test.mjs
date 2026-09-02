@@ -25,6 +25,7 @@ import {
   sensitiveOf,
   EDITABLE_FIELDS,
   SENSITIVE_FIELDS,
+  DATE_FIELDS,
 } from "../lib/approval_stage.js";
 
 const DEPT = "d-justice";
@@ -253,5 +254,113 @@ describe("والجوهريُّ يُعرف — وبه يقع الإشعار", () 
   // وقيمةٌ تُمسح (`null`) تغييرٌ كغيرها: المفتاحُ موجود، والفعلُ وقع.
   test("ومسحُ قيمةٍ جوهرية جوهريّ", () => {
     assert.deepEqual(sensitiveOf({contractValue: null}), ["contractValue"]);
+  });
+});
+
+// ــــــــــــــ التواريخُ تُخزَّن ختماً لا نصّاً ــــــــــــــ
+//
+// ــــ الحادثةُ التي أوجبت هذا القسم ــــ
+//
+// اختفت مشاريعُ وزارة العدل كلُّها — مئةٌ وأربعةٌ وثمانون — يوماً كاملاً،
+// والسببُ مستندٌ واحد. نافذةُ التعديل ترسل التواريخ نصّاً (ISO) عمداً:
+// الحمولةُ تُخزَّن في Firestore وتُقارن على الخادم، والنصُّ الموحّد يُقارن
+// بلا التباس منطقةٍ زمنية. لكن `judgeChanges` كانت تكتب ما وصلها **كما
+// وصلها**:
+//
+//     patch[field] = change.after ?? null;   // ← نصٌّ يدخل حقلَ ختمٍ زمني
+//
+// فخُزّن `contractEndDate` نصّاً، وقارئُ المشروع في العميل ينتظر ختماً —
+// فيرمي. وكانت القراءةُ يومَها ذرّيةً، فأسقط المستندُ الواحد الباقين معه.
+//
+// والقراءةُ حُصِّنت منذُها، لكنّ الحصانةَ لا تُغني عن الكتابة الصحيحة:
+// التقريرُ اليوميّ يُولَّد على **الخادم** ويقرأ المستند مباشرةً.
+describe("التواريخُ تُخزَّن ختماً", () => {
+  const current = {
+    name: "مشروع قائم",
+    contractEndDate: null,
+    contractValue: 5000,
+  };
+
+  // القيمةُ نفسُها التي أخفت منصّةَ الوزارة: بصمةُ `toIso8601String()` في
+  // Dart — بلا `Z`، وبثلاث خانات للأجزاء.
+  const ISO = "2026-05-17T00:00:00.000";
+
+  test("نصُّ التاريخ يُكتب تاريخاً لا نصّاً", () => {
+    const {patch} = judgeChanges(
+      {contractEndDate: {before: null, after: ISO}},
+      current,
+    );
+    assert.ok(
+      patch.contractEndDate instanceof Date,
+      `المكتوبُ ${typeof patch.contractEndDate} لا تاريخ — وهو ما أخفى المنصّة`,
+    );
+    assert.equal(patch.contractEndDate.toISOString(), new Date(ISO).toISOString());
+  });
+
+  test("والحقولُ الأربعةُ كلُّها لا واحدٌ منها", () => {
+    const fields = [
+      "contractDate",
+      "contractStartDate",
+      "contractEndDate",
+      "invoiceDueDate",
+    ];
+    for (const field of fields) {
+      const {patch} = judgeChanges({[field]: {before: null, after: ISO}}, {
+        ...current,
+        [field]: null,
+      });
+      assert.ok(patch[field] instanceof Date, `${field} كُتب نصّاً`);
+    }
+  });
+
+  // ــ ومسحُ تاريخٍ يبقى مسحاً ــ
+  //
+  // «غير مسجّل» قيمةٌ تُقال، ولا تُحوَّل إلى تاريخِ الحقبة ولا إلى اليوم.
+  test("ومسحُ التاريخ يُكتب عدماً لا تاريخاً مختلقاً", () => {
+    const {patch} = judgeChanges(
+      {contractEndDate: {before: ISO, after: null}},
+      {...current, contractEndDate: ISO},
+    );
+    assert.equal(patch.contractEndDate, null);
+  });
+
+  // ــ ونصٌّ لا يُقرأ تاريخاً يُردّ ولا يُكتب ــ
+  //
+  // وهذا هو الدرسُ نفسُه: حقلٌ مرفوضٌ يُقال لصاحبه، وحقلٌ مشوَّهٌ يُكتب هو
+  // الذي يُسقط المنصّة بعد أسبوع بلا أن يعرف أحدٌ لماذا.
+  test("ونصٌّ ليس تاريخاً يُردّ ولا يُدسّ في المستند", () => {
+    const {patch, rejected} = judgeChanges(
+      {contractEndDate: {before: null, after: "قريباً إن شاء الله"}},
+      current,
+    );
+    assert.deepEqual(patch, {});
+    assert.deepEqual(rejected, ["contractEndDate"]);
+  });
+
+  // ــ والقائمتان تُقرآن معاً ــ
+  //
+  // من زاد حقلَ تاريخٍ إلى `EDITABLE_FIELDS` ونسي `DATE_FIELDS` أعاد
+  // الحادثةَ بحرفها: الحقلُ يمرّ، ويُكتب نصّاً، وتختفي المنصّة.
+  test("وكلُّ حقلِ تاريخٍ من الحقول التي تُعدَّل أصلاً", () => {
+    for (const field of DATE_FIELDS) {
+      assert.ok(
+        EDITABLE_FIELDS.includes(field),
+        `${field} في DATE_FIELDS وليس في EDITABLE_FIELDS`,
+      );
+    }
+  });
+
+  test("وكلُّ حقلٍ اسمُه تاريخٌ مذكورٌ في قائمة التواريخ", () => {
+    const looksLikeDate = EDITABLE_FIELDS.filter((f) => /Date$/.test(f));
+    assert.deepEqual([...looksLikeDate].sort(), [...DATE_FIELDS].sort());
+  });
+
+  // والحقولُ غيرُ الزمنية لا تُمسّ: رقمٌ يبقى رقماً ونصٌّ يبقى نصّاً.
+  test("وحقلٌ نصّيٌّ لا يُقرأ تاريخاً وإن أشبهه", () => {
+    const {patch} = judgeChanges(
+      {contractorName: {before: "شركة", after: "2026-05-17T00:00:00.000"}},
+      {...current, contractorName: "شركة"},
+    );
+    assert.equal(patch.contractorName, "2026-05-17T00:00:00.000");
   });
 });

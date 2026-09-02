@@ -113,6 +113,29 @@ export const EDITABLE_FIELDS: readonly string[] = [
 ];
 
 /**
+ * حقولُ المسار التي تُخزَّن **ختماً زمنياً** لا نصّاً.
+ *
+ * ــــ الحادثةُ التي أوجبت هذه القائمة ــــ
+ *
+ * الحمولةُ تحمل التواريخ نصّاً (ISO) بقصد: تُخزَّن في Firestore وتُقارن
+ * على الخادم، والنصُّ الموحّد يُقارن بلا التباس منطقةٍ زمنية. لكنّ
+ * [judgeChanges] كانت تكتب ما وصلها كما وصلها، فدخل النصُّ حقلَ الختم.
+ *
+ * فاختفت مشاريعُ وزارة العدل كلُّها — مئةٌ وأربعةٌ وثمانون — يوماً كاملاً:
+ * قارئُ المشروع في العميل ينتظر ختماً فرمى، والقراءةُ يومَها ذرّية، فأسقط
+ * المستندُ الواحدُ الباقين معه.
+ *
+ * وهي هنا بجوار [EDITABLE_FIELDS] **لتُقرأ معها**: من زاد حقلَ تاريخٍ إلى
+ * تلك ولم يزده إلى هذه أعاد الحادثةَ بحرفها.
+ */
+export const DATE_FIELDS: readonly string[] = [
+  "contractDate",
+  "contractStartDate",
+  "contractEndDate",
+  "invoiceDueDate",
+];
+
+/**
  * الحقولُ **الجوهرية** — نظيرُ `kSensitiveProjectFields` في العميل.
  *
  * وليست كلُّ حقول المسار جوهرية: تصحيحُ وصفٍ ليس كتغيير قيمة عقد. فما
@@ -188,9 +211,46 @@ export function judgeChanges(
       stale.push(field);
       continue;
     }
+
+    // ــ حقلُ التاريخ يُكتب ختماً، ونصُّه لا يُدسّ في المستند ــ
+    //
+    // و`Date` تخزّنها Firestore ختماً من نفسها، فتبقى هذه الوحدةُ نقيّةً
+    // بلا `admin` — كما هي منذ كُتبت. راجع [DATE_FIELDS].
+    if (DATE_FIELDS.includes(field)) {
+      const parsed = asDate(change.after);
+      if (parsed === undefined) {
+        // نصٌّ لا يُقرأ تاريخاً: **يُردّ ويُسمّى**. وحقلٌ مشوَّهٌ يُكتب
+        // بصمتٍ هو ما أخفى المنصّة يوماً كاملاً.
+        rejected.push(field);
+        continue;
+      }
+      patch[field] = parsed;
+      continue;
+    }
+
     patch[field] = change.after ?? null;
   }
   return {patch, stale, rejected};
+}
+
+/**
+ * يقرأ قيمةَ حقل تاريخ: `null` مسحٌ، ونصُّ ISO تاريخٌ، وما عداه **مرفوض**.
+ *
+ * و`undefined` هنا تعني «لا يُقرأ تاريخاً» — وهي غير `null` التي تعني
+ * «مسحٌ مقصود». والتفريقُ مقصود: الأولى تُردّ على صاحبها، والثانية تُكتب.
+ *
+ * @param {unknown} raw ما وصل في الحمولة.
+ * @return {Date | null | undefined} التاريخ، أو المسح، أو الرفض.
+ */
+function asDate(raw: unknown): Date | null | undefined {
+  if (raw === null || raw === undefined) return null;
+  if (raw instanceof Date) return raw;
+  if (typeof raw !== "string") return undefined;
+  const text = raw.trim();
+  // النصُّ الفارغ «غير مسجّل» — يُكتب عدماً لا يُردّ.
+  if (text === "") return null;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 /**

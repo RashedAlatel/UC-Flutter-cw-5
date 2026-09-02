@@ -18,6 +18,7 @@ import {childMembershipPatch} from "./child_membership";
 import {mayDeleteDailyUpdate} from "./daily_update_delete";
 import {buildWorkDoc} from "./work_create";
 import {stampClaims as stampClaimsCore} from "./claims_stamp";
+import {dateRepairPatch} from "./date_repair";
 import {
   canActAtStage,
   nextStage,
@@ -2128,6 +2129,58 @@ export const restampChildDepartments = onCall(async (request) => {
   );
 
   return {ok: true, scanned, restamped, orphaned};
+});
+
+/**
+ * يُعيد كتابة كلّ حقل تاريخٍ خُزّن **نصّاً** في المشاريع — ختماً زمنياً.
+ *
+ * ــــ الحادثةُ ــــ
+ *
+ * مستندٌ واحد حمل `contractEndDate` نصّاً فأخفى مشاريعَ الوزارة كلَّها يوماً
+ * كاملاً. كتبَه مسارُ اعتماد تعديل المشروع، وقد أُصلح. والقراءةُ حُصِّنت في
+ * العميل، **لكنّ المكتوبَ يبقى نصّاً**: التقريرُ اليوميّ يُولَّد هنا على
+ * الخادم ويقرأ المستند مباشرةً، والتصديرُ كذلك، وأيُّ ترتيبٍ بتاريخٍ يقارن
+ * نصّاً بختمٍ فيخرج كاذباً.
+ *
+ * والقرارُ في `date_repair.ts` بلا Firestore، فيُقاس هناك. وإعادةُ الضغط
+ * بلا ضرر: مستندٌ سليمٌ لا يُكتب عليه.
+ */
+export const repairTextDates = onCall(async (request) => {
+  const auth = requireAdmin(request);
+
+  const projects = await db().collection("projects").get();
+  const pending: {
+    ref: FirebaseFirestore.DocumentReference;
+    patch: Record<string, Date>;
+  }[] = [];
+  let unreadable = 0;
+
+  for (const doc of projects.docs) {
+    const {patch, unreadable: bad} = dateRepairPatch(doc.data());
+    unreadable += bad.length;
+    if (Object.keys(patch).length > 0) pending.push({ref: doc.ref, patch});
+  }
+
+  let repaired = 0;
+  for (let i = 0; i < pending.length; i += BATCH_CHUNK) {
+    const batch = db().batch();
+    for (const item of pending.slice(i, i + BATCH_CHUNK)) {
+      batch.update(item.ref, item.patch);
+    }
+    await batch.commit();
+    repaired += Math.min(BATCH_CHUNK, pending.length - i);
+  }
+
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "إصلاح تواريخ مخزَّنة نصّاً",
+    `فُحص ${projects.size} مشروعاً، وأُعيدت كتابة تواريخ ${repaired} منها ختماً زمنياً` +
+      (unreadable > 0 ?
+        `، و${unreadable} حقلاً نصُّه لا يُقرأ تاريخاً فتُرك كما هو` :
+        "") + ".",
+  );
+
+  return {ok: true, scanned: projects.size, repaired, unreadable};
 });
 
 // ــــــــــــــ ختم عضوية المشروع على توابعه ــــــــــــــ

@@ -63,6 +63,8 @@ else
   guard ./tool/test/approval_gates_test.sh
   guard ./tool/test/assignment_rank_parity_test.sh
   guard ./tool/test/claims_loop_test.sh
+  guard ./tool/test/model_cast_test.sh
+  guard ./tool/test/single_banner_test.sh
 fi
 
 # استضافة حزم Firebase محلياً حتى لا تُجلب من www.gstatic.com عند كل فتح.

@@ -103,6 +103,46 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     ));
   }
 
+  /// يُعيد كتابة كلّ حقل تاريخٍ خُزّن نصّاً في المشاريع — ختماً زمنياً.
+  ///
+  /// ــ العطلُ الذي يُصلحه ــ
+  ///
+  /// مستندٌ واحد حمل `contractEndDate` نصّاً — `'2026-05-17T00:00:00.000'` —
+  /// فأخفى مشاريعَ الوزارة كلَّها يوماً كاملاً. كتبَه مسارُ اعتماد تعديل
+  /// المشروع، وقد أُصلح. والقراءةُ حُصِّنت فلا تنهار، **لكنّ المكتوبَ يبقى
+  /// نصّاً**: التقريرُ اليوميّ يُولَّد على الخادم ويقرأ المستند مباشرةً.
+  Future<void> _repairDates(BuildContext context) async {
+    final store = context.read<AppStore>();
+    final messenger = ScaffoldMessenger.of(context);
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إصلاح تواريخ مخزَّنة نصّاً'),
+        content: const Text(
+          'يفحص كل مشروع، ويُعيد كتابة أي تاريخٍ خُزّن نصّاً ليصير تاريخاً '
+          'حقيقياً في قاعدة البيانات.\n\n'
+          'ويلزم مرّةً واحدة بعد هذا التحديث إن كنتَ قد اعتمدتَ طلبَ تعديل '
+          'بيانات مشروعٍ من قبل. وإعادتُه لا تضرّ — لا يُكتب على مستندٍ '
+          'سليمٍ أصلاً، ولا يُختلق تاريخٌ لنصٍّ لا يُقرأ تاريخاً.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('ابدأ')),
+        ],
+      ),
+    );
+    if (go != true) return;
+    messenger.showSnackBar(const SnackBar(content: Text('جارٍ فحص المشاريع…')));
+    final r = await store.repairTextDates();
+    messenger.showSnackBar(SnackBar(
+      content: Text(r.error ??
+          'فُحص ${r.scanned} مشروعاً، وأُصلحت تواريخ ${r.repaired} منها'
+              '${r.unreadable > 0 ? '، و${r.unreadable} حقلاً نصُّه لا يُقرأ تاريخاً فتُرك كما هو' : ''}.'),
+      backgroundColor: r.error == null ? AppColors.success : AppColors.danger,
+      duration: const Duration(seconds: 8),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
@@ -156,6 +196,16 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 label: 'إعادة ختم إدارات التوابع',
                 icon: Icons.drive_file_move_rtl_outlined,
                 onPressed: () => _restampDepartments(context),
+              ),
+              // ــ وإصلاحُ التواريخ المخزَّنة نصّاً ــ
+              //
+              // مستندٌ واحد حمل تاريخاً نصّاً فأخفى مشاريعَ الوزارة كلَّها
+              // يوماً. الكتابةُ أُصلحت والقراءةُ حُصِّنت، وهذا لما كُتب قبل
+              // ذلك. يُضغط مرّةً، وإعادتُه بلا ضرر.
+              BandButton(
+                label: 'إصلاح تواريخ مخزَّنة نصّاً',
+                icon: Icons.event_repeat_rounded,
+                onPressed: () => _repairDates(context),
               ),
               BandButton(
                 label: 'إضافة مستخدم مباشرة',

@@ -424,9 +424,13 @@ class AppStore extends ChangeNotifier {
     if (out.failures.isEmpty) {
       if (dataErrors.remove(label) != null) notifyListeners();
     } else {
+      // ــ والعددان ليسا هنا ــ
+      //
+      // هما في [docCounts]، وتقرؤهما `describeDataErrors` لتبني نصّ اللافتة.
+      // وكتابتُهما في الموضعين جعلت اللافتةَ تقول «وصل ١٨٤ وقُرئ ١٨٣ — وصل
+      // ١٨٤ وقُرئ ١٨٣». فلكلِّ خبرٍ موضعٌ واحد.
       _noteDataError(
         label,
-        'وصل ${out.received} مستنداً وقُرئ ${out.items.length}. '
         'تعذّرت قراءة ${out.failures.length}: ${out.failures.take(3).join(' · ')}',
       );
     }
@@ -3655,6 +3659,46 @@ class AppStore extends ChangeNotifier {
       );
     } catch (e) {
       return (error: e.toString(), scanned: 0, restamped: 0, orphaned: 0);
+    }
+  }
+
+  /// يُعيد كتابة كلّ حقل تاريخٍ خُزّن **نصّاً** في المشاريع — ختماً زمنياً.
+  ///
+  /// ــ ولماذا يُصلَح المكتوب وقد حُصِّنت القراءة ــ
+  ///
+  /// لأن القارئ المتسامح في `Project._fromMap` يُظهر المشروع **ولا يُصلح
+  /// المستند**. والتقريرُ اليوميّ يُولَّد على الخادم ويقرأ المستند مباشرةً،
+  /// والتصديرُ كذلك، وأيُّ ترتيبٍ بتاريخٍ يقارن نصّاً بختمٍ فيخرج كاذباً.
+  ///
+  /// يُضغط مرّةً بعد النشر، وإعادتُه بلا ضرر: مستندٌ سليمٌ لا يُكتب عليه.
+  Future<({String? error, int scanned, int repaired, int unreadable})>
+      repairTextDates() async {
+    if (!isAdmin) {
+      return (
+        error: 'هذا الإجراء لمسؤول النظام وحده.',
+        scanned: 0,
+        repaired: 0,
+        unreadable: 0
+      );
+    }
+    try {
+      final res = await _functions.httpsCallable('repairTextDates').call();
+      final data = Map<String, dynamic>.from(res.data as Map);
+      return (
+        error: null,
+        scanned: (data['scanned'] as num?)?.toInt() ?? 0,
+        repaired: (data['repaired'] as num?)?.toInt() ?? 0,
+        unreadable: (data['unreadable'] as num?)?.toInt() ?? 0,
+      );
+    } on FirebaseFunctionsException catch (e) {
+      return (
+        error: e.message ?? 'تعذّر إصلاح التواريخ',
+        scanned: 0,
+        repaired: 0,
+        unreadable: 0
+      );
+    } catch (e) {
+      return (error: e.toString(), scanned: 0, repaired: 0, unreadable: 0);
     }
   }
 

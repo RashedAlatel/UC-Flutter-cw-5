@@ -400,11 +400,11 @@ class Project {
       departmentId: json['departmentId'] as String? ?? '',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      startDate: (json['startDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      dueDate: (json['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      startDate: _date(json['startDate']) ?? DateTime.now(),
+      dueDate: _date(json['dueDate']) ?? DateTime.now(),
       status: ProjectStatus.fromName(json['status'] as String? ?? ProjectStatus.onTrack.name),
       priority: PriorityLevel.fromName(json['priority'] as String? ?? PriorityLevel.medium.name),
-      progressPercent: (json['progressPercent'] as num?)?.toDouble() ?? 0,
+      progressPercent: _num(json['progressPercent'])?.toDouble() ?? 0,
       executorNames: namesList != null
           ? namesList.map((e) => e.toString()).toList()
           : (legacyName != null && legacyName.isNotEmpty ? [legacyName] : const []),
@@ -418,24 +418,24 @@ class Project {
       // الدفعة لم يُنقل بهذا المسار، وما نُقل بالمسار القديم لا أثرَ له.
       previousDepartmentId:
           (json['previousDepartmentId'] as String?)?.isEmpty ?? true ? null : json['previousDepartmentId'] as String?,
-      departmentTransferredAt: (json['departmentTransferredAt'] as Timestamp?)?.toDate(),
+      departmentTransferredAt: _date(json['departmentTransferredAt']),
       // المستندات المكتوبة قبل التصنيفات — وهي كل مشاريع الوزارة المستوردة —
       // تفتقد الحقل، فتُقرأ بقائمة فارغة بلا ترحيل ولا انهيار.
-      createdAt: (json['createdAt'] as Timestamp?)?.toDate(),
+      createdAt: _date(json['createdAt']),
       categoryIds: (json['categoryIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toList() ??
           const [],
       // الغيابُ يُقرأ `null` — «غير مسجّل» — لا صفراً ولا تاريخاً مختلقاً.
-      contractDate: (json['contractDate'] as Timestamp?)?.toDate(),
-      contractStartDate: (json['contractStartDate'] as Timestamp?)?.toDate(),
-      contractEndDate: (json['contractEndDate'] as Timestamp?)?.toDate(),
-      invoiceDueDate: (json['invoiceDueDate'] as Timestamp?)?.toDate(),
-      durationDays: (json['durationDays'] as num?)?.toInt(),
-      contractValue: (json['contractValue'] as num?)?.toDouble(),
+      contractDate: _date(json['contractDate']),
+      contractStartDate: _date(json['contractStartDate']),
+      contractEndDate: _date(json['contractEndDate']),
+      invoiceDueDate: _date(json['invoiceDueDate']),
+      durationDays: _num(json['durationDays'])?.toInt(),
+      contractValue: _num(json['contractValue'])?.toDouble(),
       contractorName: json['contractorName'] as String? ?? '',
-      deletedAt: (json['deletedAt'] as Timestamp?)?.toDate(),
+      deletedAt: _date(json['deletedAt']),
       deletedBy: json['deletedBy'] as String?,
       deletedReason: json['deletedReason'] as String?,
       convertedFromType: json['convertedFromType'] as String?,
@@ -443,6 +443,42 @@ class Project {
       convertedToType: json['convertedToType'] as String?,
       convertedToId: json['convertedToId'] as String?,
     );
+  }
+
+  /// يقرأ تاريخاً من قيمةٍ **مهما كان نوعُها** — أو `null`.
+  ///
+  /// ــــ الحادثةُ التي أوجبت هذا القارئ ــــ
+  ///
+  /// اختفت مشاريعُ وزارة العدل كلُّها — مئةٌ وأربعةٌ وثمانون — يوماً كاملاً،
+  /// والسببُ مستندٌ واحد حمل `contractEndDate` نصّاً:
+  /// `'2026-05-17T00:00:00.000'`. كتبَه مسارُ اعتماد تعديل المشروع، وقرأه
+  /// النموذجُ `as Timestamp?` فرمى — والقراءةُ يومَها ذرّية، فأسقط المستندُ
+  /// الواحدُ الباقين معه.
+  ///
+  /// والكتابةُ أُصلحت في `approval_stage.ts`. وهذا القارئ **ليس تكراراً
+  /// لها**: تلك تمنع نصّاً جديداً، وهذا يُنجّي المنصّة من نصٍّ مكتوبٍ سلفاً
+  /// — أو من أيّ نوعٍ يكتبه مسارٌ لم يُكتب بعد. فقاعدةُ بياناتٍ بلا مخطَّطٍ
+  /// مُلزِم لا يُؤمَن فيها نوعُ حقل، والثمنُ الذي دُفع مرّةً لا يُدفع ثانية.
+  ///
+  /// ــــ ولا يُختلق تاريخ ــــ
+  ///
+  /// ما لا يُقرأ تاريخاً يُقرأ **«غير مسجّل»** لا تاريخَ اليوم: عقدٌ ينتهي
+  /// اليوم رقمٌ يُتّخذ عليه قرار، وهو أسوأ من فراغٍ صريح.
+  static DateTime? _date(Object? raw) {
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    if (raw is String) return DateTime.tryParse(raw.trim());
+    return null;
+  }
+
+  /// يقرأ رقماً من قيمةٍ مهما كان نوعُها — أو `null`. نظيرُ [_date].
+  ///
+  /// وصفرٌ يُختلق أسوأ من فراغ: مدّةُ عقدٍ صفراً تُقرأ التزاماً منتهياً،
+  /// وقيمةُ عقدٍ صفراً تُقرأ مجّاناً. فما لا يُقرأ رقماً «غير مسجّل».
+  static num? _num(Object? raw) {
+    if (raw is num) return raw;
+    if (raw is String) return num.tryParse(raw.trim());
+    return null;
   }
 
   static List<String> _uidList(Object? raw, {String? legacy}) {

@@ -62,6 +62,15 @@ const now = () => admin.firestore.Timestamp.now();
 async function stampClaims(uid: string, claims: Record<string, unknown>): Promise<void> {
   await stampClaimsCore(uid, claims, {
     setClaims: (id, c) => admin.auth().setCustomUserClaims(id, c),
+    // البطاقةُ قبل الختم — بها يُميَّز ختمٌ غيَّر شيئاً من ختمٍ أعاد ما كان.
+    readClaims: async (id) => {
+      try {
+        return ((await admin.auth().getUser(id)).customClaims ?? {}) as Record<string, unknown>;
+      } catch {
+        // حسابٌ لم يُنشأ بعد (`createUser`): لا سابقةَ له، فالختمُ جديدٌ حقاً.
+        return undefined;
+      }
+    },
     markUser: async (id) => {
       await db().collection("users").doc(id).set({claimsUpdatedAt: now()}, {merge: true});
     },

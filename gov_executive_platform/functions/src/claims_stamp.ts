@@ -25,7 +25,29 @@ export type StampDeps = {
   markUser: (uid: string) => Promise<void>;
   /** يسجّل تحذيراً بلا إفشال. */
   warn: (message: string, err: unknown) => void;
+  /** البطاقةُ كما هي قبل الختم — لتمييز ختمٍ غيَّر شيئاً من ختمٍ لم يُغيّر. */
+  readClaims?: (uid: string) => Promise<Record<string, unknown> | undefined>;
 };
+
+/**
+ * هل البطاقتان سواء؟ — مقارنةٌ لا تعبأ بترتيب المفاتيح.
+ *
+ * ومفاتيحُ الكائن ترتيبُها ترتيبُ إدخالها، فبطاقتان متطابقتان قد تخرجان
+ * بترتيبين. ولو قِيستا بالترتيب لَقيل «تغيّرت» في كل ختم — وهو بعينه ما
+ * تمنعه هذه الدالّة.
+ *
+ * @param {Record<string, unknown> | undefined} a إحداهما.
+ * @param {Record<string, unknown> | undefined} b والأخرى.
+ * @return {boolean} هل هما سواء؟
+ */
+export function sameClaims(
+  a: Record<string, unknown> | undefined,
+  b: Record<string, unknown> | undefined,
+): boolean {
+  if (a === undefined || b === undefined) return false;
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort();
+  return keys.every((k) => JSON.stringify(a[k] ?? null) === JSON.stringify(b[k] ?? null));
+}
 
 /**
  * يختم البطاقة ثم يعلّم مستند المستخدم.
@@ -47,7 +69,20 @@ export async function stampClaims(
   claims: Record<string, unknown>,
   deps: StampDeps,
 ): Promise<void> {
+  const before = deps.readClaims ? await deps.readClaims(uid) : undefined;
   await deps.setClaims(uid, claims);
+
+  // ــ ولا تُكتب العلامةُ لختمٍ لم يُغيّر شيئاً ــ
+  //
+  // وهذه هي **الفرملة التي أوقفت حلقةً عطّلت المنصّة**: `syncMyClaims`
+  // تُعيد ختمَ البطاقة نفسِها، فكانت تكتب `claimsUpdatedAt` فتوقظ متصفّح
+  // صاحبها، فيفحص بطاقتَه، فينادي `syncMyClaims` من جديد — دورةٌ لا تنتهي
+  // تُلغي كلَّ اشتراكات المستخدم وتُعيدها في كل لفّة، فتبدو المنصّةُ
+  // تُعيد التحميل بلا توقّف.
+  //
+  // فالعلامةُ خبرُ **تغيُّر**، ولا خبر في ختمٍ أعاد ما كان.
+  if (sameClaims(before, claims)) return;
+
   try {
     await deps.markUser(uid);
   } catch (err) {

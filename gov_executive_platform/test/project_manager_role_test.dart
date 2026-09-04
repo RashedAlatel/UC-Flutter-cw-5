@@ -102,15 +102,20 @@ void main() {
       expect(store.canEditProject(store.projects.first), isTrue);
     });
 
+    // ــ وعنوانُ هذا الاختبار كان يناقض متنَه ــ
+    //
+    // العنوانُ يقول «ولا يحرّر»، والمتنُ كان يقيس `isTrue` بسببٍ مكتوب:
+    // «سلوكٌ قائم لم تمسّه هذه الجولة». وكان ذلك السلوكُ **عطلاً**: قاعدةُ
+    // `dailyUpdates/create` لا تعرف فرعَ «موظفٍ في الإدارة» إطلاقاً، فكان
+    // يرى الزرَّ ويُردّ عليه الحفظ. فصار المتنُ يقول ما يقوله العنوان.
     test('ولا يحرّر مشروعاً ليس عليه ولو كان في إدارته', () {
-      // موظفٌ في الإدارة نفسها: يقرأ مشاريعها، ولا يُحرّر ما ليس مسجَّلاً عليه.
       final me = _user('u-emp', UserRole.employee);
       final store = AppStore()
         ..currentUser = me
         ..users = [me]
         ..projects = [_project('p1', managers: ['u-other'])];
-      expect(store.canEditProject(store.projects.first), isTrue,
-          reason: 'موظف الإدارة يحرّر مشاريعها — وهو سلوك قائم لم تمسّه هذه الجولة');
+      expect(store.canEditProject(store.projects.first), isFalse,
+          reason: 'العضويةُ لا الإدارة — مرآةُ dailyUpdates/create');
     });
 
     test('وصاحب الدور الموروث لا يحرّر مشروعاً ليس مسجَّلاً عليه', () {

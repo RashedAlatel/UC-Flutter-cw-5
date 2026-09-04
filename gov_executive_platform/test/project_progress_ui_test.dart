@@ -99,14 +99,43 @@ void main() {
       );
     });
 
-    // ــ الحدُّ الذي يُقاس هنا ــ
+    // ــ وهذا التعليقُ كان يصف عطلاً ويُسمّيه صواباً ــ
     //
-    // `canEditProject` تُرجع `true` لكل موظّفٍ في الإدارة — وهو الصواب
-    // للتحديث اليومي. أمّا تصحيحُ الرقم الرسمي فدائرتُه أضيق.
-    test('ولا الموظفُ في الإدارة — وإن جاز له التحديثُ اليومي', () {
+    // كان مكتوباً هنا: «`canEditProject` تُرجع `true` لكل موظّفٍ في الإدارة
+    // — وهو الصواب للتحديث اليومي». ولم يكن صواباً: قاعدةُ الخادم لا تقبل
+    // إلا عضواً في المشروع أو مديرَ الإدارة أو مسؤولَ النظام، فكان الموظفُ
+    // يكتب تحديثَ يومه ثم يُردّ ويفقده.
+    //
+    // والدائرتان الآن واحدةٌ في هذا الطرف: **الموظفُ في الإدارة لا يكتب
+    // تحديثاً ولا يصحّح نسبة**. وتبقى `canEditProjectProgress` أضيقَ من
+    // `canEditProject` في طرفٍ آخر — راجع اختبارَي المنفّذ أدناه.
+    test('ولا الموظفُ في الإدارة — لا تحديثاً ولا تصحيحاً', () {
       final store = _store(UserRole.employee, id: 'u-2');
-      expect(store.canEditProject(_project()), isTrue, reason: 'يكتب تحديثاً يومياً');
+      expect(store.canEditProject(_project()), isFalse, reason: 'ليس عضواً في المشروع');
       expect(store.canEditProjectProgress(_project()), isFalse, reason: 'ولا يصحّح الرقم');
+    });
+
+    // ــ والفرقُ بين الدائرتين يبقى مقيساً ــ
+    //
+    // المنفّذُ المسجَّل يكتب التحديثَ اليومي (فهو عضو)، ولا يصحّح النسبة
+    // الرسمية (فتلك لمديري المشروع ومدير الإدارة). ولولا هذا الاختبار
+    // لَجاز أن تُدمج الدائرتان بعد ما تقاربتا.
+    test('والمنفّذُ يكتب التحديث ولا يصحّح النسبة', () {
+      final store = _store(UserRole.employee, id: 'u-x');
+      final p = Project(
+        id: 'p1',
+        departmentId: _dept,
+        name: 'رقمنة صحيفة الدعوى',
+        description: '',
+        startDate: DateTime(2026, 1, 1),
+        dueDate: DateTime(2030, 12, 31),
+        status: ProjectStatus.completed,
+        priority: PriorityLevel.medium,
+        progressPercent: 100,
+        executorUids: const ['u-x'],
+      );
+      expect(store.canEditProject(p), isTrue, reason: 'عضوٌ منفّذاً');
+      expect(store.canEditProjectProgress(p), isFalse, reason: 'ولا يصحّح الرقم الرسمي');
     });
 
     test('ولا مديرُ إدارةٍ أخرى', () {

@@ -3843,18 +3843,75 @@ class AppStore extends ChangeNotifier {
   /// اسم في `managerUids`، فمنذ أن صار للمشروع أكثر من مدير كان المدير
   /// الثاني — والمنفّذ المُسنَد — ممنوعَين من كتابة تحديث يومي بلا سبب
   /// ظاهر. والمقارنة هنا صارت بالعضوية كما في قواعد الخادم.
+  ///
+  /// ــــ وهي **مرآةٌ حرفية** لقاعدة `dailyUpdates/create` ــــ
+  ///
+  /// ```
+  /// allow create: if (canAccessProjectDoc(dept, manager) || isMemberOfRealProject(id))
+  ///               && matchesRealProject(...);
+  /// canAccessProjectDoc = canEditDept(dept) || isMyProject(manager)
+  /// canEditDept         = isAdmin() || (isDeptManager() && isMyDeptAny(dept))
+  /// ```
+  ///
+  /// والحَكَمُ هي القاعدة، وهذه ترتيبٌ للواجهة: زرٌّ لا يُعرض لمن سيُردّ عند
+  /// الضغط. ويُقاسان معاً — `test/daily_update_circle_test.dart` هنا،
+  /// و`test_rules/daily_update.rules.test.mjs` على المحاكي.
+  ///
+  /// ــــ والسطرُ الأخير هو الذي كلّف ــــ
+  ///
+  /// كان `return currentUser!.departmentId == project.departmentId;` — أي
+  /// **كلُّ موظفٍ في الإدارة**. والقاعدةُ لا تعرف هذا الفرع إطلاقاً. فكان
+  /// الموظفُ يرى الزرّ، ويكتب عملَ يومه، ثم يُردّ بـ`permission-denied`
+  /// ويفقد ما كتب. ومشاريعُ الوزارة المستوردة بلا أعضاءٍ مسجّلين، فكان
+  /// ذلك حالَ كلِّ موظفٍ على كلِّ مشروع.
+  ///
+  /// ومخرجُه قائمٌ في المنصّة ولا يحتاج توسيع القاعدة: صاحبُ «الانضمام
+  /// لمشاريع الإدارة» (`sap`) يسجّل نفسه منفّذاً من بطاقة «فريق المشروع»،
+  /// فيصير عضواً، فيكتب. راجع [canSelfAssign] و[joinProject].
   bool canEditProject(Project project) {
     final uid = currentUser?.id;
     if (uid == null) return false;
     if (isAdmin) return true;
     if (isExecutive) return false;
     if (project.hasMember(uid)) return true;
-    if (isOfficer) return false;
     if (isManager) return myDepartmentIds.contains(project.departmentId);
-    return currentUser!.departmentId == project.departmentId;
+    // ومن سواهم لا يكتب — وإن كانت إدارتُه إدارةَ المشروع. والدورُ لا يُغني
+    // عن العضوية: `isOfficer` كان يُردّ هنا صراحةً، وصار يقع في هذا السطر
+    // مع بقيّة الأدوار، فلا فرعَ يخصّه ولا يُنسى تحديثه.
+    return false;
   }
 
   bool canSubmitDailyUpdate(Project project) => canEditProject(project);
+
+  /// **لماذا** لا يستطيع هذا المستخدم كتابة تحديثٍ يومي — أو `null` إن كان
+  /// يستطيع.
+  ///
+  /// ــــ زرٌّ يختفي بصمتٍ عطلٌ آخر ــــ
+  ///
+  /// كان الموظفُ يضغط الزرَّ فيُردّ عليه الحفظ. ولو أُخفي الزرُّ وحده لَصار
+  /// لا يجد ما يضغط **ولا يعرف لماذا** — وهو أسوأ: الأوّل يُشتكى منه،
+  /// والثاني يُظنّ عطلاً في المنصّة أو نقصاً في الحساب.
+  ///
+  /// فيُقال الحالُ والمخرجُ معاً. والمخرجُ قائمٌ في المنصّة ولا يحتاج توسيع
+  /// أي قاعدة: صاحبُ «الانضمام لمشاريع الإدارة» يسجّل نفسه منفّذاً من بطاقة
+  /// «فريق المشروع» في هذه الصفحة نفسِها — راجع [canSelfAssign].
+  ///
+  /// وهي نصٌّ لا ودجة لتُقاس بلا شاشة، ولئلّا تفترق نسختان منها في موضعين.
+  String? dailyUpdateBlockReason(Project project) {
+    if (currentUser == null) return null;
+    if (canSubmitDailyUpdate(project)) return null;
+    // التنفيذي يطّلع على كل شيء ولا يغيّر شيئاً — قاعدةٌ قائمة، لا نقصٌ
+    // يُصلَح بانضمام. فلا يُدلّ على بابٍ لا يُفتح له.
+    if (isExecutive) {
+      return 'المستخدم التنفيذي يطّلع على المشاريع ولا يكتب فيها.';
+    }
+    if (canSelfAssign(project)) {
+      return 'لستَ مسجّلاً على هذا المشروع، وتحديثاتُه لأعضائه ولمدير الإدارة. '
+          'سجّل نفسك منفّذاً من بطاقة «فريق المشروع» أدناه لتكتب تحديثاته.';
+    }
+    return 'تحديثاتُ هذا المشروع لأعضائه ولمدير الإدارة. '
+        'اطلب من مدير إدارتك تسجيلك عليه منفّذاً.';
+  }
 
   /// هل يستطيع هذا المستخدم حذف هذا التحديث اليومي؟
   ///

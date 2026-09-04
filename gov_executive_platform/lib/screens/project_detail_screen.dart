@@ -342,6 +342,37 @@ class ProjectDetailScreen extends StatelessWidget {
                       icon: const Icon(Icons.edit_note_rounded, size: 18),
                       label: const Text('إضافة تحديث يومي'),
                     ),
+                  ]
+                  // ــ ومكانَ الزرّ الغائب: لماذا، وما المخرج ــ
+                  //
+                  // كان الزرُّ يُعرض لكل موظفٍ في الإدارة ثم يردّ الخادمُ
+                  // حفظَه. وإخفاؤه وحده يُبدّل عطلاً بعطل: لا يجد ما يضغط
+                  // ولا يعرف السبب. راجع [AppStore.dailyUpdateBlockReason].
+                  else if (store.dailyUpdateBlockReason(project) case final why?) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.info.withValues(alpha: 0.07),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.info.withValues(alpha: 0.25)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.info_outline_rounded, size: 17, color: AppColors.info),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: Text(
+                              why,
+                              style: const TextStyle(
+                                  fontSize: 12.5, height: 1.8, color: AppColors.textSecondary),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ],
               ),

@@ -2640,15 +2640,35 @@ class AppStore extends ChangeNotifier {
       customRoles = _parseDocs('roles', snap.docs, CustomRole.fromDoc);
       notifyListeners();
     });
-    // ــ ودليلُ الإجراءات ــ
+    // ــ ودليلُ الإجراءات: **لمن يملك قراءتَه وحدَه** ــ
+    //
+    // والشرطُ مرآةُ القاعدة حرفاً (`vpc || epc || isAdmin`). وبدونه يطلب
+    // كلُّ موظّفٍ مجموعةً تردّها القاعدةُ عليه، فيُكتب الردُّ في
+    // `dataErrors` وتظهر له لافتةُ «صلاحيات حسابك غير مكتملة — بعض بياناتك
+    // محجوبة عنك». وهي عندئذٍ:
+    //
+    //   * تُنذره بما لا ينقصه — ومشاريعُه كاملةٌ أمامه،
+    //   * وتدلّه على زرِّ «مزامنة صلاحيات حسابي» ولن يُصلح شيئاً أبداً
+    //     لأنّ المفتاح غير ممنوح أصلاً،
+    //   * وتُعوّده تجاهُلَ اللافتة، فلا يقرؤها يومَ يقع عطلٌ حقيقيّ.
+    //
+    // وقد وقع ذلك فعلاً في `f70cb98`. ويحرسه `listener_scope_test.sh`.
+    //
+    // ــ ومنحُ الصلاحية يصل في حينه ــ
+    //
+    // `_subscribeAppData` يُعاد بناؤه عند كلّ لقطةٍ من مستند المستخدم،
+    // ومنحُ الصلاحية — بالدور أو بالاستثناء الفردي — يمرّ به. فمن مُنح
+    // الدليلَ يراه بلا خروجٍ ودخول.
     //
     // ولا `orderBy` في الاستعلام: الترتيبُ بالعنوان عربيّ، و`orderBy` في
     // Firestore ترتيبٌ بالرموز لا بحروف العربية. فيُرتَّب في الذاكرة.
-    _listen('procedures', _db.collection('procedures').snapshots(), (snap) {
-      procedures = _parseDocs('procedures', snap.docs, Procedure.fromDoc)
-        ..sort((a, b) => a.title.compareTo(b.title));
-      notifyListeners();
-    });
+    if (canViewProcedures) {
+      _listen('procedures', _db.collection('procedures').snapshots(), (snap) {
+        procedures = _parseDocs('procedures', snap.docs, Procedure.fromDoc)
+          ..sort((a, b) => a.title.compareTo(b.title));
+        notifyListeners();
+      });
+    }
     // مستند واحد لكل طبقة داخل dashboardConfig: `main` اللوحة العامة،
     // `projectsPage` ودجات صفحة المشاريع، و`role_<الدور>` لوحة كل دور.
     // نستمع للمجموعة كاملةً بدل مستند لكل دور حتى لا يتغيّر عدد الاشتراكات

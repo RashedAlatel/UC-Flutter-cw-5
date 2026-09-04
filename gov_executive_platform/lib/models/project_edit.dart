@@ -32,6 +32,15 @@ const List<String> kEditableProjectFields = [
   'description',
   'priority',
   'categoryIds',
+  // ــ تاريخُ البدء دخل المسار، والاستحقاقُ لم يدخل ــ
+  //
+  // كان تاريخُ البدء **بلا مسارٍ إطلاقاً**: لا نموذجَ يكتبه، والقاعدةُ لا
+  // تمنعه — فهو وحده من بيانات الخطة يُكتب بلا اعتمادٍ ولا أثر. فدخل هنا
+  // ودخل قائمةَ المنع في القاعدة معاً، فلا يبقى له طريقان.
+  //
+  // أما `dueDate` فله بوابتُه: طلبُ تعديل الموعد النهائي، لا يُطبَّق إلا
+  // بمسؤول النظام. ولو قَبِله المساران لَتجاوز أحدُهما البوابة.
+  'startDate',
   'contractDate',
   'contractStartDate',
   'contractEndDate',
@@ -159,6 +168,7 @@ Object? _currentValue(Project p, String field) => switch (field) {
       'description' => p.description,
       'priority' => p.priority.name,
       'categoryIds' => p.categoryIds,
+      'startDate' => p.startDate.toIso8601String(),
       'contractDate' => p.contractDate?.toIso8601String(),
       'contractStartDate' => p.contractStartDate?.toIso8601String(),
       'contractEndDate' => p.contractEndDate?.toIso8601String(),

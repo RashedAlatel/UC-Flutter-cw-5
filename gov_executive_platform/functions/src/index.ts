@@ -640,14 +640,24 @@ function checkApprovalPermission(
     //
     // والحكمُ في `approval_stage.ts` — وحدةٌ نقيّة لها مجموعةُ اختبارات،
     // لأن هذا الملفّ لا تقرؤه مجموعة.
+    // ــ وتعديلُ الموعد النهائي معه، بقرارٍ صريح ــ
+    //
+    // صار مرحلتين: يوافق مديرُ الإدارة (وهو أعلمُ الناس بسبب التأخير في
+    // مشروع إدارته) ثم **يعتمد مسؤولُ النظام**.
+    //
+    // **والبوابةُ لم تُفتح.** `appliesAt("departmentManager")` تُرجع `false`،
+    // فالمرحلةُ الأولى تُحيل ولا تكتب على المشروع شيئاً. والتطبيقُ عند
+    // مرحلة مسؤول النظام وحدها — كما كان يوم كانت مرحلةً واحدة. فما زِيد
+    // مشورةٌ لا إذن، ولا يفتحه مفتاحٌ مفوَّض.
     case "projectEdit":
+    case "deadlineChange":
       allowed = canActAtStage(stage, {
         isAdmin,
         role: callerRole,
         departmentIds: (auth?.token.departmentIds as string[] | undefined) ?? [],
       }, departmentId);
       break;
-    // registration و deadlineChange و notifySend و managerChange
+    // registration و notifySend و managerChange
     // و departmentTransfer: مسؤول النظام وحده، بلا استثناء.
     //
     // ونقلُ الإدارة منهنّ بقرارٍ صريح: هو أوسعُ أثراً من تغيير المدير —
@@ -1122,6 +1132,41 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
     }
     case "deadlineChange": {
       const projectId = payload.projectId as string;
+
+      // ــ المرحلةُ الأولى: تُحيل ولا تُطبّق ــ
+      //
+      // وهذا هو موضعُ حفظ البوابة. لو كُتب الموعدُ هنا لَصار مديرُ الإدارة
+      // يغيّر مواعيد مشاريعه بلا مسؤول النظام — وهي البوابةُ التي لا
+      // يفتحها شيء. راجع `appliesAt` في `approval_stage.ts`.
+      if (!appliesAt(stage)) {
+        const forwardedBy = auth.token.name ?? "مدير الإدارة";
+        await ref.update({
+          stage: nextStage(stage),
+          stageTrail: admin.firestore.FieldValue.arrayUnion({
+            stage,
+            byUid: auth.uid,
+            byName: forwardedBy,
+            at: now(),
+            action: "approved",
+          }),
+        });
+        await logAudit(
+          forwardedBy,
+          "موافقة مرحلية على تعديل موعد نهائي",
+          `وافق ${forwardedBy} على طلب تعديل الموعد النهائي للمشروع ` +
+            `"${payload.projectName ?? projectId}" — وأُحيل إلى مسؤول النظام للاعتماد النهائي`,
+        );
+        if (data.requestedByUid) {
+          await notifyUser(
+            data.requestedByUid as string,
+            "تقدّم طلبك خطوة",
+            `وافق مدير الإدارة على طلب تعديل الموعد النهائي لـ"${payload.projectName ?? ""}"، ` +
+              "وهو الآن لدى مسؤول النظام للاعتماد النهائي.",
+          );
+        }
+        return {ok: true, stage: nextStage(stage)};
+      }
+
       await db()
         .collection("projects")
         .doc(projectId)

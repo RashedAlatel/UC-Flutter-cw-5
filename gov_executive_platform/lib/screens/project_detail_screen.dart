@@ -31,6 +31,7 @@ import 'daily_update_form.dart';
 import 'project_form_dialog.dart';
 import 'project_history_screen.dart';
 import 'project_progress_dialog.dart';
+import 'task_reschedule_dialog.dart';
 import 'project_transfer_dialog.dart';
 import 'request_deadline_change_dialog.dart';
 
@@ -1189,6 +1190,22 @@ class _TaskCard extends StatelessWidget {
                   _showProgressDialog(context);
                 },
               ),
+              // ــ إعادةُ الجدولة: بموعدٍ وسببٍ مكتوب ــ
+              //
+              // ودائرتُها أضيقُ من تحريك الحالة: مسؤولُ النظام، ومديرُ
+              // الإدارة، ومديرو المشروع، وصاحبُ «تعديل مواعيد المهام».
+              // راجع `AppStore.canRescheduleTask`.
+              if (context.read<AppStore>().canRescheduleTask(task))
+                ListTile(
+                  leading: const Icon(Icons.event_repeat_rounded),
+                  title: const Text('إعادة جدولة (بسبب)'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    final project = context.read<AppStore>().projectById(task.projectId);
+                    if (project == null) return;
+                    showTaskRescheduleDialog(context, task, project);
+                  },
+                ),
               // «إعادة للتنفيذ» تسبق قائمة الحالات: هي القرار المضادّ
               // للاعتماد، وتركُها بين خيارات النقل يجعلها تبدو نقلاً عادياً
               // بلا سبب — والسبب هو كل قيمتها.

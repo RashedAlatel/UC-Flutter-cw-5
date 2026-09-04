@@ -28,6 +28,7 @@ import '../models/enums.dart';
 import '../models/feedback_item.dart';
 import '../models/project.dart';
 import '../models/project_progress.dart';
+import '../models/task_reschedule.dart';
 import '../models/project_category.dart';
 import '../models/periodic_report_settings.dart';
 import '../models/project_edit.dart';
@@ -1337,6 +1338,13 @@ class AppStore extends ChangeNotifier {
     required PriorityLevel priority,
     String? sectionId,
     required List<String> categoryIds,
+    /// تاريخُ بدء المشروع — **مطلوبٌ لا اختياري**.
+    ///
+    /// وهو الحقلُ الوحيد من بيانات الخطة الذي دخل هذا المسار: للاستحقاق
+    /// بوابتُه، وللإدارة والمدير بواباتُهما. و`required` لأنه لا يُمحى:
+    /// مشروعٌ بلا تاريخ بدءٍ لا معنى له، بخلاف حقول العقد التي «غير
+    /// مسجّل» فيها قيمةٌ تُقال.
+    required DateTime startDate,
     DateTime? contractDate,
     DateTime? contractStartDate,
     DateTime? contractEndDate,
@@ -1365,6 +1373,7 @@ class AppStore extends ChangeNotifier {
       'priority': project.priority.name,
       'sectionId': project.sectionId,
       'categoryIds': project.categoryIds,
+      'startDate': stamp(project.startDate),
       'contractDate': stamp(project.contractDate),
       'contractStartDate': stamp(project.contractStartDate),
       'contractEndDate': stamp(project.contractEndDate),
@@ -1379,6 +1388,7 @@ class AppStore extends ChangeNotifier {
       'priority': priority.name,
       'sectionId': (sectionId ?? '').isEmpty ? null : sectionId,
       'categoryIds': categoryIds,
+      'startDate': stamp(startDate),
       'contractDate': stamp(contractDate),
       'contractStartDate': stamp(contractStartDate),
       'contractEndDate': stamp(contractEndDate),
@@ -3029,6 +3039,8 @@ class AppStore extends ChangeNotifier {
           return r.approveGeneralDecisions;
         case RolePermission.selfAssignProjects:
           return r.selfAssignProjects;
+        case RolePermission.manageTaskDates:
+          return r.manageTaskDates;
         // مدخلا لوحة القيادة وصفحة الإدارة مفتوحان لحامل الدور المخصص:
         // الأدوار المخصصة تُصنع لمن يتابع المنصة، وحجبهما عنه انحسارٌ لم
         // يطلبه أحد. ومسؤول النظام يسحبهما من فرد بعينه بالاستثناء الفردي.
@@ -3458,6 +3470,23 @@ class AppStore extends ChangeNotifier {
   /// **تسجيل الأعضاء وتعديل المواعيد النهائية** يبقيان لمسؤول النظام وحده.
   /// أما **إضافة المشاريع** فقد قرّر فتحها بمفتاح بيده: `apr` ضمن نطاق.
   /// و**إضافة الأعمال** ليست بوابة: يعتمدها مدير الإدارة صاحبتها.
+  /// أنواعُ الطلبات التي تمرّ **بمرحلتين**: مديرُ الإدارة ثم مسؤولُ النظام.
+  ///
+  /// ــ ولماذا مجموعةٌ لا شرطان ــ
+  ///
+  /// كان `projectEdit` وحدَه، فكُتب شرطُه هنا صراحةً. ثم صار تعديلُ الموعد
+  /// النهائي مرحلتين كذلك، ولو نُسخ الشرطُ لَافترقا بأول تعديل: نوعٌ يُقدَّم
+  /// على `isAdmin` وآخرُ لا، فيرى مسؤولُ النظام زرَّ موافقةٍ على طلبٍ عند
+  /// مدير إدارته ثم يُردّ عند الضغط.
+  ///
+  /// **والبوابةُ محفوظة**: مرحلةُ مدير الإدارة تُحيل ولا تُطبّق
+  /// (`appliesAt` تُرجع `false` عندها)، والتطبيقُ عند مسؤول النظام وحده.
+  /// فالمرحلتان توسيعُ **مشورة** لا توسيعُ إذن.
+  static const Set<ApprovalType> kTwoStageApprovals = {
+    ApprovalType.projectEdit,
+    ApprovalType.deadlineChange,
+  };
+
   bool canApprove(ApprovalRequest r) {
     // ــ تعديلُ بيانات المشروع يُفحص **قبل** `isAdmin` ــ
     //
@@ -3467,7 +3496,7 @@ class AppStore extends ChangeNotifier {
     // يقرؤه المسؤولُ عطلاً في المنصة لا حدّاً مقصوداً.
     //
     // والحَكَم `canActAtStage` على الخادم، وهذه مرآتُه.
-    if (r.type == ApprovalType.projectEdit) {
+    if (kTwoStageApprovals.contains(r.type)) {
       if (r.stage == EditStage.systemAdmin) return isAdmin;
       return isManager && myDepartmentIds.contains(r.departmentId);
     }
@@ -3480,7 +3509,9 @@ class AppStore extends ChangeNotifier {
       case ApprovalType.workCreate:
         return (isManager && myDepartmentIds.contains(r.departmentId)) || canCreateIn(r.departmentId);
       case ApprovalType.registration:
-      case ApprovalType.deadlineChange:
+      // وتعديلُ الموعد النهائي خرج من هنا إلى `kTwoStageApprovals` أعلاه:
+      // صار مرحلتين بقرارٍ صريح — يوافق مديرُ الإدارة ثم **يعتمد مسؤولُ
+      // النظام**. والبوابةُ لم تُفتح: لا يُطبَّق التغيير إلا عند مرحلته.
       // إرسال البريد بوابةٌ ثالثة من هذا الصنف: لا يبتّ فيها إلا مسؤول
       // النظام، وقد مرّ في `isAdmin` أعلاه. و`ntf` تُجيز **كتابة** الطلب لا
       // البتّ فيه، فلا تُذكر هنا.
@@ -3489,6 +3520,12 @@ class AppStore extends ChangeNotifier {
       // من يدٍ إلى يد بقرار طرفٍ واحد.
       case ApprovalType.managerChange:
       case ApprovalType.notifySend:
+      // ــ ولا يبلغ `deadlineChange` هذا السطر ــ
+      //
+      // مرَّ في `kTwoStageApprovals` أعلاه قبل `isAdmin`. ويُذكر هنا ليبقى
+      // الـ`switch` شاملاً بلا `default`: من أضاف نوعاً جديداً يسقط عليه
+      // المحلّل، فلا يمرّ نوعُ اعتمادٍ بلا قرارٍ مكتوب فيمن يبتّ فيه.
+      case ApprovalType.deadlineChange:
         return false;
       // ــ تعيين مدير مشروع: مدير إدارة المشروع أو مسؤول النظام ــ
       //
@@ -4803,6 +4840,76 @@ class AppStore extends ChangeNotifier {
     await _log('تحديث تقدم مهمة', 'تم تحديث نسبة إنجاز المهمة "${task.title}" إلى ${progress.toStringAsFixed(0)}٪');
   }
 
+  /// هل يستطيع هذا المستخدم إعادةَ جدولة هذه المهمة؟
+  ///
+  /// ــــ الدائرةُ ولماذا هي هذه ــــ
+  ///
+  /// مسؤولُ النظام، ومديرُ إدارة المشروع، ومديرو المشروع — وهم من تسمح لهم
+  /// قاعدةُ `tasks` بالكتابة أصلاً — **وصاحبُ «تعديل مواعيد المهام» في
+  /// إدارته**، وهي الصلاحيةُ المستقلّة التي طُلبت.
+  ///
+  /// **ولا المستخدمُ التنفيذي وإن مُنحها**: يطّلع ولا يغيّر، قاعدةٌ قائمة.
+  ///
+  /// ومهمةٌ لمشروعٍ لم يعد موجوداً لا يُعاد جدولتها: لا حدَّ يُقاس عليه
+  /// موعدُها الجديد، ولا يُخمَّن حدٌّ من فراغ.
+  bool canRescheduleTask(ProjectTask task) {
+    if (currentUser == null || isExecutive) return false;
+    final project = projectById(task.projectId);
+    if (project == null) return false;
+    if (canEditProject(project)) return true;
+    return hasPermission(RolePermission.manageTaskDates) &&
+        (myDepartmentIds.contains(project.departmentId) ||
+            currentUser?.departmentId == project.departmentId);
+  }
+
+  /// يُعيد جدولة مهمة — **بسببٍ مكتوب وأثرٍ مختوم**.
+  ///
+  /// وتُعيد نصَّ الردّ إن رُدّ، و`null` إن وقع. والحدُّ في
+  /// [taskDueDateRejection] لا هنا: تقرؤه الشاشةُ قبل الضغط وتقرؤه هذه
+  /// الدالّة قبل الكتابة، وقاعدةُ `tasks` تردّ من التفّ عليهما.
+  Future<String?> rescheduleTask(
+    ProjectTask task,
+    DateTime newDueDate, {
+    required String reason,
+  }) async {
+    if (!canRescheduleTask(task)) {
+      return 'لا تملك صلاحية إعادة جدولة هذه المهمة.';
+    }
+    final project = projectById(task.projectId);
+    if (project == null) return 'مشروع هذه المهمة لم يعد موجوداً.';
+    final rejected =
+        taskDueDateRejection(newDue: newDueDate, projectDue: project.dueDate);
+    if (rejected != null) return rejected;
+    if (_isSameDay(task.dueDate, newDueDate)) return 'الموعد لم يتغيّر.';
+
+    try {
+      await _db.collection('tasks').doc(task.id).update({
+        'dueDate': Timestamp.fromDate(newDueDate),
+        'lastUpdated': Timestamp.now(),
+      });
+    } catch (e) {
+      return readableWriteError(e);
+    }
+    // ــ والسببُ يُختم مع الرقمين ــ
+    //
+    // موعدٌ يتحرّك بلا سطرٍ يقول من حرّكه ولمَ ليس إعادةَ جدولة بل محواً
+    // للخطة. والهدفُ مختومٌ ليظهر في سجلّ المشروع لا في السجل العام وحده.
+    await _log(
+      'إعادة جدولة مهمة',
+      'أعاد ${currentUser?.name ?? 'مستخدم'} جدولة المهمة "${task.title}" '
+          'في مشروع "${project.name}" من ${Formatters.date(task.dueDate)} '
+          'إلى ${Formatters.date(newDueDate)}'
+          '${reason.trim().isEmpty ? '' : ' — السبب: ${reason.trim()}'}',
+      type: ChangeType.update$,
+      targetType: 'task',
+      targetId: task.id,
+      targetName: task.title,
+      before: {'dueDate': task.dueDate.toIso8601String()},
+      after: {'dueDate': newDueDate.toIso8601String()},
+    );
+    return null;
+  }
+
   Future<void> addTask(ProjectTask task) async {
     final project = projectById(task.projectId);
     await _db.collection('tasks').doc(task.id).set({
@@ -5365,6 +5472,14 @@ class AppStore extends ChangeNotifier {
           requestedByUid: currentUser?.id ?? '',
           requestedByName: currentUser?.name ?? '',
           requestedDate: now,
+          // ــ ومديرُ الإدارة يبدأ عند مسؤول النظام مباشرةً ــ
+          //
+          // لا يعتمد أحدٌ طلبَ نفسه. والقاعدةُ نفسُها في `projectEdit`،
+          // ونظيرُها على الخادم `firstStageFor` في `approval_stage.ts`.
+          stage: firstStageFor(
+            requesterIsDepartmentManager:
+                isManager && myDepartmentIds.contains(project.departmentId),
+          ),
           payload: {
             'projectId': project.id,
             'oldDueDate': project.dueDate.toIso8601String(),

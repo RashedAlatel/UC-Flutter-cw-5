@@ -270,6 +270,25 @@ service cloud.firestore {
     function isMemberOfRealProject(projectId) {
       return isApproved() && isProjectMember(realProject(projectId));
     }
+    // ــــ إعادةُ جدولة المهامّ: صلاحيةٌ مستقلّة بحدٍّ مفروض ــــ
+    //
+    // `mtd` **ليست بوابة المواعيد النهائية**: تلك موعدُ **المشروع**،
+    // محصورةٌ بمسؤول النظام ولا يفتحها مفتاحٌ مفوَّض أبداً. وهذه موعدُ
+    // مهمةٍ داخل مشروعٍ قائم، ولا تتجاوز موعدَه — فمن نالها لا يمدّ التزامَ
+    // الوزارة يوماً واحداً.
+    //
+    // ومقيَّدةٌ بإدارته: لا معنى لأن يجدول موظفٌ مهامَّ إدارةٍ لا يعمل فيها.
+    function canRescheduleTasks(deptId) {
+      return perm('mtd') && isMyDeptAny(deptId);
+    }
+    // ــ والحدُّ يُقرأ من المشروع نفسِه لا من الحمولة ــ
+    //
+    // نظيرُه في العميل `taskDueDateRejection`، والحَكَمُ هنا: من التفّ على
+    // الشاشة وكتب مباشرةً يُردّ. و`get` لا يقع إلا حين يُمسّ `dueDate`
+    // فعلاً — راجع موضع النداء.
+    function taskDueWithinProject(projectId) {
+      return request.resource.data.dueDate <= realProject(projectId).dueDate;
+    }
     function matchesRealProject(projectId, deptId, managerUid) {
       let p = realProject(projectId);
       return deptOf(p) == deptId && managerOf(p) == managerUid;
@@ -490,7 +509,7 @@ service cloud.firestore {
                     // في العمل اليومي).
                     || (canAccessProjectDocOrMember(resource.data)
                         && !request.resource.data.diff(resource.data).affectedKeys()
-                              .hasAny(['dueDate', 'departmentId', 'createdByUid',
+                              .hasAny(['dueDate', 'startDate', 'departmentId', 'createdByUid',
                                        'managerUid', 'managerUids', 'executorUids',
                                        'name', 'description', 'priority', 'categoryIds',
                                        'contractDate', 'contractStartDate',
@@ -527,6 +546,13 @@ service cloud.firestore {
       // والتوسيع أضيق ما يمكن: حقول الحالة والتقدّم والسجل وحدها، فلا يُعيد
       // إسناد مهمته ولا ينقلها إلى مشروع آخر.
       allow update: if (canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                        // ــ وصاحبُ «تعديل مواعيد المهام» في إدارته ــ
+                        //
+                        // والموعدُ وحده: `hasOnly` مغلقة، فلا يُعيد بها
+                        // إسناد مهمةٍ ولا يغيّر حالتَها ولا نسبتَها.
+                        || (canRescheduleTasks(deptOf(resource.data))
+                            && request.resource.data.diff(resource.data).affectedKeys()
+                                 .hasOnly(['dueDate', 'lastUpdated']))
                         // ــ و`completedAt` معها ــ
                         //
                         // القائمةُ مغلقة (`hasOnly`)، فأيُّ حقلٍ جديد يكتبه
@@ -549,6 +575,18 @@ service cloud.firestore {
                                                    'closure', 'lastUpdated', 'completedAt'])))))
                     && !request.resource.data.diff(resource.data).affectedKeys()
                           .hasAny(['projectId', 'departmentId', 'managerUid'])
+                    // ــ وموعدُ المهمة لا يتجاوز موعدَ مشروعها — لأحدٍ كائناً من كان ــ
+                    //
+                    // شرطٌ على **كل** فروع الكتابة أعلاه، لا على فرع
+                    // الصلاحية وحده: مديرُ الإدارة ومديرُ المشروع يمرّان من
+                    // الفرع الأول، ولو تُرك لهما لَجاز أن تتجاوز مهمةٌ نهايةَ
+                    // مشروعها — فتتناقض شارةُ المشروع مع مهامّه.
+                    //
+                    // والقراءةُ لا تقع إلا حين يُمسّ الموعد: القواعدُ تُقيّم
+                    // كسِلةً، فالشرطُ الأول يقصر `get` على الكتابات التي
+                    // تحرّك التاريخ وحدها.
+                    && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['dueDate'])
+                        || taskDueWithinProject(resource.data.projectId))
                     && closureRespected();
       allow delete: if isAdmin();
     }

@@ -1059,18 +1059,29 @@ echo "وقوائمُ الحقول المعتمَدة متطابقة:"
 # `sed` ولا `awk`. وسببُه مكتوبٌ في `build_web.sh`: حارسٌ كُتب على أدوات
 # GNU وسقط على أدوات macOS **فأوقف نشر المستخدم**. وقد تكرّر ذلك في هذا
 # الحارس نفسه، فأُخرجت منه كلُّ عبارةٍ تختلف بين الأداتين.
-EDITABLE_FIELDS="name description priority categoryIds \
+# ــ ودخلها `startDate` بقرارٍ صريح ــ
+#
+# كان **بلا مسارٍ إطلاقاً**: لا نموذجَ يكتبه، وقاعدةُ `projects` لا تمنعه.
+# فهو وحده من بيانات الخطة كان يُكتب مباشرةً بلا اعتمادٍ ولا أثر. فدخل
+# القوائمَ الأربع في دفعةٍ واحدة.
+#
+# و`dueDate` **لم يدخل ولن يدخل**: بوابتُه طلبُ تعديل الموعد النهائي، ولا
+# يُطبَّق إلا بمسؤول النظام. ودخولُه هنا يعني طريقاً ثانياً يتجاوز البوابة.
+EDITABLE_FIELDS="name description priority categoryIds startDate \
 contractDate contractStartDate contractEndDate invoiceDueDate \
 durationDays contractValue contractorName"
 
 # الكتلةُ تُقتطع بالسطور التالية للترويسة لا بمدى `sed`: القائمتان في
 # `project_edit.dart` بالتنسيق نفسه (`  'name',`)، فبحثٌ في الملفّ كلّه
 # يجد الحقلَ في قائمة «الجوهري» ولو حُذف من قائمة «المعتمَد».
-DART_BLOCK="$(grep -F -A 12 "const List<String> kEditableProjectFields = [" \
+# والنافذةُ أوسعُ من عدد الحقول: القائمتان تحملان تعليقاً بينهما يشرح
+# لماذا دخل `startDate` ولم يدخل `dueDate`. ونافذةٌ ضيّقة تقطع القائمة
+# فتُقرأ ناقصةً — وهو اتّهامٌ كاذب لا قياس.
+DART_BLOCK="$(grep -F -A 26 "const List<String> kEditableProjectFields = [" \
   lib/models/project_edit.dart)"
-TS_BLOCK="$(grep -F -A 12 "export const EDITABLE_FIELDS" \
+TS_BLOCK="$(grep -F -A 20 "export const EDITABLE_FIELDS" \
   functions/src/approval_stage.ts)"
-RULES_BLOCK="$(grep -F -A 6 "hasAny(['dueDate', 'departmentId', 'createdByUid'," \
+RULES_BLOCK="$(grep -F -A 6 "hasAny(['dueDate', 'startDate', 'departmentId'," \
   firestore.rules)"
 
 missing_dart=""
@@ -1123,20 +1134,20 @@ list_report() {
   fi
 }
 
-list_report "الأحدَ عشرَ حقلاً في العميل" "$missing_dart" "$DART_BLOCK"
+list_report "الاثنا عشرَ حقلاً في العميل" "$missing_dart" "$DART_BLOCK"
 list_report "وهي نفسُها في الخادم" "$missing_ts" "$TS_BLOCK"
 list_report "وكلُّها ممنوعةٌ من الكتابة المباشرة في القاعدة" "$missing_rules" "$RULES_BLOCK"
 
 # والاتجاهُ الآخر: لا يُدسّ حقلٌ زائد. فالعددُ يُقاس كما تُقاس الأسماء.
 count_report() {
-  local name="$1" count="$2" block="$3" expected="${4:-11}"
+  local name="$1" count="$2" block="$3" expected="${4:-12}"
   unmeasured "$name" "$block" && return 0
   if [ "$count" = "$expected" ]; then
     echo "  ✔ $name"
     PASS=$((PASS + 1))
   else
     echo "  ✗ $name"
-    echo "      عُدَّ $count لا ١١، وما قُرئ:"
+    echo "      عُدَّ $count لا ${expected}، وما قُرئ:"
     printf '%s\n' "$block" | sed 's/^/        /'
     FAIL=$((FAIL + 1))
   fi
@@ -1169,7 +1180,15 @@ want_in "functions/src/approval_stage.ts" "الخادمُ يشترط دورَ م
 want_in "functions/src/approval_stage.ts" "ولا يُطبَّق التغييرُ إلا عند الأخيرة"   "return nextStage(stage) === null;"
 want_in "$SRC" "والفرعُ يعود قبل الختم عند المرحلة الأولى"   "if (!appliesAt(stage)) {"
 want_in "$SRC" "وتبدُّلُ القيمة يُردّ باسم الحقل"   'stale.map(fieldLabel).join'
-want_in "lib/data/app_store.dart" "والعميلُ يفحص النوعَ قبل isAdmin"   "if (r.type == ApprovalType.projectEdit) {"
+# ــ وصارت مجموعةً لا نوعاً واحداً ــ
+#
+# `deadlineChange` انضمّ إلى `projectEdit` مرحلتين. ولو نُسخ الشرطُ لكلٍّ
+# لَافترقا بأول تعديل. والبوابةُ محفوظة: التطبيقُ عند مرحلة مسؤول النظام
+# وحدها، وهو ما يحرسه `appliesAt` أعلاه.
+want_in "lib/data/app_store.dart" "والعميلُ يفحص النوعَ قبل isAdmin"   "if (kTwoStageApprovals.contains(r.type)) {"
+want_in "lib/data/app_store.dart" "وتعديلُ الموعد النهائي منها"   "ApprovalType.deadlineChange,"
+want_in "$SRC" "والخادمُ يُجري عليه المراحلَ نفسَها"   'case "deadlineChange":'
+want_in "$SRC" "ولا يُطبّق الموعدَ عند المرحلة الأولى"   "if (!appliesAt(stage)) {"
 # ــ وأخطرُ ما يُنقض هنا سطرٌ واحد ــ
 #
 # `if (isAdmin) return true;` أوّلَ `canApprove` — كان موجوداً فعلاً، فيظهر

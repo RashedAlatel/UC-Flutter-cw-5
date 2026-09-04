@@ -50,6 +50,11 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
   late String? _sectionId = widget.project.sectionId;
   late final List<String> _categoryIds = List<String>.from(widget.project.categoryIds);
 
+  /// تاريخُ بدء المشروع — من بيانات الخطة لا من بيانات العقد.
+  ///
+  /// وهو غيرُ قابلٍ للمحو: مشروعٌ بلا تاريخ بدءٍ لا معنى له.
+  late DateTime _startDate = widget.project.startDate;
+
   // ــ بيانات العقد ــ
   //
   // و`null` تبقى `null`: حقلٌ لم يُملأ يبقى «غير مسجّل»، ولا يُحفظ صفراً
@@ -107,6 +112,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
         'description': _descCtrl.text,
         'priority': _priority.name,
         'categoryIds': _categoryIds,
+        'startDate': _startDate.toIso8601String(),
         'contractDate': _contractDate?.toIso8601String(),
         'contractStartDate': _contractStart?.toIso8601String(),
         'contractEndDate': _contractEnd?.toIso8601String(),
@@ -137,6 +143,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
             priority: _priority,
             sectionId: _sectionId,
             categoryIds: _categoryIds,
+            startDate: _startDate,
             contractDate: _contractDate,
             contractStartDate: _contractStart,
             contractEndDate: _contractEnd,
@@ -231,6 +238,28 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
               const SizedBox(height: 18),
               const Divider(height: 1),
               const SizedBox(height: 14),
+              // ــ تاريخُ البدء: من الخطة لا من العقد ــ
+              //
+              // ويُعرض هنا لأنه دخل مسارَ الاعتماد نفسَه. أما تاريخُ
+              // الاستحقاق فبوابتُه غيرُها — «طلب تعديل الموعد النهائي» —
+              // ولا يُعرض هنا لئلّا يُظنّ أن له طريقين.
+              const Text('تاريخ الخطة',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+              const SizedBox(height: 8),
+              _DateField(
+                label: 'تاريخ بدء المشروع',
+                value: _startDate,
+                onChanged: (d) {
+                  if (d != null) setState(() => _startDate = d);
+                },
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'وتعديلُ تاريخ الاستحقاق من زرّ «طلب تعديل الموعد النهائي» — '
+                'له مسارُ اعتمادٍ خاصّ به.',
+                style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 16),
               const Text('بيانات العقد',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
               const SizedBox(height: 4),

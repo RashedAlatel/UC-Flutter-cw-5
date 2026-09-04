@@ -45,14 +45,54 @@ Project _project({
     );
 
 void main() {
+  // ــــ وتاريخُ البدء يُقارن بقيمته الحقيقية ــــ
+  //
+  // ولولا قراءتُه من المشروع لَقُرئ `null` دائماً، فيُنشئ **كلُّ فتحٍ
+  // للنموذج** طلبَ تعديلٍ على تاريخ البدء وإن لم يُمسّ — طلبٌ يعتمده
+  // مديرٌ ثم مسؤولُ نظام، على تغييرٍ لم يقع.
+  group('وتاريخُ البدء يُقارن بما هو مسجَّل', () {
+    test('بلا تغييرٍ لا فرق', () {
+      final p = _project(name: 'مشروع');
+      final changes = diffProjectFields(p, {
+        'startDate': p.startDate.toIso8601String(),
+      });
+      expect(changes, isEmpty);
+    });
+
+    test('وبتغييرٍ يظهر الفرقُ بقيمتيه', () {
+      final p = _project(name: 'مشروع');
+      final changes = diffProjectFields(p, {
+        'startDate': DateTime(2027, 5, 1).toIso8601String(),
+      });
+      expect(changes, hasLength(1));
+      expect(changes.single.field, 'startDate');
+      expect(changes.single.before, p.startDate.toIso8601String());
+      expect(changes.single.after, DateTime(2027, 5, 1).toIso8601String());
+    });
+
+    test('واسمُه يُقرأ بالعربية في جدول الفروق', () {
+      expect(projectFieldLabel('startDate'), 'تاريخ بدء المشروع');
+    });
+  });
+
   group('قائمةُ ما يمرّ بالاعتماد', () {
-    test('أحدَ عشرَ حقلاً — هي التي عدّدتَها ممّا لا بوابةَ له', () {
-      expect(kEditableProjectFields.length, 11);
+    // ــ ورُفع العددُ من ١١ إلى ١٢ مرّةً واحدة، بسببٍ مكتوب ــ
+    //
+    // `startDate`: كان **بلا مسارٍ إطلاقاً** — لا نموذجَ يكتبه، وقاعدةُ
+    // `projects` لا تمنعه. فهو وحده من بيانات الخطة كان يُكتب بلا اعتمادٍ
+    // ولا سطرٍ في سجل التدقيق. فدخل المسار ودخل قائمةَ المنع في القاعدة في
+    // الدفعة نفسِها، فلا يبقى له طريقان.
+    //
+    // والعددُ محروسٌ لا مُهمَل: من زاده يُقرأ سببُه في المراجعة. ونظيرُه
+    // على الخادم في `functions/test/approval_stage.test.mjs`.
+    test('اثنا عشرَ حقلاً — هي التي عدّدتَها ممّا لا بوابةَ له', () {
+      expect(kEditableProjectFields.length, 12);
       for (final f in [
         'name',
         'description',
         'priority',
         'categoryIds',
+        'startDate',
         'contractDate',
         'contractStartDate',
         'contractEndDate',

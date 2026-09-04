@@ -103,6 +103,9 @@ export const EDITABLE_FIELDS: readonly string[] = [
   "description",
   "priority",
   "categoryIds",
+  // تاريخُ البدء — راجع `kEditableProjectFields` في العميل. و`dueDate` ليس
+  // منها: بوابتُه طلبُ تعديل الموعد النهائي، ولا يُطبَّق إلا بمسؤول النظام.
+  "startDate",
   "contractDate",
   "contractStartDate",
   "contractEndDate",
@@ -129,6 +132,7 @@ export const EDITABLE_FIELDS: readonly string[] = [
  * تلك ولم يزده إلى هذه أعاد الحادثةَ بحرفها.
  */
 export const DATE_FIELDS: readonly string[] = [
+  "startDate",
   "contractDate",
   "contractStartDate",
   "contractEndDate",
@@ -143,8 +147,10 @@ export const DATE_FIELDS: readonly string[] = [
  * يُميَّز للمعتمِد في البطاقة، **وما يُشعَر به بعد الاعتماد**.
  *
  * وفيها ما لا يمرّ بهذا المسار أصلاً (`departmentId` و`managerUids`
- * و`startDate` و`dueDate`): لها بواباتُها، وتُذكر هنا لأن الجوهرية وصفٌ
- * للحقل لا إذنٌ به. راجع `EDITABLE_FIELDS` — تلك تقرّر ما يُقبل.
+ * و`dueDate`): لها بواباتُها، وتُذكر هنا لأن الجوهرية وصفٌ للحقل لا إذنٌ
+ * به. راجع `EDITABLE_FIELDS` — تلك تقرّر ما يُقبل.
+ *
+ * و`startDate` كان منها، ثم دخل المسار — فصار جوهرياً **ومقبولاً** معاً.
  */
 export const SENSITIVE_FIELDS: readonly string[] = [
   "name",

@@ -67,6 +67,8 @@ class _UserPermissionsDialogState extends State<UserPermissionsDialog> {
           return r.approveGeneralDecisions;
         case RolePermission.selfAssignProjects:
           return r.selfAssignProjects;
+        case RolePermission.manageTaskDates:
+          return r.manageTaskDates;
         default:
           return false;
       }

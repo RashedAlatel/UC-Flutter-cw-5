@@ -129,8 +129,21 @@ async function logAudit(
 // مفاتيح الصلاحيات القابلة للتفويض. لا تتضمن — ولن تتضمن — بوابات الاعتماد
 // الثلاث (تسجيل عضو / إضافة مشروع / تعديل موعد نهائي)؛ تلك تبقى محصورة
 // بـ systemAdmin عبر requireAdmin وقواعد Firestore معاً.
+//
+// ــ و«mtd» و«bla» أُضيفتا إصلاحاً لعطلٍ لا توسيعاً ــ
+//
+// كانتا معرَّفتين في `RolePermission` بالعميل وغائبتين عن هذه القائمة.
+// و`basePerms()` تبني الأعلامَ منها وحدَها، ثم `loadCustomRolePerms` تُسقط
+// ما ليس فيها (`if (key in perms)`). فكان مفتاحُ «تعديل مواعيد المهامّ»
+// لا يصل بطاقةَ الدخول أبداً، و`firestore.rules` تفحصه — فمن مُنحها رأى
+// الزرَّ وردَّه الخادم. و«bla» كانت تعمل ببوابةٍ في العميل، لكنّ منحَها
+// لفردٍ بعينه يُردّ بـ«صلاحية غير معروفة».
+//
+// ولا تُوسَّع بهذا صلاحيةُ أحد: «mtd» مغلقةٌ في المبدئيّ فلا ينالها إلا من
+// مُنحها صراحةً، و«bla» يمنحها العميلُ اليوم فعلاً — فالبطاقةُ تلحق
+// بالواقع لا تسبقه. ويحرس التطابقَ `tool/test/permission_parity_test.sh`.
 const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap", "sfb", "mfb",
-  "mpr", "apr", "dsh", "dpg"] as const;
+  "mpr", "apr", "dsh", "dpg", "mtd", "bla"] as const;
 
 /**
  * صلاحيتان **لا تُمنحان لدور قط**، بل لفرد بعينه ومعهما نطاق إدارات.
@@ -200,9 +213,13 @@ const GRANTABLE_ROLES = ["executiveViewer", "departmentManager", "employee"] as 
 const DEFAULT_ROLE_PERMS: Record<string, string[]> = {
   // "dsh"/"dpg": مدخلا لوحة القيادة وصفحة الإدارة. مفتوحان لكل دور إلا
   // «موظف». وهما ترتيب واجهة لا حراسة بيانات — القواعد لم تتغيّر.
-  executiveViewer: ["vad", "mr", "agd", "dsh", "dpg"],
-  departmentManager: ["mw", "dsh", "dpg"],
-  projectOfficer: ["dsh", "dpg"],
+  // و"bla" (تنبيه المشاريع المتأخرة جماعياً) للأدوار الثلاثة نفسِها التي
+  // تحملها في `RolePermissionsConfig.defaults()` بالعميل. وكان الجدولان
+  // منحرفين: العميلُ يمنحها ويعمل بها، والخادمُ لا يعرفها. فهذا إلحاقُ
+  // الخادم بالواقع لا منحٌ جديد.
+  executiveViewer: ["vad", "mr", "agd", "dsh", "dpg", "bla"],
+  departmentManager: ["mw", "dsh", "dpg", "bla"],
+  projectOfficer: ["dsh", "dpg", "bla"],
   employee: [],
 };
 
@@ -296,6 +313,10 @@ async function loadCustomRolePerms(role: string, customRoleId?: string | null): 
     perms.md = data.manageDashboard === true;
     perms.agd = data.approveGeneralDecisions === true;
     perms.sap = data.selfAssignProjects === true;
+    // و`custom_role.dart` تكتب `manageTaskDates` في مستند الدور وتُصدرها
+    // `mtd` في `toClaimsMap` — وكان الخادمُ لا يقرؤها، فدورٌ مخصّصٌ مُنح
+    // تعديلَ مواعيد المهامّ لا يناله.
+    perms.mtd = data.manageTaskDates === true;
     return perms;
   }
 

@@ -35,6 +35,7 @@ enum NavKey {
   people('متابعة الأشخاص'),
   auditLog('سجل التدقيق'),
   archived('المحذوفات'),
+  departmentUsers('موظّفو إدارتي'),
   users('المستخدمون'),
   roles('إدارة الأدوار'),
   rolePermissions('صلاحيات الأدوار'),
@@ -134,6 +135,11 @@ List<NavKey> navKeysFor(AppStore store) {
   if (store.canTrackPeople) keys.add(NavKey.people);
   if (store.canViewAuditLog) keys.add(NavKey.auditLog);
   if (store.isAdmin) keys.add(NavKey.archived);
+  // ــ ومديرُ الإدارة يدير موظّفيه من شاشةٍ خاصّة ــ
+  //
+  // فيها ما يملكه فقط: الاسمُ والقسمُ وطلبُ النقل. والأفعالُ الثمانيةُ
+  // لمسؤول النظام غيرُ موجودةٍ فيها أصلاً — لا مخفيّةً بشرط.
+  if (store.canManageDepartmentUsers) keys.add(NavKey.departmentUsers);
   if (store.canManageUsers) {
     keys
       ..add(NavKey.users)

@@ -79,6 +79,33 @@ String describeWriteFailure(Object error) {
       'فالإجراء فعلاً خارج صلاحيتك ويحتاج اعتماداً.';
 }
 
+/// حمولةُ `updateUserProfile` — **ما يُقال للخادم وما يُسكت عنه**.
+///
+/// ــ ولماذا تُخرَج وحدةً ــ
+///
+/// لأنّ `clearSection` تُفرِّق «تحت الإدارة مباشرةً» عن «لا تغيّر القسم»،
+/// و`null` وحدها لا تستطيع قولَ الأولى. وهو الفخُّ نفسه الذي محا إدارةَ
+/// كلِّ موظّفٍ يُعدَّل دورُه — حقلٌ غائبٌ عن الحمولة قُرئ محواً. فيُقاس هنا
+/// بدل أن يُفترض.
+///
+/// ومفتاحٌ غائبٌ عن الحمولة يعني «لا تمسّ هذا الحقل»: `profilePatch` على
+/// الخادم لا تكتب إلا ما ورد.
+Map<String, dynamic> userProfilePayload({
+  required String uid,
+  String? name,
+  String? sectionId,
+  bool clearSection = false,
+}) {
+  final payload = <String, dynamic>{'uid': uid};
+  if (name != null) payload['name'] = name;
+  if (clearSection) {
+    payload['sectionId'] = null;
+  } else if (sectionId != null) {
+    payload['sectionId'] = sectionId;
+  }
+  return payload;
+}
+
 /// طبقة إدارة الحالة المركزية للمنصة، مبنية بالكامل على Firebase:
 /// - المصادقة: Firebase Authentication (بريد إلكتروني/كلمة مرور)
 /// - البيانات: Cloud Firestore (استماع لحظي real-time لكل المجموعات)
@@ -3520,6 +3547,12 @@ class AppStore extends ChangeNotifier {
       // المستخدم التنفيذي، ولا يبتّ فيه إلا مسؤول النظام. فلا ينتقل مشروع
       // من يدٍ إلى يد بقرار طرفٍ واحد.
       case ApprovalType.managerChange:
+      // ــ ونقلُ الموظّف بين الإدارات من الصنف نفسه ــ
+      //
+      // يرفعُه مديرُ الإدارة، ولا يبتّ فيه إلا مسؤولُ النظام: النقلُ يغيّر
+      // بطاقةَ دخول الموظّف وما يراه من مشاريع الوزارة كلِّها. ولا مرحلتين
+      // فيه — لا مشورةَ تُغني في قرارٍ هذا أثرُه.
+      case ApprovalType.userTransfer:
       case ApprovalType.notifySend:
       // ــ ولا يبلغ `deadlineChange` هذا السطر ــ
       //
@@ -5445,6 +5478,144 @@ class AppStore extends ChangeNotifier {
       after: {'executorNames': executorNames},
     );
   }
+
+  // ــــــــــــــ موظّفو الإدارة: من يديرهم وماذا يملك ــــــــــــــ
+
+  /// هل يدير هذا المستخدمُ موظّفي إدارةٍ ما؟ — وبه يظهر مدخلُ الشاشة.
+  ///
+  /// ومسؤولُ النظام خارجها بقصد: له شاشةُ «المستخدمون» وفيها ما هو أوسع،
+  /// ومدخلان لعملٍ واحد يُربكان لا يُيسّران.
+  bool get canManageDepartmentUsers => isManager && myDepartmentIds.isNotEmpty;
+
+  /// موظّفو إدارات هذا المدير — المعتمدون وحدهم.
+  ///
+  /// والمعتمدون وحدهم لأن **طلبات التسجيل بوابةٌ لمسؤول النظام**: من لم
+  /// يُعتمد بعد ليس موظّفاً في إدارةٍ، وعرضُه هنا يُوهم بأنّ لمدير الإدارة
+  /// فيه قراراً. راجع `ApprovalType.registration`.
+  List<AppUser> get myDepartmentMembers {
+    final mine = myDepartmentIds;
+    return users
+        .where((u) =>
+            u.status == UserStatus.approved &&
+            u.id != currentUser?.id &&
+            u.allDepartmentIds.any(mine.contains))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  /// هل يملك تعديلَ بيانات هذا المستخدم؟ — **مرآةُ `mayEditUserProfile`**
+  /// في `functions/src/user_scope.ts`، والحَكَم هي.
+  ///
+  /// وما هنا ترتيبٌ للواجهة: حقلٌ لا يُعرض لمن سيُردّ عند الحفظ.
+  bool canEditUserProfile(AppUser user) {
+    if (isAdmin) return true;
+    if (!isManager) return false;
+    final dept = user.departmentId;
+    if (dept == null || dept.isEmpty) return false;
+    return myDepartmentIds.contains(dept);
+  }
+
+  /// يعدّل اسمَ مستخدمٍ وقسمَه — **لا شيء غيرهما**.
+  ///
+  /// والدائرةُ والحقولُ يفحصهما الخادم في `user_scope.ts`؛ وهذه تُعيد نصَّ
+  /// الردّ إن رُدّ، و`null` إن وقع.
+  Future<String?> updateUserProfile(
+    AppUser user, {
+    String? name,
+    String? sectionId,
+    bool clearSection = false,
+  }) async {
+    if (!canEditUserProfile(user)) {
+      return 'تعديلُ بيانات هذا المستخدم لمسؤول النظام أو لمدير إدارته.';
+    }
+    final payload = userProfilePayload(
+      uid: user.id,
+      name: name,
+      sectionId: sectionId,
+      clearSection: clearSection,
+    );
+
+    try {
+      await _functions.httpsCallable('updateUserProfile').call(payload);
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر حفظ التعديل';
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// يرفع طلبَ نقلِ موظّفٍ إلى إدارةٍ أخرى — **ولا ينقله**.
+  ///
+  /// والنقلُ يغيّر بطاقةَ دخوله وما يراه من مشاريع الوزارة كلِّها، فلا يقع
+  /// إلا باعتماد مسؤول النظام. راجع `ApprovalType.userTransfer`.
+  Future<String?> submitUserTransferRequest({
+    required AppUser user,
+    required String toDepartmentId,
+    required String reason,
+  }) async {
+    if (!canEditUserProfile(user)) {
+      return 'طلبُ نقل هذا الموظّف لمدير إدارته أو لمسؤول النظام.';
+    }
+    if (toDepartmentId == user.departmentId) {
+      return 'الموظّف في هذه الإدارة أصلاً.';
+    }
+    if (reason.trim().isEmpty) {
+      return 'اكتب سببَ النقل — يُقرأ في مركز القرارات وفي سجل التدقيق.';
+    }
+    final title = 'طلب نقل موظّف: ${user.name}';
+    final blocked = _duplicateRequestBlock(
+      type: ApprovalType.userTransfer,
+      departmentId: user.departmentId,
+      title: title,
+    );
+    if (blocked != null) return blocked;
+
+    try {
+      await _db.collection('approvalRequests').add(ApprovalRequest(
+            id: '',
+            type: ApprovalType.userTransfer,
+            status: DecisionStatus.pending,
+            title: title,
+            description: reason.trim(),
+            priority: PriorityLevel.medium,
+            delayImpactDays: 0,
+            departmentId: user.departmentId ?? '',
+            requestedByUid: currentUser?.id ?? '',
+            requestedByName: currentUser?.name ?? '',
+            requestedDate: DateTime.now(),
+            payload: {
+              'uid': user.id,
+              'userName': user.name,
+              'fromDepartmentId': user.departmentId,
+              'toDepartmentId': toDepartmentId,
+              'reason': reason.trim(),
+            },
+          ).toMap());
+    } catch (e) {
+      return describeWriteFailure(e);
+    }
+    await _log(
+      'طلب نقل موظّف',
+      'طلب ${currentUser?.name ?? 'مستخدم'} نقلَ "${user.name}" '
+          'من "${departmentById(user.departmentId ?? '')?.name ?? 'بلا إدارة'}" '
+          'إلى "${departmentById(toDepartmentId)?.name ?? toDepartmentId}" '
+          '— السبب: ${reason.trim()}',
+    );
+    return null;
+  }
+
+  /// طلبُ نقلٍ معلّقٌ على هذا الموظّف — فلا يُقدَّم طلبان ولا يُظنّ الأول ضائعاً.
+  ///
+  /// و`pendingTransferFor` القائمةُ لنقل **المشروع**: اسمان متقاربان
+  /// لشيئين مختلفين — وقد اصطدما فعلاً عند كتابة هذه الدالّة، وهو أوّلُ ما
+  /// يُوقع في الخطأ. فيُفرَّق بينهما بالاسم لا بالتعليق وحده.
+  ApprovalRequest? pendingUserTransferFor(AppUser user) => approvalRequests
+      .where((r) =>
+          r.type == ApprovalType.userTransfer &&
+          r.status == DecisionStatus.pending &&
+          r.payload['uid'] == user.id)
+      .firstOrNull;
 
   /// وتُعيد رسالةً إن كان الطلب مكرّراً — راجع [findDuplicatePending].
   Future<String?> submitDeadlineChangeRequest({

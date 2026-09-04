@@ -199,6 +199,14 @@ class _RequestCardState extends State<_RequestCard> {
             ],
             // نقلُ المشروع بين الإدارتين: القديمةُ والجديدة جنباً إلى جنب،
             // ومعهما ما يقع عند الاعتماد — فلا يوقّع المسؤول على أثرٍ لا يعرفه.
+            // ــ نقلُ موظّف: من، ومن أين، وإلى أين، وماذا يقع ــ
+            //
+            // ولا يُترك المعتمِد يقرأ «طلب نقل موظّف: فلان» ويضغط: النقلُ
+            // يغيّر بطاقةَ دخوله وما يراه من مشاريع الوزارة كلِّها.
+            if (r.type == ApprovalType.userTransfer) ...[
+              const SizedBox(height: 12),
+              _UserTransferPanel(request: r),
+            ],
             if (r.type == ApprovalType.departmentTransfer) ...[
               const SizedBox(height: 12),
               _DepartmentTransferPanel(request: r),
@@ -1184,6 +1192,47 @@ class _DepartmentTransferPanel extends StatelessWidget {
             'الإدارة المستقبِلة رؤيتَها وإدارتَها، ويفقدها مديرُ الإدارة '
             'الحالية. ويُفرَّغ القسمُ داخل الإدارة، ويُسجَّل تاريخ النقل.',
             style: TextStyle(fontSize: 11.5, height: 1.8, color: AppColors.textPrimary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// بطاقةُ طلب نقل موظّف — تقول أثرَ الاعتماد قبل الضغط.
+class _UserTransferPanel extends StatelessWidget {
+  final ApprovalRequest request;
+  const _UserTransferPanel({required this.request});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    String dept(String? id) =>
+        store.departmentById(id ?? '')?.name ?? (id == null || id.isEmpty ? 'بلا إدارة' : id);
+
+    final from = dept(request.payload['fromDepartmentId'] as String?);
+    final to = dept(request.payload['toDepartmentId'] as String?);
+    final name = request.payload['userName'] as String? ?? 'الموظّف';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('نقلُ "$name": من "$from" إلى "$to"',
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
+          const SizedBox(height: 6),
+          const Text(
+            'وباعتماد هذا الطلب تتغيّر بطاقةُ دخوله فوراً: يرى مشاريعَ الإدارة '
+            'الجديدة ولا يرى مشاريعَ القديمة. ويُصفَّر قسمُه لأن أقسام إدارةٍ '
+            'لا تصلح لإدارةٍ أخرى.',
+            style: TextStyle(fontSize: 11.5, height: 1.8, color: AppColors.textSecondary),
           ),
         ],
       ),

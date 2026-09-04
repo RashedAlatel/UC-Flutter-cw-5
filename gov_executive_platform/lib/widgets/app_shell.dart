@@ -22,6 +22,7 @@ import '../screens/role_permissions_screen.dart';
 import '../screens/roles_management_screen.dart';
 import '../screens/user_management_screen.dart';
 import '../screens/work_detail_screen.dart';
+import '../screens/my_department_users_screen.dart';
 import '../screens/search_screen.dart';
 import '../screens/works_list_screen.dart';
 import '../theme/app_theme.dart';
@@ -54,6 +55,7 @@ const Map<NavKey, IconData> _navIcons = {
   NavKey.projects: Icons.folder_copy_rounded,
   NavKey.works: Icons.checklist_rounded,
   NavKey.search: Icons.search_rounded,
+  NavKey.departmentUsers: Icons.groups_2_rounded,
   NavKey.myAssignments: Icons.assignment_ind_outlined,
   NavKey.decisions: Icons.gavel_rounded,
   NavKey.dailyReport: Icons.wb_twilight_rounded,
@@ -190,6 +192,8 @@ class _AppShellState extends State<AppShell> {
         return const AuditLogScreen();
       case NavKey.archived:
         return const ArchivedItemsScreen();
+      case NavKey.departmentUsers:
+        return const MyDepartmentUsersScreen();
       case NavKey.users:
         return const UserManagementScreen();
       case NavKey.roles:

@@ -19,6 +19,7 @@ import {mayDeleteDailyUpdate} from "./daily_update_delete";
 import {buildWorkDoc} from "./work_create";
 import {stampClaims as stampClaimsCore} from "./claims_stamp";
 import {dateRepairPatch} from "./date_repair";
+import {mayEditUserProfile, profilePatch, PROFILE_FIELDS} from "./user_scope";
 import {
   canActAtStage,
   nextStage,
@@ -657,8 +658,12 @@ function checkApprovalPermission(
         departmentIds: (auth?.token.departmentIds as string[] | undefined) ?? [],
       }, departmentId);
       break;
-    // registration و notifySend و managerChange
-    // و departmentTransfer: مسؤول النظام وحده، بلا استثناء.
+    // registration و notifySend و managerChange و departmentTransfer
+    // و userTransfer: مسؤول النظام وحده، بلا استثناء.
+    //
+    // و`userTransfer` — نقلُ **موظّف** — منهنّ بقرارٍ صريح: يغيّر بطاقةَ
+    // دخوله وما يراه من مشاريع الوزارة كلِّها. ويرفعُه مديرُ الإدارة ولا
+    // يبتّ فيه، فلا ينتقل إنسانٌ من نطاقٍ إلى نطاق بقرار طرفٍ واحد.
     //
     // ونقلُ الإدارة منهنّ بقرارٍ صريح: هو أوسعُ أثراً من تغيير المدير —
     // يُخرج المشروعَ وتوابعَه كاملةً من نطاق إدارةٍ ويُدخلها أخرى، فيتبدّل
@@ -1243,6 +1248,89 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
     // والإدارةُ المستقبِلة تُقرأ من الحمولة، والحاليةُ من **المستند الآن**
     // لا من الحمولة: لو نُقل المشروعُ بينهما بطريقٍ آخر فما سُجّل وقت الطلب
     // لم يعد صحيحاً، والنقلُ يقع من حيث هو لا من حيث كان.
+    // ــــ نقلُ **موظّف** بين الإدارات ــــ
+    //
+    // وهو غيرُ `departmentTransfer` أدناه: تلك تنقل مشروعاً، وهذه تنقل
+    // إنساناً. يرفعُه مديرُ الإدارة، ولا يبتّ فيه إلا مسؤولُ النظام —
+    // ويمرّ في فرع `default` من `checkApprovalPermission` مع `registration`
+    // وأخواتها.
+    case "userTransfer": {
+      const uid = payload.uid as string | undefined;
+      const toDepartmentId = payload.toDepartmentId as string | undefined;
+      if (!uid || !toDepartmentId) {
+        throw new HttpsError("failed-precondition", "الطلب لا يحمل موظّفاً أو إدارةً مستقبِلة");
+      }
+
+      const userRef = db().collection("users").doc(uid);
+      const userSnap = await userRef.get();
+      if (!userSnap.exists) {
+        throw new HttpsError("failed-precondition", "المستخدم لم يعد موجوداً");
+      }
+      const target = userSnap.data()!;
+      const fromDepartmentId = (target.departmentId as string | null) ?? null;
+
+      const deptSnap = await db().collection("departments").doc(toDepartmentId).get();
+      if (!deptSnap.exists) {
+        throw new HttpsError("failed-precondition", "الإدارة المستقبِلة لم تعد موجودة");
+      }
+
+      // ــ والقسمُ يُصفَّر مع النقل ــ
+      //
+      // قسمٌ من إدارةٍ لا ينتمي إلى أخرى. ولو بقي لَظهر الموظّفُ في إدارةٍ
+      // وقسمٍ من إدارةٍ غيرها — وهو ما لا يُقرأ ولا يُصحَّح إلا بيدٍ.
+      await userRef.update({
+        departmentId: toDepartmentId,
+        sectionId: null,
+        // ومديرُ الإدارة الذي يُنقل تُنقل معه قائمةُ إداراته: تركُها يجعله
+        // يدير إدارةً خرج منها.
+        departmentIds: target.role === "departmentManager" ? [toDepartmentId] : [],
+      });
+
+      // ــ وبطاقتُه تُختم فوراً ــ
+      //
+      // القواعدُ تحتكم إلى البطاقة لا إلى السجل. ولولا الختم لَبقي الموظّفُ
+      // يرى إدارتَه القديمة ولا يرى الجديدة حتى ينتهي أجلُ رمزه. و`stampClaims`
+      // تكتب `claimsUpdatedAt` فيوقظ متصفّحَه في حينه.
+      await stampClaims(uid, {
+        role: target.role ?? "employee",
+        departmentId: toDepartmentId,
+        departmentIds: target.role === "departmentManager" ? [toDepartmentId] : [],
+        approved: target.status === "approved",
+        ...claimPermissions(
+          await loadCustomRolePerms(
+            (target.role as string) ?? "employee",
+            (target.customRoleId as string | null) ?? null,
+          ),
+          target,
+          toDepartmentId,
+        ),
+      });
+
+      await logAudit(
+        auth.token.name ?? "مسؤول النظام",
+        "نقل موظّف بين الإدارات",
+        `اعتُمد نقلُ "${target.name ?? uid}" إلى إدارةٍ أخرى ` +
+          `بطلبٍ من ${data.requestedByName ?? "مستخدم"}` +
+          `${payload.reason ? ` — السبب: ${payload.reason}` : ""}`,
+        {
+          type: "update",
+          actorUid: auth.uid,
+          targetType: "user",
+          targetId: uid,
+          targetName: String(target.name ?? uid),
+          before: {departmentId: fromDepartmentId},
+          after: {departmentId: toDepartmentId},
+        },
+      );
+
+      await notifyUser(
+        uid,
+        "نُقلت إلى إدارة أخرى",
+        `اعتمد مسؤولُ النظام نقلَك إلى إدارةٍ أخرى. وقد تغيّر ما تراه من ` +
+          "مشاريع وأعمال تبعاً لذلك.",
+      );
+      break;
+    }
     case "departmentTransfer": {
       const projectId = payload.projectId as string | undefined;
       const newDepartmentId = payload.newDepartmentId as string | undefined;
@@ -1510,6 +1598,88 @@ export const setUserRole = onCall(async (request) => {
   });
 
   await logAudit(auth.token.name ?? "مسؤول النظام", "تعديل دور مستخدم", `تم تغيير دور المستخدم "${current.name}"`);
+
+  return {ok: true};
+});
+
+/**
+ * يعدّل **اسمَ مستخدمٍ وقسمَه** — لا شيء غيرهما.
+ *
+ * ــــ الثغرةُ التي يسدّها ــــ
+ *
+ * `sectionId` كان يُكتب عند اعتماد التسجيل ثم **يجمد**: لا سبيل إلى تعديله
+ * لأحد — لا لمدير الإدارة ولا لمسؤول النظام. فموظّفٌ ينتقل بين قسمين يبقى
+ * مسجَّلاً في قسمه الأوّل إلى الأبد. والاسمُ كذلك: `setUserRole` لا تمسّه،
+ * فاسمٌ سُجّل ناقصاً يبقى ناقصاً.
+ *
+ * ــــ ولماذا دالّةٌ ثالثة لا توسيعُ `setUserRole` ــــ
+ *
+ * تلك تختم بطاقةَ الدخول (`stampClaims`) لأنها تمسّ الدورَ والإدارة. وهذه
+ * **لا تمسّ البطاقة إطلاقاً**: الاسمُ والقسمُ ليسا فيها — «القسم يُحفظ في
+ * السجل ولا يدخل بطاقة الدخول: لا قاعدة أمان تحتكم إليه». فلا ختمَ يُعاد،
+ * ولا حلقةَ تُفتح — راجع حادثةَ `claims_stamp.ts`.
+ *
+ * والدائرةُ وقائمةُ الحقول في `user_scope.ts` — وحدةٌ نقيّة لها اختباراتها،
+ * لأن هذا الملفّ لا تقرؤه مجموعة.
+ */
+export const updateUserProfile = onCall(async (request) => {
+  const auth = requireAuth(request);
+  const {uid} = (request.data ?? {}) as {uid?: string};
+  if (!uid) throw new HttpsError("invalid-argument", "الرجاء تحديد المستخدم");
+
+  const userRef = db().collection("users").doc(uid);
+  const userDoc = await userRef.get();
+  if (!userDoc.exists) throw new HttpsError("not-found", "المستخدم غير موجود");
+  const current = userDoc.data()!;
+
+  // الإداراتُ من **البطاقة** لا من الحمولة: لو قُرئت مما يرسله المتصل
+  // لَعدّل أيُّ مديرِ إدارةٍ من شاء بإضافة سطرٍ في أدوات المتصفح.
+  const allowed = mayEditUserProfile({
+    isAdmin: auth.token.role === "systemAdmin",
+    role: auth.token.role as string | undefined,
+    departmentIds: (auth.token.departmentIds as string[] | undefined) ?? [],
+  }, {departmentId: (current.departmentId as string | null) ?? null});
+
+  if (!allowed) {
+    throw new HttpsError(
+      "permission-denied",
+      "تعديلُ بيانات هذا المستخدم لمسؤول النظام أو لمدير إدارته.",
+    );
+  }
+
+  const patch = profilePatch((request.data ?? {}) as Record<string, unknown>);
+  if (Object.keys(patch).length === 0) {
+    throw new HttpsError("invalid-argument", "لا تغييرَ في الطلب");
+  }
+
+  await userRef.update(patch);
+
+  // ــ والأثرُ بـ«قبل ← بعد» ــ
+  //
+  // بياناتُ موظّفٍ تتغيّر بلا سطرٍ يقول من غيّرها ليست تصحيحاً بل تبديلٌ
+  // لا يُراجَع. والهدفُ مختومٌ ليظهر في سجلّ المستخدم لا في السجل العام وحده.
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+  for (const field of PROFILE_FIELDS) {
+    if (!(field in patch)) continue;
+    before[field] = current[field] ?? null;
+    after[field] = patch[field];
+  }
+
+  await logAudit(
+    auth.token.name ?? "مستخدم",
+    "تعديل بيانات مستخدم",
+    `عدّل ${auth.token.name ?? "مستخدم"} بيانات "${current.name ?? uid}"`,
+    {
+      type: "update",
+      actorUid: auth.uid,
+      targetType: "user",
+      targetId: uid,
+      targetName: String(current.name ?? uid),
+      before,
+      after,
+    },
+  );
 
   return {ok: true};
 });

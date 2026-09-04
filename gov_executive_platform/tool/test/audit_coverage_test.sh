@@ -49,6 +49,7 @@ returnRequestForRevision
 transferProjectDepartment
 restampChildDepartments
 repairTextDates
+updateUserProfile
 "
 
 # (ب) ما ليس تغييراً على بيانات الوزارة: تفضيلاتٌ شخصية لا يراها غير
@@ -155,9 +156,14 @@ fi
 # ثم إلى ٢٥ لـ`repairTextDates`: إعادةُ كتابة تاريخٍ خُزّن نصّاً على كلّ
 # مشاريع الوزارة دفعةً واحدة — لا سبيل إليها من العميل، وسطرُها يُكتب على
 # الخادم («إصلاح تواريخ مخزَّنة نصّاً»)، وهي مفحوصةٌ أدناه.
+#
+# ثم إلى ٢٦ لـ`updateUserProfile`: تعديلُ اسم مستخدمٍ وقسمِه لا يقع من
+# العميل أصلاً — قاعدةُ `users` تقول `allow update: if isAdmin()`. والدائرةُ
+# تُفحص على الخادم (`user_scope.ts`) وسطرُها يُكتب هناك بـ«قبل ← بعد»، وهو
+# مفحوصٌ في القسم الأخير من هذا الحارس.
 ALLOWED_COUNT="$(printf '%s\n' "$ALLOWED" | grep -c .)"
-if [ "$ALLOWED_COUNT" -le 25 ]; then
-  report "وقائمة الاستثناء لم تتضخّم ($ALLOWED_COUNT من ٢٥)" 1
+if [ "$ALLOWED_COUNT" -le 26 ]; then
+  report "وقائمة الاستثناء لم تتضخّم ($ALLOWED_COUNT من ٢٦)" 1
 else
   report "وقائمة الاستثناء لم تتضخّم" 0 \
     "صارت $ALLOWED_COUNT استثناءً — راجعها قبل رفع الحدّ."

@@ -19,6 +19,7 @@ import '../models/daily_report.dart';
 import '../models/daily_report_settings.dart';
 import '../models/daily_update.dart';
 import '../models/custom_role.dart';
+import '../models/procedure.dart';
 import '../models/closure_trail.dart';
 import '../models/dashboard_metric.dart';
 import '../models/dashboard_widget_config.dart';
@@ -179,6 +180,28 @@ class AppStore extends ChangeNotifier {
   AlertRulesConfig alertRules = const AlertRulesConfig();
   RegistrationPolicy registrationPolicy = const RegistrationPolicy();
   List<CustomRole> customRoles = [];
+
+  /// دليلُ الإجراءات — السارية والمؤرشفة معاً.
+  ///
+  /// والمؤرشفةُ في القائمة نفسِها لا في مجموعةٍ ثانية: هي إجراءاتٌ يُرجع
+  /// إليها، والشاشةُ تفصلها بمرشِّح. ومجموعةٌ ثانية تعني اشتراكاً ثانياً
+  /// ومساراً ثانياً للقراءة، لحدٍّ يقوله حقلٌ واحد.
+  List<Procedure> procedures = [];
+
+  /// النسخُ السابقة للإجراء المفتوح — تُقرأ عند الطلب لا دائماً.
+  ///
+  /// ولا يُشترك فيها: عددُها ينمو مع كل تعديلٍ لكل إجراء، واشتراكٌ دائم
+  /// بها يحمل إلى كل متصفّحٍ تاريخَ الدليل كلِّه ليقرأ صفحةً واحدة.
+  /// وهو نمطُ `projectHistory` القائم.
+  Future<List<ProcedureVersion>> procedureVersions(String procedureId) async {
+    final snap = await _db
+        .collection('procedureVersions')
+        .where('procedureId', isEqualTo: procedureId)
+        .get();
+    final list = _parseDocs('procedureVersions', snap.docs, ProcedureVersion.fromDoc)
+      ..sort((a, b) => b.versionNumber.compareTo(a.versionNumber));
+    return list;
+  }
 
   StreamSubscription<fb_auth.User?>? _authSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSub;
@@ -756,6 +779,18 @@ class AppStore extends ChangeNotifier {
 
   bool get canSubmitFeedback => hasPermission(RolePermission.submitFeedback);
   bool get canManageFeedback => hasPermission(RolePermission.manageFeedback);
+
+  /// هل يحرّر هذا المستخدمُ دليلَ الإجراءات؟
+  bool get canEditProcedures => hasPermission(RolePermission.editProcedures);
+
+  /// وهل يقرؤه؟ — **ومن يحرّر يقرأ**.
+  ///
+  /// موضعٌ واحد يقرّر، ونصُّه نفسُه في قاعدة `procedures`:
+  /// `perm('vpc') || perm('epc') || isAdmin()`. ولو افترقا لَرأى من مُنح
+  /// التحريرَ وحدَه شاشةً فارغةً يظنّها عطلاً — أو رأى القائمةَ وردَّه
+  /// الخادمُ عند الفتح، وهو العطلُ الذي تكرّر في هذه المنصة مرّتين.
+  bool get canViewProcedures =>
+      hasPermission(RolePermission.viewProcedures) || canEditProcedures;
 
   /// ما رفعه المستخدم الحالي — يراه دائماً ولو لم يعد يملك صلاحية الرفع.
   List<FeedbackItem> get myFeedback =>
@@ -2243,6 +2278,7 @@ class AppStore extends ChangeNotifier {
     // قارنت المزامنة لاحقاً بإعدادٍ مبدئي وهي تحسبه الحقيقة.
     _rolePermissionsLoaded = false;
     customRoles = [];
+    procedures = [];
     _projectWidgets.clear();
     _projectWidgetsSubscribed.clear();
   }
@@ -2602,6 +2638,15 @@ class AppStore extends ChangeNotifier {
     });
     _listen('roles', _db.collection('roles').orderBy('name').snapshots(), (snap) {
       customRoles = _parseDocs('roles', snap.docs, CustomRole.fromDoc);
+      notifyListeners();
+    });
+    // ــ ودليلُ الإجراءات ــ
+    //
+    // ولا `orderBy` في الاستعلام: الترتيبُ بالعنوان عربيّ، و`orderBy` في
+    // Firestore ترتيبٌ بالرموز لا بحروف العربية. فيُرتَّب في الذاكرة.
+    _listen('procedures', _db.collection('procedures').snapshots(), (snap) {
+      procedures = _parseDocs('procedures', snap.docs, Procedure.fromDoc)
+        ..sort((a, b) => a.title.compareTo(b.title));
       notifyListeners();
     });
     // مستند واحد لكل طبقة داخل dashboardConfig: `main` اللوحة العامة،
@@ -3086,6 +3131,11 @@ class AppStore extends ChangeNotifier {
         // وفتحُ بابٍ يُخرج بريداً باسم المنصة لا يُورَّث ضمناً.
         case RolePermission.bulkDelayAlerts:
         case RolePermission.manageFeedback:
+        // ودليلُ الإجراءات لا يُورَّث ضمناً لحامل الدور المخصص: لا مقابل
+        // له في مستند الدور، ويُمنح بالاستثناء الفردي إن أراد مسؤول
+        // النظام. وهو ما قرّرتَه — يُفتح بمنحٍ لا بحكم الدور.
+        case RolePermission.viewProcedures:
+        case RolePermission.editProcedures:
         // والمقيَّدتان بنطاق لا تُمنحان لدور إطلاقاً — لا أساسي ولا مخصص.
         case RolePermission.manageProjects:
         case RolePermission.approveProjectRequests:
@@ -4531,8 +4581,34 @@ class AppStore extends ChangeNotifier {
   /// التخزين غير مفعَّل في مشروع Firebase أصلاً، وهو ليس عطلاً في المنصة بل
   /// خطوةٌ لم يخطُها مسؤول النظام بعد — فيجب أن تُقال له كما هي، لا أن تظهر
   /// كخطأ غامض ولا أن تفشل صامتة.
+  /// مرفقُ تحديثٍ يوميّ على مشروع — بادئتُه مسارُ المشروع.
   Future<({Attachment? file, String? error})> uploadAttachment({
     required String projectId,
+    required PickedFile picked,
+  }) =>
+      uploadAttachmentTo(
+        prefix: 'projects/$projectId/dailyUpdates',
+        picked: picked,
+      );
+
+  /// مرفقُ خطوةٍ في دليل الإجراءات — بادئتُه مسارُ الإجراء.
+  ///
+  /// وقاعدةُ التخزين لهذا المسار في `storage.rules` صريحة: بلا مسارٍ مكتوب
+  /// يردّ الجامعُ الأخيرُ كلَّ رفع.
+  Future<({Attachment? file, String? error})> uploadProcedureAttachment({
+    required String procedureId,
+    required PickedFile picked,
+  }) =>
+      uploadAttachmentTo(prefix: 'procedures/$procedureId', picked: picked);
+
+  /// يرفع مرفقاً إلى **بادئةِ مسارٍ** تُمرَّر — وهذه هي الدالّة العاملة.
+  ///
+  /// وأُخرجت البادئةُ وسيطاً حين جاء بابٌ ثانٍ يرفع ملفات. ونسخةٌ ثانيةٌ من
+  /// هذا الجسم تعني نسختين من حدِّ العشرة ميغابايت، ومن فحص حزمة التخزين،
+  /// ومن ترجمة أخطاء Firebase إلى عربية — تنحرف إحداها يوماً عن الأخرى،
+  /// فيُخبَر مستخدمٌ بما لا يُخبَر به الآخر في العطل نفسِه.
+  Future<({Attachment? file, String? error})> uploadAttachmentTo({
+    required String prefix,
     required PickedFile picked,
   }) async {
     const maxBytes = 10 * 1024 * 1024;
@@ -4558,7 +4634,7 @@ class AppStore extends ChangeNotifier {
       // الاسم يُنقّى قبل أن يصير مساراً: الأسماء العربية تُسقط الامتداد في
       // Chromium عند التنزيل — راجع safe_file_name.dart.
       final clean = safeFileName(picked.name, fallbackBase: 'attachment');
-      final path = 'projects/$projectId/dailyUpdates/${DateTime.now().millisecondsSinceEpoch}_$clean';
+      final path = '$prefix/${DateTime.now().millisecondsSinceEpoch}_$clean';
       final ref = fb_storage.FirebaseStorage.instance.ref(path);
       await ref.putData(
         picked.bytes,
@@ -5477,6 +5553,84 @@ class AppStore extends ChangeNotifier {
       before: {'executorNames': project.executorNames},
       after: {'executorNames': executorNames},
     );
+  }
+
+  // ــــــــــــــ دليل الإجراءات ــــــــــــــ
+
+  /// الإجراءاتُ السارية وحدها — وهي ما يُعرض ما لم يُطلب المؤرشف.
+  List<Procedure> get activeProcedures =>
+      procedures.where((p) => p.isActive).toList();
+
+  /// إجراءٌ بمعرّفه — أو `null`.
+  ///
+  /// وحارسُ المعرّف الفارغ مضاعف: معرّفاتُ المستندات في Firestore ليست
+  /// فارغةً أبداً، فالمقارنةُ في الحلقة تردّ الفارغَ على كلّ حال. فطفرتُه
+  /// لا تعضّ لأنّها لا تغيّر سلوكاً على بياناتٍ حقيقية، لا لأنّ اختباراً
+  /// ناقص. ويبقى لأنّه يقول المقصود، ويكفّ حلقةً لا معنى لها.
+  Procedure? procedureById(String? id) {
+    if (id == null || id.isEmpty) return null;
+    for (final p in procedures) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
+  /// يحفظ إجراءً — **والخادمُ يحفظ صورةَ ما كان قبله**.
+  ///
+  /// و[id] فارغاً تعني إجراءً جديداً. و[note] سببُ التعديل: يُقرأ في قائمة
+  /// النسخ فيُعرف لماذا تغيّر الإجراءُ لا ماذا تغيّر فيه وحسب.
+  ///
+  /// وتُعيد نصَّ الردّ إن رُدّ، و`null` إن وقع.
+  Future<String?> saveProcedure({
+    String id = '',
+    required String title,
+    required String summary,
+    String? departmentId,
+    required List<ProcedureStep> steps,
+    String note = '',
+  }) async {
+    if (!canEditProcedures) {
+      return 'تحريرُ دليل الإجراءات يحتاج صلاحية «تحرير دليل الإجراءات» — اطلبها من مسؤول النظام.';
+    }
+    if (title.trim().isEmpty) {
+      return 'اكتب عنوان الإجراء.';
+    }
+    try {
+      await _functions.httpsCallable('saveProcedure').call({
+        if (id.isNotEmpty) 'id': id,
+        'title': title.trim(),
+        'summary': summary.trim(),
+        'departmentId': departmentId ?? '',
+        'steps': [for (final s in steps) s.toMap()],
+        'note': note.trim(),
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر حفظ الإجراء';
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// يؤرشف إجراءً أو يعيده سارياً — **ولا يحذفه**.
+  ///
+  /// فمن وعد بحفظ النسخ لا يمحو أصلَها. وما سار عليه الناسُ سنةً يبقى مما
+  /// يُرجع إليه، ولو لم يعد سارياً اليوم.
+  Future<String?> setProcedureActive(Procedure procedure, bool isActive) async {
+    if (!canEditProcedures) {
+      return 'أرشفةُ الإجراءات تحتاج صلاحية «تحرير دليل الإجراءات».';
+    }
+    try {
+      await _functions.httpsCallable('setProcedureActive').call({
+        'id': procedure.id,
+        'isActive': isActive,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر تغيير حالة الإجراء';
+    } catch (e) {
+      return e.toString();
+    }
   }
 
   // ــــــــــــــ موظّفو الإدارة: من يديرهم وماذا يملك ــــــــــــــ

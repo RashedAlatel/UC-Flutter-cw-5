@@ -42,6 +42,21 @@ service firebase.storage {
       allow update, delete: if false;
     }
 
+    // مرفقاتُ خطوات دليل الإجراءات — نموذجٌ يُملأ، أو لائحةٌ يُرجع إليها.
+    //
+    // ورفعُها لمن يحرّر الدليل. وقواعدُ التخزين لا تقرأ Firestore ولا
+    // البطاقةَ إلا فيما فيها، فلا سبيل هنا إلى فحص `epc`: الحصرُ الفعليّ
+    // أنّ **رابطَ المرفق لا يُكتب إلا عبر `saveProcedure`** التي تفحصها.
+    // فمن رفع ملفاً بلا صلاحية رفع ملفاً لا يصل إليه أحد ولا يُذكر في
+    // إجراء. وهو الحدُّ نفسُه القائم في مرفقات التحديث اليومي.
+    match /procedures/{procedureId}/{fileName} {
+      allow read: if isApproved();
+      allow create: if isApproved() && withinSize() && allowedType();
+      // المرفقُ في دليلٍ تُحفظ نسخُه لا يُستبدل ولا يُحذف: نسخةٌ سابقة
+      // تشير إليه، فحذفُه يُفرغ صورةً وُعد بحفظها.
+      allow update, delete: if false;
+    }
+
     // كل مسار آخر مغلق: لا يُفتح مسار إلا بقصد.
     match /{allPaths=**} {
       allow read, write: if false;

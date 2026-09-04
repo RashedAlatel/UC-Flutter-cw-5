@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'enums.dart';
+import 'safe_read.dart';
 
 class Project {
   final String id;
@@ -464,22 +465,15 @@ class Project {
   ///
   /// ما لا يُقرأ تاريخاً يُقرأ **«غير مسجّل»** لا تاريخَ اليوم: عقدٌ ينتهي
   /// اليوم رقمٌ يُتّخذ عليه قرار، وهو أسوأ من فراغٍ صريح.
-  static DateTime? _date(Object? raw) {
-    if (raw is Timestamp) return raw.toDate();
-    if (raw is DateTime) return raw;
-    if (raw is String) return DateTime.tryParse(raw.trim());
-    return null;
-  }
+  /// وجسمُه انتقل إلى `safe_read.dart` حين جاء نموذجٌ ثانٍ يحتاجه: نسختان
+  /// تنحرف إحداهما يوماً عن الأخرى، فيعود العطلُ من الباب الذي لم يُصلَح.
+  static DateTime? _date(Object? raw) => readDate(raw);
 
   /// يقرأ رقماً من قيمةٍ مهما كان نوعُها — أو `null`. نظيرُ [_date].
   ///
   /// وصفرٌ يُختلق أسوأ من فراغ: مدّةُ عقدٍ صفراً تُقرأ التزاماً منتهياً،
   /// وقيمةُ عقدٍ صفراً تُقرأ مجّاناً. فما لا يُقرأ رقماً «غير مسجّل».
-  static num? _num(Object? raw) {
-    if (raw is num) return raw;
-    if (raw is String) return num.tryParse(raw.trim());
-    return null;
-  }
+  static num? _num(Object? raw) => readNum(raw);
 
   static List<String> _uidList(Object? raw, {String? legacy}) {
     final list = (raw as List?)?.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();

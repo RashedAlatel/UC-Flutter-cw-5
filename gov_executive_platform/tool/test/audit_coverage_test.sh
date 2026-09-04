@@ -50,6 +50,8 @@ transferProjectDepartment
 restampChildDepartments
 repairTextDates
 updateUserProfile
+saveProcedure
+setProcedureActive
 "
 
 # (ب) ما ليس تغييراً على بيانات الوزارة: تفضيلاتٌ شخصية لا يراها غير
@@ -161,9 +163,15 @@ fi
 # العميل أصلاً — قاعدةُ `users` تقول `allow update: if isAdmin()`. والدائرةُ
 # تُفحص على الخادم (`user_scope.ts`) وسطرُها يُكتب هناك بـ«قبل ← بعد»، وهو
 # مفحوصٌ في القسم الأخير من هذا الحارس.
+#
+# ثم إلى ٢٨ لـ`saveProcedure` و`setProcedureActive`: دليلُ الإجراءات
+# **مغلقُ الكتابة في القواعد للجميع** (`allow write: if false`) ولمسؤول
+# النظام كذلك، لأنّ كلّ حفظٍ يجب أن يكتب صورةَ ما كان قبله في المعاملة
+# نفسِها. فلا سبيل إلى الكتابة إلا بهما، وسطرُهما يُكتب على الخادم، وهما
+# مفحوصان في القسم الأخير.
 ALLOWED_COUNT="$(printf '%s\n' "$ALLOWED" | grep -c .)"
-if [ "$ALLOWED_COUNT" -le 26 ]; then
-  report "وقائمة الاستثناء لم تتضخّم ($ALLOWED_COUNT من ٢٦)" 1
+if [ "$ALLOWED_COUNT" -le 28 ]; then
+  report "وقائمة الاستثناء لم تتضخّم ($ALLOWED_COUNT من ٢٨)" 1
 else
   report "وقائمة الاستثناء لم تتضخّم" 0 \
     "صارت $ALLOWED_COUNT استثناءً — راجعها قبل رفع الحدّ."

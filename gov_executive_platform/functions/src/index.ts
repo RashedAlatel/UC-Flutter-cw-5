@@ -21,6 +21,12 @@ import {stampClaims as stampClaimsCore} from "./claims_stamp";
 import {dateRepairPatch} from "./date_repair";
 import {mayEditUserProfile, profilePatch, PROFILE_FIELDS} from "./user_scope";
 import {
+  mayEditProcedures,
+  procedurePatch,
+  nextVersion,
+  PROCEDURE_FIELDS,
+} from "./procedure_scope";
+import {
   canActAtStage,
   nextStage,
   appliesAt,
@@ -143,7 +149,7 @@ async function logAudit(
 // مُنحها صراحةً، و«bla» يمنحها العميلُ اليوم فعلاً — فالبطاقةُ تلحق
 // بالواقع لا تسبقه. ويحرس التطابقَ `tool/test/permission_parity_test.sh`.
 const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap", "sfb", "mfb",
-  "mpr", "apr", "dsh", "dpg", "mtd", "bla"] as const;
+  "mpr", "apr", "dsh", "dpg", "mtd", "bla", "vpc", "epc"] as const;
 
 /**
  * صلاحيتان **لا تُمنحان لدور قط**، بل لفرد بعينه ومعهما نطاق إدارات.
@@ -1699,6 +1705,196 @@ export const updateUserProfile = onCall(async (request) => {
       targetName: String(current.name ?? uid),
       before,
       after,
+    },
+  );
+
+  return {ok: true};
+});
+
+/**
+ * يحفظ إجراءً في الدليل — **ويحفظ صورةَ ما كان قبله في المعاملة نفسِها**.
+ *
+ * ــــ لماذا الخادمُ وحدَه يكتب ــــ
+ *
+ * `procedures` و`procedureVersions` مغلقتان للكتابة في القواعد
+ * (`allow write: if false`) ولو كان الكاتبُ مسؤولَ النظام. وحفظُ صورة
+ * النسخة السابقة **لا يجوز أن يكون خطوةً يستطيع عميلٌ تخطّيها**: لو كُتب
+ * الجديدُ بلا صورة لَضاع ما وُعد بحفظه، ولا سبيل إلى استرجاعه.
+ *
+ * وهو القرارُ نفسُه الذي اتُّخذ في `updateUserProfile`: القاعدةُ لا
+ * تُوسَّع، والدالّةُ وحدَها هي الطريق.
+ *
+ * ــــ والمعاملةُ تكتب الصورةَ قبل الجديد ــــ
+ *
+ * فلو انقطع شيءٌ في المنتصف لم تُكتب النسخةُ الجديدة بلا صورةٍ لسابقتها.
+ * وترتيبُ السطرين ليس تجميلاً: عكسُه يفتح نافذةً تضيع فيها نسخة.
+ *
+ * والقرارُ — من يحرّر وما يُقبل من الحمولة — في `procedure_scope.ts`،
+ * وحدةٌ نقيّة لها اختباراتها، لأن هذا الملفّ لا تقرؤه مجموعة.
+ */
+export const saveProcedure = onCall(async (request) => {
+  const auth = requireAuth(request);
+  const data = (request.data ?? {}) as Record<string, unknown>;
+
+  // الصلاحيةُ من **البطاقة** لا من الحمولة.
+  const allowed = mayEditProcedures({
+    isAdmin: auth.token.role === "systemAdmin",
+    perms: (auth.token.perms as Record<string, boolean> | undefined) ?? {},
+  });
+  if (!allowed) {
+    throw new HttpsError(
+      "permission-denied",
+      "تحريرُ دليل الإجراءات يحتاج صلاحية «تحرير دليل الإجراءات» — اطلبها من مسؤول النظام.",
+    );
+  }
+
+  const patch = procedurePatch(data);
+  const note = typeof data.note === "string" ? data.note.trim() : "";
+  const rawId = typeof data.id === "string" ? data.id.trim() : "";
+  const actor = (auth.token.name as string | undefined) ?? "مستخدم";
+
+  const col = db().collection("procedures");
+  const ref = rawId === "" ? col.doc() : col.doc(rawId);
+  const isNew = rawId === "";
+
+  if (isNew && typeof patch.title !== "string") {
+    throw new HttpsError("invalid-argument", "الرجاء كتابة عنوان الإجراء");
+  }
+  if (!isNew && Object.keys(patch).length === 0) {
+    throw new HttpsError("invalid-argument", "لا تغييرَ في الطلب");
+  }
+
+  const outcome = await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!isNew && !snap.exists) {
+      throw new HttpsError("not-found", "الإجراء غير موجود");
+    }
+    const before = snap.exists ? snap.data()! : null;
+
+    if (before === null) {
+      tx.set(ref, {
+        title: "",
+        summary: "",
+        departmentId: null,
+        ...patch,
+        isActive: true,
+        version: 1,
+        createdAt: now(),
+        updatedAt: now(),
+        updatedByUid: auth.uid,
+        updatedByName: actor,
+      });
+      return {version: 1, title: String(patch.title ?? ""), before: null as Record<string, unknown> | null};
+    }
+
+    // ــ الصورةُ أوّلاً ــ
+    //
+    // ورقمُها رقمُ النسخة **السارية** لا الجديدة: هي صورةُ ما كان، لا ما
+    // سيكون. وخلطُهما يجعل قارئَ النسخة الثالثة يرى الرابعة.
+    const savedVersion = nextVersion(before.version) - 1;
+    tx.set(db().collection("procedureVersions").doc(), {
+      procedureId: ref.id,
+      versionNumber: savedVersion,
+      savedAt: now(),
+      savedByUid: auth.uid,
+      savedByName: actor,
+      note,
+      snapshot: before,
+    });
+
+    tx.update(ref, {
+      ...patch,
+      version: nextVersion(before.version),
+      updatedAt: now(),
+      updatedByUid: auth.uid,
+      updatedByName: actor,
+    });
+    return {
+      version: nextVersion(before.version),
+      title: String(patch.title ?? before.title ?? ""),
+      before,
+    };
+  });
+
+  // ــ والأثرُ بـ«قبل ← بعد» ــ
+  //
+  // والسجلُّ فروقٌ والنسخةُ صورة، وكلاهما يجيب سؤالاً: السجلُّ «ما الذي
+  // تغيّر ومن غيّره»، والنسخةُ «كيف كان الإجراء يومَ سار عليه فلان».
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+  if (outcome.before !== null) {
+    for (const field of PROCEDURE_FIELDS) {
+      if (!(field in patch)) continue;
+      before[field] = outcome.before[field] ?? null;
+      after[field] = patch[field];
+    }
+  }
+
+  await logAudit(
+    actor,
+    isNew ? "إضافة إجراء" : "تعديل إجراء",
+    isNew ?
+      `أضاف ${actor} إجراء "${outcome.title}"` :
+      `عدّل ${actor} إجراء "${outcome.title}" — النسخة ${outcome.version}` +
+        (note === "" ? "" : ` — السبب: ${note}`),
+    {
+      type: isNew ? "create" : "update",
+      actorUid: auth.uid,
+      targetType: "procedure",
+      targetId: ref.id,
+      targetName: outcome.title,
+      before,
+      after,
+    },
+  );
+
+  return {ok: true, id: ref.id, version: outcome.version};
+});
+
+/**
+ * يؤرشف إجراءً أو يعيده سارياً — **ولا يحذفه**.
+ *
+ * فمن وعد بحفظ النسخ لا يمحو أصلَها. وما سار عليه الناسُ سنةً يبقى مما
+ * يُرجع إليه، ولو لم يعد سارياً اليوم.
+ */
+export const setProcedureActive = onCall(async (request) => {
+  const auth = requireAuth(request);
+  const {id, isActive} = (request.data ?? {}) as {id?: string; isActive?: boolean};
+  if (!id || typeof isActive !== "boolean") {
+    throw new HttpsError("invalid-argument", "بيانات ناقصة");
+  }
+
+  const allowed = mayEditProcedures({
+    isAdmin: auth.token.role === "systemAdmin",
+    perms: (auth.token.perms as Record<string, boolean> | undefined) ?? {},
+  });
+  if (!allowed) {
+    throw new HttpsError(
+      "permission-denied",
+      "أرشفةُ الإجراءات تحتاج صلاحية «تحرير دليل الإجراءات».",
+    );
+  }
+
+  const ref = db().collection("procedures").doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "الإجراء غير موجود");
+  const current = snap.data()!;
+  const actor = (auth.token.name as string | undefined) ?? "مستخدم";
+
+  await ref.update({isActive, updatedAt: now(), updatedByUid: auth.uid, updatedByName: actor});
+
+  await logAudit(
+    actor,
+    isActive ? "إعادة إجراء" : "أرشفة إجراء",
+    `${isActive ? "أعاد" : "أرشف"} ${actor} إجراء "${current.title ?? id}"`,
+    {
+      type: "update",
+      actorUid: auth.uid,
+      targetType: "procedure",
+      targetId: id,
+      targetName: String(current.title ?? id),
+      before: {isActive: current.isActive !== false},
+      after: {isActive},
     },
   );
 

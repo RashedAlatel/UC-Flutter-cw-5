@@ -36,6 +36,7 @@ enum NavKey {
   auditLog('سجل التدقيق'),
   archived('المحذوفات'),
   departmentUsers('موظّفو إدارتي'),
+  procedures('دليل الإجراءات'),
   users('المستخدمون'),
   roles('إدارة الأدوار'),
   rolePermissions('صلاحيات الأدوار'),
@@ -140,6 +141,12 @@ List<NavKey> navKeysFor(AppStore store) {
   // فيها ما يملكه فقط: الاسمُ والقسمُ وطلبُ النقل. والأفعالُ الثمانيةُ
   // لمسؤول النظام غيرُ موجودةٍ فيها أصلاً — لا مخفيّةً بشرط.
   if (store.canManageDepartmentUsers) keys.add(NavKey.departmentUsers);
+  // ــ ودليلُ الإجراءات يُفتح بمنحٍ لا بحكم دور ــ
+  //
+  // ومغلقٌ يوم النشر حتى يمنحه مسؤولُ النظام لدورٍ أو لفرد. ومن مُنح
+  // التحريرَ وحدَه يراه كذلك — `canViewProcedures` تقول `vpc || epc`،
+  // وهو نصُّ قاعدة `procedures` نفسُه.
+  if (store.canViewProcedures) keys.add(NavKey.procedures);
   if (store.canManageUsers) {
     keys
       ..add(NavKey.users)

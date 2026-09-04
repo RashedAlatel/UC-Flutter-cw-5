@@ -23,37 +23,60 @@
 set -eu
 cd "$(dirname "$0")/../.."
 
-MODEL="lib/models/project.dart"
+# ــ والنماذجُ التي تحرسها هذه القاعدة ــ
+#
+# ويُضاف إليها كلُّ نموذجٍ جديدٍ يقرأ تواريخَ أو أرقاماً من مستند. ودليلُ
+# الإجراءات منها منذ يومه الأوّل — لا بعد أن يقع فيه ما وقع في المشاريع.
+MODELS="lib/models/project.dart lib/models/procedure.dart"
+SHARED="lib/models/safe_read.dart"
 
-[ -f "$MODEL" ] || { printf '⛔ لم يُعثر على %s\n' "$MODEL" >&2; exit 1; }
+for f in $MODELS "$SHARED"; do
+  [ -f "$f" ] || { printf '⛔ لم يُعثر على %s\n' "$f" >&2; exit 1; }
+done
 
-# الأسطرُ التعليقية تُستثنى: هذا الملفّ يشرح العطل بنصّه، ويذكر الإسنادَ
+# الأسطرُ التعليقية تُستثنى: هذه الملفّات تشرح العطل بنصّها، وتذكر الإسنادَ
 # الذي أوقعه. وحارسٌ يسقط على شرحِ نفسه حارسٌ لا يُبقي شرحاً.
-offenders=$(
-  grep -n 'as Timestamp?\|as num?' "$MODEL" \
-    | grep -v '^[0-9][0-9]*:[[:space:]]*//' \
-    || true
-)
+for MODEL in $MODELS; do
+  offenders=$(
+    grep -n 'as Timestamp?\|as num?' "$MODEL" \
+      | grep -v '^[0-9][0-9]*:[[:space:]]*//' \
+      || true
+  )
 
-if [ -n "${offenders}" ]; then
-  printf '⛔ إسنادُ نوعٍ مباشر في %s:\n' "$MODEL" >&2
-  printf '%s\n' "${offenders}" >&2
-  printf '%s\n' \
-    "" \
-    "   التواريخُ تُقرأ بـ_date والأرقامُ بـ_num — فنوعٌ مفاجئ في مستندٍ" \
-    "   واحد لا يُسقط المشاريع كلَّها. راجع التعليق فوق _date في النموذج." >&2
-  exit 1
-fi
+  if [ -n "${offenders}" ]; then
+    printf '⛔ إسنادُ نوعٍ مباشر في %s:\n' "$MODEL" >&2
+    printf '%s\n' "${offenders}" >&2
+    printf '%s\n' \
+      "" \
+      "   التواريخُ تُقرأ بـreadDate والأرقامُ بـreadNum — فنوعٌ مفاجئ في" \
+      "   مستندٍ واحد لا يُسقط السجلَّ كلَّه. راجع التعليق في ${SHARED}." >&2
+    exit 1
+  fi
+done
 
-# ــ والقارئان موجودان فعلاً ــ
+# ــ والقارئان موجودان فعلاً، وفي موضعٍ واحد ــ
 #
 # ولولا هذا لَمرّ الحارسُ على ملفٍّ حُذف منه القارئان وأُعيدت فيه الأسنادُ
-# بصيغةٍ أخرى.
-for reader in '_date(Object? raw)' '_num(Object? raw)'; do
-  grep -q "${reader}" "$MODEL" || {
-    printf '⛔ القارئ %s غير موجود في %s\n' "${reader}" "$MODEL" >&2
+# بصيغةٍ أخرى. وهما في `safe_read.dart` بعد أن جاء نموذجٌ ثانٍ يحتاجهما:
+# نسختان تنحرف إحداهما يوماً عن الأخرى، فيعود العطلُ من بابٍ لم يُصلَح.
+for reader in 'DateTime? readDate(Object? raw)' 'num? readNum(Object? raw)'; do
+  grep -q "${reader}" "$SHARED" || {
+    printf '⛔ القارئ %s غير موجود في %s\n' "${reader}" "$SHARED" >&2
     exit 1
   }
 done
 
-printf '✔ حارسُ قراءة النموذج: كلُّ تاريخٍ ورقمٍ في المشروع يمرّ بقارئٍ لا يرمي.\n'
+# وكلُّ نموذجٍ محروسٍ يستعملهما فعلاً — فلا يمرّ ملفٌّ لا يقرأ تاريخاً
+# ولا رقماً ويُحسب محروساً وهو خارج الحراسة.
+for MODEL in $MODELS; do
+  grep -q 'readDate(' "$MODEL" || {
+    printf '⛔ %s لا يستعمل readDate — أهو محروسٌ فعلاً؟\n' "$MODEL" >&2
+    exit 1
+  }
+  grep -q 'readNum(' "$MODEL" || {
+    printf '⛔ %s لا يستعمل readNum — أهو محروسٌ فعلاً؟\n' "$MODEL" >&2
+    exit 1
+  }
+done
+
+printf '✔ حارسُ قراءة النموذج: كلُّ تاريخٍ ورقمٍ في المشروع والإجراء يمرّ بقارئٍ لا يرمي.\n'

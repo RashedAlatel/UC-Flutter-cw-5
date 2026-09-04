@@ -1,0 +1,931 @@
+rules_version = '2';
+
+// قواعد أمان قاعدة البيانات للمنصة التنفيذية الحكومية.
+// المصدر الوحيد للحقيقة بخصوص الصلاحيات هو Custom Claims على حساب Firebase Auth
+// (role, departmentId, approved) والتي لا تُضبط إلا عبر Cloud Functions بصلاحيات المسؤول،
+// بحيث لا يستطيع أي مستخدم من جهة العميل ترقية صلاحياته بنفسه.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isApproved() { return isSignedIn() && request.auth.token.approved == true; }
+    function role() { return request.auth.token.role; }
+    function isAdmin() { return isApproved() && role() == 'systemAdmin'; }
+    function isExecutive() { return isApproved() && role() == 'executiveViewer'; }
+    // صلاحيات الأدوار: مجموعة أعلام مضغوطة مضمّنة داخل Custom Claims وقت تعيين
+    // الدور أو تحديث صلاحياته (راجع setUserRole و refreshRolePermissions في
+    // Cloud Functions)، وليست بالإمكان منحها ذاتياً من جهة العميل بأي حال.
+    //
+    // تسري على كل الأدوار (الأساسية والمخصصة) لا على "custom" وحده، لأن مسؤول
+    // النظام صار يضبط صلاحيات الأدوار الأساسية من شاشة "صلاحيات الأدوار".
+    // مسؤول النظام لا يمر من هنا إطلاقاً — يملك كل شيء عبر isAdmin().
+    //
+    // لا تشمل هذه الأعلام أبداً بوابات الموافقة الثلاث (تسجيل عضو / إضافة
+    // مشروع / تعديل موعد نهائي)؛ تلك تبقى محصورة بـ isAdmin() وحده.
+    function perm(key) {
+      return isApproved()
+             && request.auth.token.perms != null
+             && request.auth.token.perms[key] == true;
+    }
+    function canViewAll() { return isAdmin() || isExecutive() || perm('vad'); }
+
+    // ــــ الصلاحيات المقيَّدة بنطاق ــــ
+    //
+    // `mpr` (إنشاء المشاريع والأعمال وإسناد المستخدمين) و`apr` (اعتماد طلبات
+    // إضافة المشاريع) لا تُمنحان لدور ولا يرثهما أحد: تُختمان على بطاقة فرد
+    // بعينه ومعهما نطاق الإدارات التي تسريان فيه.
+    //
+    // و`apr` تفتح بوابةً كانت محصورة بمسؤول النظام (اعتماد إضافة المشاريع)
+    // بقرار صريح منه. أما **تسجيل الأعضاء** و**تعديل المواعيد النهائية**
+    // فتبقيان محصورتين به وحده ولا مفتاح لهما هنا.
+    //
+    // ونطاق غائب ليس «الكل»: علَمٌ بلا نطاق لا يمنح شيئاً — وهذا هو الفرق
+    // الذي لو انعكس لصار كل منحٍ منقوصٍ منحاً شاملاً.
+    // `get` بقيمة افتراضية لا الوصول المباشر: البطاقة قد لا تحمل `scopes`
+    // إطلاقاً (كل البطاقات المختومة قبل هذه الميزة كذلك)، والوصول المباشر
+    // إلى مفتاح غائب **يُخطئ** فيُرفض الطلب. والرفض هنا صحيح بالمصادفة لا
+    // بالقصد: حراسةٌ قائمة على خطأٍ ضمني لا يمكن اختبارها ولا الوثوق ببقائها.
+    function scopeOf(key) {
+      return request.auth.token.get('scopes', {}).get(key, null);
+    }
+    function inScope(key, deptId) {
+      return perm(key)
+             && deptId != null
+             && scopeOf(key) != null
+             && (scopeOf(key) == '*' || deptId in scopeOf(key));
+    }
+    function myDept() { return request.auth.token.departmentId; }
+    function isMyDept(deptId) { return isApproved() && deptId != null && myDept() == deptId; }
+    function isDeptManager() { return isApproved() && role() == 'departmentManager'; }
+    // مدير الإدارة قد يدير أكثر من إدارة واحدة (departmentIds بالـ Custom Claims).
+    function myDepts() { return request.auth.token.departmentIds; }
+    function isMyDeptOfManager(deptId) {
+      return isApproved() && deptId != null && myDepts() != null && deptId in myDepts();
+    }
+    function isMyDeptAny(deptId) { return isMyDept(deptId) || isMyDeptOfManager(deptId); }
+    // ــــ قيادةُ المشروع صفةٌ على المشروع لا دورٌ على الشخص ــــ
+    //
+    // كانت هذه الدالّة تشترط `role() == 'projectOfficer'`، فكان **الدور
+    // الأساسي** هو الذي يفتح مشروعاً لا العضويةُ فيه. ونتج عن ذلك خطآن
+    // متقابلان: موظفٌ يقود مشروعاً فعلاً لا يستطيع فتح مهامه، وصاحبُ الدور
+    // يحمل صفة «مدير مشروع» في كل مشاريع المنصة لمجرّد أنه قاد واحداً.
+    //
+    // فصار المعيار المطابقة على المشروع نفسه: من كُتب معرّفه مديراً عليه —
+    // أيّاً كان دوره في الهيكل التنظيمي — يملك ما يملكه مديرُ مشروع، **داخل
+    // هذا المشروع وحده**. وخارجه يعود إلى دوره الأساسي.
+    function isMyProject(managerUid) {
+      return isApproved() && managerUid != null && managerUid == request.auth.uid;
+    }
+    // عضوية المشروع صارت قائمتين (تعدّد المديرين بقرار من مسؤول النظام).
+    // الحقل المفرد managerUid يبقى مكتوباً للتوافق، لكن الفحص يعتمد القائمة.
+    function managersOf(data) { return data.get('managerUids', []); }
+    function executorsOf(data) { return data.get('executorUids', []); }
+    function isProjectMember(data) {
+      return isApproved() &&
+             (request.auth.uid in managersOf(data) || request.auth.uid in executorsOf(data));
+    }
+    // صلاحية القراءة/الكتابة على مستند مرتبط بمشروع (تقدّم عبر departmentId و managerUid المنسوخين عليه).
+    // ــــ البطاقةُ تُقرأ قراءةً واحدة في المنصة كلِّها ــــ
+    //
+    // الإدارةُ على البطاقة في موضعين: `departmentId` مفرداً (الأقدم، ويحمله
+    // كلُّ حساب) و`departmentIds` قائمةً (أُضيفت حين صار المدير قد يدير أكثر
+    // من إدارة). وكانت هذه الدالّة تقرأ **القائمة وحدها**، بينما قاعدةُ
+    // الأعمال تقرأ الاثنين (`isMyDeptAny`)، والعميلُ يقرأ الاثنين كذلك
+    // (`myDepartmentIds` تعود إلى المفرد عند فراغ القائمة).
+    //
+    // فمديرُ إدارةٍ بطاقتُه تحمل المفرد وقائمتُه فارغة — وهو حالُ كل حسابٍ
+    // رُقّي قبل إضافة القائمة — كان يرى قلمَ التعديل، ويعدّل أعمال إدارته،
+    // **ويُردّ عليه تعديل مشروعها**. وقِيس ذلك على المحاكي قبل الإصلاح.
+    //
+    // والتوسيع محمولٌ كلُّه على `isDeptManager()`: لا يمرّ منه موظفٌ في
+    // الإدارة ولا مستخدمٌ تنفيذي — وهو مُقاسٌ في
+    // `test_rules/dept_claim.rules.test.mjs`.
+    function canEditDept(deptId) { return isAdmin() || (isDeptManager() && isMyDeptAny(deptId)); }
+    function canAccessProjectDoc(deptId, managerUid) { return canEditDept(deptId) || isMyProject(managerUid); }
+    // ونظيرُها للمستندات التي تحمل قائمتَي العضوية كاملتين (مستندُ المشروع
+    // نفسه، والمهام): بها يعمل **المدير الثاني** فصاعداً، إذ الحقل المفرد
+    // `managerUid` أوّلُ الأسماء وحده.
+    function canAccessProjectDocOrMember(data) {
+      return canEditDept(deptOf(data))
+          || isMyProject(managerOf(data))
+          || request.auth.uid in managersOf(data);
+    }
+    // صلاحية «الانضمام لمشاريع الإدارة» صارت تحكم **التسجيل** وحده — راجع
+    // isSelfMembershipChange. أما الاطّلاع على مشاريع الإدارة فحقٌّ أساسي لكل
+    // موظف فيها عبر isMyDeptAny في شرط القراءة أدناه، لا صلاحية تُمنح.
+    //
+    // وسبب ذلك عطلٌ وقع فعلاً: الاطّلاع كان معلَّقاً على بصمة في بطاقة الدخول،
+    // وبطاقةُ من مُنح الصلاحية قد لا تُختم فوراً، فيرى الموظف منصة خالية بلا
+    // سبب مفهوم. والقراءة داخل الإدارة لا تحتاج هذا التعليق أصلاً.
+    function canBrowseDeptProjects(deptId) { return perm('sap') && isMyDeptAny(deptId); }
+
+    // ــــ الحذف المنطقي: ثلاث ثوابت ــــ
+    //
+    // السجل لا يُمحى بل يُعلَّم محذوفاً، فيختفي من كل قائمة ويبقى قابلاً
+    // للاستعادة. وحذفُه قبل ذلك كان **نهائياً متسلسلاً** يمحو المهام
+    // والتحديثات والمخاطر والعوائق معه بلا رجعة.
+    function deletedAtOf(data) { return data.get('deletedAt', null); }
+    function wasDeleted() { return deletedAtOf(resource.data) != null; }
+    function isDeleted() { return deletedAtOf(request.resource.data) != null; }
+
+    // (١) مَن يحذف: مسؤول النظام، ومدير الإدارة صاحبتِها، وحاملُ `del`
+    //     **داخل إداراته وحدها**. وكانت `del` بلا نطاق إطلاقاً: حاملُها
+    //     يمحو أعمال أي إدارة في الوزارة محواً لا رجعة فيه.
+    function mayDeleteIn(deptId) {
+      return isAdmin()
+          || (isDeptManager() && isMyDeptOfManager(deptId))
+          || (perm('del') && isMyDeptAny(deptId));
+    }
+
+    // (٢) الحذف يقع، والاستعادة لمسؤول النظام وحده. فمن حذف لا يُعيد ما
+    //     حذف بنفسه ولا يمحو أثر قراره.
+    function isSoftDeleting(deptId) {
+      return !wasDeleted() && isDeleted() && convertedLinkUnchanged() && mayDeleteIn(deptId)
+             && request.resource.data.get('deletedBy', null) == request.auth.uid;
+    }
+    // ــ والمحوَّل ليس كالمحذوف ــ
+    //
+    // السجل الذي أُرشِف لأنه **حُوّل** له نسخةٌ حيّة تحمل بياناته. فاستعادته
+    // كما هي تُنتج الشيءَ الواحد مرّتين في كل قائمة وتقرير — ولا يظهر في
+    // الشاشة ما يقول إن أحدهما صورةٌ عن الآخر.
+    //
+    // فالاستعادة ممنوعةٌ ما دام الارتباط قائماً، ولمسؤول النظام أن يفكّه
+    // أولاً في كتابةٍ مستقلّة تبقى محذوفةً بعدها. خطوتان بقصد: من أراد
+    // نسختين فليقُل ذلك مرّتين.
+    function wasConvertedDoc() { return resource.data.get('convertedToId', null) != null; }
+    // ــ ولا يُوسَم سجلٌّ «محوَّلاً» من باب الحذف ــ
+    //
+    // كشف اختبارٌ عند أول تشغيل أن مديرَ الإدارة يستطيع أن يحذف سجلاً
+    // **ويَسِمه محوَّلاً** في الكتابة نفسها — فيمتنع على مسؤول النظام
+    // استعادتُه، ويُعرض في «المحذوفات» بتحويلٍ لم يقع.
+    //
+    // ومقارنةُ الحقل نفسه لا `diff().affectedKeys()`: لغةُ القواعد لها سقفُ
+    // تعبيراتٍ لكل طلب، وقاعدةُ الأعمال بلغته فعلاً حين جُرّبت بـ`diff`
+    // ثالثة — فصار سطرٌ يُسجَّل عند كل كتابة. والمقارنة تكفي: `convertedToId`
+    // وحده هو ما تقرؤه `wasConvertedDoc`، فهو وحده ما يمنع الاستعادة.
+    function convertedLinkUnchanged() {
+      return request.resource.data.get('convertedToId', null)
+          == resource.data.get('convertedToId', null);
+    }
+    function isRestoring() {
+      return wasDeleted() && !isDeleted() && convertedLinkUnchanged()
+             && isAdmin() && !wasConvertedDoc();
+    }
+    // ويبقى محذوفاً بعدها بلا شرطٍ صريح: `hasOnly` تمنع أن تتغيّر معها
+    // حقولُ الحذف أصلاً. وكان الشرط مكتوباً فحُذف بعد أن أثبتت طفرةٌ أنه لا
+    // يغيّر جواباً — وشرطٌ لا يُقاس يُقرأ حمايةً وليس بحماية.
+    function isDetachingConversion() {
+      return isAdmin() && wasDeleted()
+             && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['convertedToType', 'convertedToId'])
+             && request.resource.data.get('convertedToId', null) == null;
+    }
+
+    // (٣) والمحذوف مجمَّد: لا يُعدَّل عليه شيء ما دام محذوفاً — إلا
+    //     استعادةً. وإلا صار الحذف باباً لتعديلٍ لا يراه أحد، إذ لا تُعرض
+    //     المستندات المحذوفة في شيء.
+    // و`isRestoring()` كانت هنا فرعاً ثالثاً، وهي **زائدة**: الاستعادة
+    // مشروطةٌ بـ`isAdmin()` أصلاً، فالفرع الثاني يبتلع الأول. وحذفُها ليس
+    // تجميلاً: لغةُ القواعد لها سقفُ تعبيراتٍ لكل طلب، وشجرةُ `isRestoring`
+    // كانت تُقيَّم في كل كتابةٍ على كل عملٍ ومشروع بلا أن تُغيّر جواباً.
+    function frozenWhileDeleted() { return !wasDeleted() || isAdmin(); }
+
+    // ــ ولا يُعلَّم الحذف من باب التعديل العادي ــ
+    //
+    // وهذا ما كشفه اختبارٌ عند أول تشغيل: مسارُ «المُسنَد إليه يحرّك تقدّم
+    // عمله» لا يمسّ الإدارة ولا المنشئ ولا الإسناد، فكتابةُ `deletedAt`
+    // خلاله كانت **تمرّ** — فيحذف الموظفُ العملَ المُسنَد إليه بنفسه.
+    //
+    // فحقولُ الحذف لا تُمسّ إلا من فرعَي الحذف والاستعادة أعلاه، وهما
+    // وحدهما يفحصان من يملك ذلك.
+    // وحقولُ التحويل معها: التحويل عمليةٌ من خطوتين — إنشاءُ النظير
+    // وأرشفةُ الأصل — تقع كلُّها في دالّة `convertRecord` على الخادم. فلو
+    // كتبها العميل لَادّعى سجلٌّ حيٌّ أنه محوَّلٌ عن آخر لا وجود له.
+    // والاستثناء الوحيد فكُّ الارتباط أعلاه، وهو لمسؤول النظام وحده.
+    //
+    // والسبعة في `diff` واحد لا اثنين بقصد: لغةُ القواعد لها سقفُ تعبيراتٍ
+    // لكل طلب، وقاعدةُ الأعمال بلغته فعلاً حين قُسِّمت — فرُدّت كتاباتٌ
+    // مشروعة بسبب الكلفة لا بسبب الصلاحية.
+    function deletionUntouched() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['deletedAt', 'deletedBy', 'deletedReason',
+                         'convertedFromType', 'convertedFromId',
+                         'convertedToType', 'convertedToId']);
+    }
+
+    // ــــ تسجيل الموظف نفسه على مشروع ــــ
+    //
+    // الفرق بين القائمة قبل التحديث وبعده يجب ألا يحوي إلا **معرّف المتصل**،
+    // في الاتجاهين معاً: فلا يضيف أحدٌ غيره، ولا يُزيح زميله عن مشروعه. وهذا
+    // مفروض على الخادم لا في الواجهة، لأن الواجهة يمكن تجاوزها.
+    function selfOnlyDelta(before, after) {
+      return after.toSet().difference(before.toSet()).hasOnly([request.auth.uid])
+          && before.toSet().difference(after.toSet()).hasOnly([request.auth.uid]);
+    }
+    function onlyMembershipKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['managerUids', 'executorUids', 'managerUid']);
+    }
+    // الحقل المفرد الموروث ضمن المفاتيح المسموح تعديلها لأن العميل يكتبه مع
+    // القائمة. وتركه بلا قيد ثغرة: يستطيع الموظف عندها ضبطه على **أي أحد**
+    // فيُسنِد المشروع لمن ليس عضواً فيه. فيُشترط أن يكون null أو عضواً.
+    function legacyManagerConsistent() {
+      return request.resource.data.get('managerUid', null) == null
+          || request.resource.data.get('managerUid', null) in managersOf(request.resource.data);
+    }
+    // ــــ ولا يُسجّل أحدٌ نفسه **مديراً** ــــ
+    //
+    // كان `selfOnlyDelta` يسمح للموظف بإضافة نفسه إلى **أيّ** من القائمتين،
+    // فيصير مديراً لمشروع بضغطةٍ منه وحده. وقيادة المشروع تُعطى ولا تُؤخذ:
+    // من يقودُه يرى تفاصيله كاملة ويُسنِد مهامه ويعتمد ما يُنجَز فيه.
+    //
+    // فصارت قائمة المديرين **لا تتغيّر إطلاقاً** في تسجيل المرء نفسه، ويبقى
+    // التسجيل منفّذاً مباشراً كما كان — وهو إعلانُ مشاركةٍ في التنفيذ لا
+    // تولّي مسؤولية. والتعيين مديراً يمرّ بطلبٍ يعتمده مدير إدارة المشروع أو
+    // مسؤول النظام (`ApprovalType.projectManagerAppointment`).
+    function managersUnchanged() {
+      return managersOf(request.resource.data).toSet() == managersOf(resource.data).toSet();
+    }
+    function isSelfMembershipChange() {
+      return isApproved()
+          && perm('sap')
+          && isMyDeptAny(deptOf(resource.data))
+          && onlyMembershipKeys()
+          && legacyManagerConsistent()
+          && managersUnchanged()
+          && selfOnlyDelta(executorsOf(resource.data), executorsOf(request.resource.data));
+    }
+    // عند إنشاء مستند تابع لمشروع (مهمة/تحديث يومي/خطر/عائق)، نتحقق أن الحقول
+    // المنسوخة (departmentId، managerUid) تطابق فعلاً مستند المشروع الحقيقي،
+    // حتى لا يستطيع عميل خبيث انتحال managerUid لا يملكه للوصول لمشروع غيره.
+    function realProject(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)).data;
+    }
+    // عضوية المشروع **الحقيقي** لا الحقل المنسوخ على المستند الجديد.
+    //
+    // كتابة التحديثات والمهام والمخاطر والعوائق كانت تُفحص بـ managerUid
+    // المنسوخ، وهو أوّل اسم في قائمة المديرين وحده. فمنذ تعدّد المديرين صار
+    // المدير الثاني — والمنفّذ المُسنَد — ممنوعَين من كتابة تحديث يومي على
+    // مشروعهم. والقراءة كانت تعرف العضوية أصلاً؛ الكتابة وحدها تخلّفت.
+    function isMemberOfRealProject(projectId) {
+      return isApproved() && isProjectMember(realProject(projectId));
+    }
+    // ــــ إعادةُ جدولة المهامّ: صلاحيةٌ مستقلّة بحدٍّ مفروض ــــ
+    //
+    // `mtd` **ليست بوابة المواعيد النهائية**: تلك موعدُ **المشروع**،
+    // محصورةٌ بمسؤول النظام ولا يفتحها مفتاحٌ مفوَّض أبداً. وهذه موعدُ
+    // مهمةٍ داخل مشروعٍ قائم، ولا تتجاوز موعدَه — فمن نالها لا يمدّ التزامَ
+    // الوزارة يوماً واحداً.
+    //
+    // ومقيَّدةٌ بإدارته: لا معنى لأن يجدول موظفٌ مهامَّ إدارةٍ لا يعمل فيها.
+    function canRescheduleTasks(deptId) {
+      return perm('mtd') && isMyDeptAny(deptId);
+    }
+    // ــ والحدُّ يُقرأ من المشروع نفسِه لا من الحمولة ــ
+    //
+    // نظيرُه في العميل `taskDueDateRejection`، والحَكَمُ هنا: من التفّ على
+    // الشاشة وكتب مباشرةً يُردّ. و`get` لا يقع إلا حين يُمسّ `dueDate`
+    // فعلاً — راجع موضع النداء.
+    function taskDueWithinProject(projectId) {
+      return request.resource.data.dueDate <= realProject(projectId).dueDate;
+    }
+    function matchesRealProject(projectId, deptId, managerUid) {
+      let p = realProject(projectId);
+      return deptOf(p) == deptId && managerOf(p) == managerUid;
+    }
+    // ونظيرُها للأعمال: الحقول المنسوخة على التحديث يجب أن تطابق **العمل
+    // الحقيقي**. بغيرها يكتب الموظف مستنداً يزعم فيه أنه المُسنَد إليه عملاً
+    // ليس له، فيقرأه بعدها بقاعدة القراءة — وهو التفافٌ كاملٌ على النطاق.
+    function realWork(workId) {
+      return get(/databases/$(database)/documents/works/$(workId)).data;
+    }
+    function matchesRealWork(workId, deptId, assigneeUid) {
+      let w = realWork(workId);
+      return deptOf(w) == deptId && w.get('assigneeUid', '') == assigneeUid;
+    }
+    // ــــ رتبة الإسناد: من يحقّ له أن يُسنِد إلى مَن ــــ
+    //
+    // نظير `lib/models/assignment_policy.dart` حرفاً. وكان الإسناد بلا حارس
+    // على الخادم إطلاقاً: الواجهة تصفّي القائمة، ومن فتح أدوات المتصفح كتب
+    // ما شاء — فيُسنِد الموظف عملاً إلى المسؤول التنفيذي.
+    //
+    // والدور المخصّص يقع في `else` مع «موظف»؟ لا — يُذكر صراحةً برتبة 2
+    // كما في Dart. والافتراضي 1 لمستندٍ بلا حقل دور، وهو أضيق الاحتمالات.
+    function roleRank(r) {
+      return r == 'systemAdmin' ? 5
+           : r == 'executiveViewer' ? 4
+           : r == 'departmentManager' ? 3
+           : r == 'projectOfficer' ? 2
+           : r == 'custom' ? 2
+           : 1;
+    }
+    // رتبة صاحب هذا المعرّف — قراءة مستندٍ واحد.
+    function rankOfUser(uid) {
+      return roleRank(get(/databases/$(database)/documents/users/$(uid)).data.get('role', 'employee'));
+    }
+    // هل يحقّ للمتصل إسناد شيء إلى [uid]؟
+    //
+    // والمعرّف الفارغ مسموح: عملٌ بلا مسؤول حالةٌ مشروعة، ومنعُها يكسر كل
+    // إنشاءٍ يؤجّل الإسناد. والمتصل نفسه مسموح بلا قراءة — رتبته رتبته.
+    function mayAssign(uid) {
+      return uid == null || uid == '' || uid == request.auth.uid || isAdmin()
+          || rankOfUser(uid) <= roleRank(role());
+    }
+    // ولا تُقرأ رتبةُ أحد إلا حين **يتغيّر** المُسنَد إليه: كتابة تقدُّمٍ
+    // يومي لا تُسنِد شيئاً، فتحميلها قراءةً زائدة ثمنٌ بلا مقابل.
+    function assigneeUnchanged() {
+      return request.resource.data.get('assigneeUid', '') == resource.data.get('assigneeUid', '');
+    }
+
+    // ــــ ردُّ المُسنَد إليه لعدم الاختصاص ــــ
+    //
+    // الموظف يُرفَع اسمُه عن البند بنفسه، ويبقى البند في إدارته مفتوحاً
+    // فيُسنده مديرها لمن يختصّ. وهذا استثناءٌ **ضيّق** من قاعدةٍ عامة تمنع
+    // المُسنَد إليه أن يمسّ الإسناد:
+    //
+    //   • يُفرَّغ الحقل ولا يُملأ بغيره — فلا يُحوِّل أحدٌ بندَه إلى زميله،
+    //   • وباسمه هو مختوماً في سجلّ الردّ — فلا يُفرَّغ إسنادُ غيره،
+    //   • والسببُ يُكتب معه، وهو ما يمنع أن يُعاد إسناده إليه من جديد.
+    function isSelfDecline() {
+      return request.resource.data.get('assigneeUid', '') == ''
+          && request.resource.data.get('closure', {}).get('declinedByUid', '')
+             == request.auth.uid;
+    }
+
+    // ــــ دورة الإغلاق على مرحلتين ــــ
+    //
+    // كان الطرف المنفِّذ يكتب `done` بنفسه، فيُقفل المطلوب بلا أن يعلم من
+    // طلبه. وصار الإغلاق قراراً لطالب العمل وحده: المنفّذ يُفيد بالإتمام
+    // (`awaitingApproval`)، والطالب يعتمد فيُغلق.
+    //
+    // ولا تحتاج هذه القاعدة قراءة مستندٍ آخر: المعتمِد مكتوبٌ على المستند
+    // نفسه. وبندٌ بلا معتمِد (وهو حال كل ما كُتب قبل اليوم) يُغلق مباشرةً
+    // كما كان — فلا تتعطّل بيانات الوزارة القائمة.
+    function approverOf(data) { return data.get('closure', {}).get('approverUid', ''); }
+    function closureRespected() {
+      return approverOf(resource.data) == ''
+          || request.resource.data.status != 'done'
+          || isAdmin()
+          || approverOf(resource.data) == request.auth.uid;
+    }
+
+    // وصول آمن للحقلين على مستندات قد تكون قديمة (سابقة لإضافة managerUid)
+    // وتفتقد الحقل أصلاً؛ الوصول المباشر بالنقطة يفشل في هذه الحالة.
+    function deptOf(data) { return data.get('departmentId', null); }
+    function managerOf(data) { return data.get('managerUid', null); }
+
+    // ------------------------- المستخدمون -------------------------
+    match /users/{uid} {
+      allow get: if isSignedIn() && (request.auth.uid == uid || isApproved());
+      allow list: if isApproved();
+      // التسجيل الذاتي: يُنشئ المستخدم سجله الخاص فقط بحالة "بانتظار الموافقة" ودور أساسي،
+      // لا يمكنه منح نفسه دوراً أعلى أو حالة معتمدة مباشرة.
+      //
+      // والحقلان الأخيران لا يقلّان خطراً عن الدور، وكلاهما يُقرأ على الخادم:
+      // `emailVerificationExempt` يتخطّى شرط البريد الوزاري عند الاعتماد،
+      // و`permissionOverrides` تُدمج في بطاقة الدخول عند ختمها. فمن كتبهما
+      // على سجله لحظة التسجيل منح نفسه ما لم يمنحه أحد. يبقيان لمسؤول
+      // النظام وحده عبر `allow update` أدناه.
+      allow create: if isSignedIn()
+                    && request.auth.uid == uid
+                    && request.resource.data.status == 'pending'
+                    // الدور المكتوب لحظة التسجيل **حاجزٌ لا منحة**: الحساب
+                    // `pending` فلا يملك شيئاً، والدورُ المطلوب يمرّ في طلب
+                    // الاعتماد ويُختم بقرار مسؤول النظام. وكان الحاجز
+                    // `projectOfficer`، وقد سقط ذلك الدور من الأدوار
+                    // المُتاحة — فصار الحاجز أدناها.
+                    && request.resource.data.role == 'employee'
+                    && request.resource.data.get('emailVerificationExempt', false) == false
+                    && request.resource.data.get('permissionOverrides', {}).keys().size() == 0;
+      // أي تغيير على الدور/الحالة/الإدارة لا يتم إلا عبر مسؤول النظام (عادة عبر Cloud Function).
+      allow update: if isAdmin();
+      // ــــ الحذف لا يقع من العميل، ولو كان الضاغط مسؤول النظام ــــ
+      //
+      // لأن حذف السجل من قاعدة البيانات **لا يحذف حساب المصادقة**. فمن
+      // حُذف من هنا يبقى قادراً على تسجيل الدخول، فيُنشئ سجلّاً جديداً
+      // «بانتظار الموافقة» ثم يعود. وكانت هذه القاعدة `isAdmin()`، أي أن
+      // ذلك يقع فعلاً بضغطةٍ من الشاشة.
+      //
+      // فالحذف يمرّ بـ`deleteUserAccount` وحدها: تحذف الاثنين معاً، وترفض
+      // ما دامت على الحساب مسؤوليات مفتوحة، وتكتب في سجل التدقيق.
+      allow delete: if false;
+    }
+
+    // ــ أثرٌ خفيفٌ يتركه الحذف النهائي، لمطابقةٍ لاحقة عند تسجيلٍ جديد ــ
+    //
+    // يكتبه `deleteUserAccount` قبل محو `users/{uid}` — اسمٌ وبريدٌ وتاريخ
+    // حذف، لا شيء غير ذلك — ليقرأه `pickMergeCandidate` حين يُسجَّل الشخص
+    // نفسه من جديد بالبريد نفسه، فتُنقل أعماله القديمة إلى حسابه الجديد.
+    //
+    // ولا وظيفة له خارج ذلك، ولا يقرؤه عميلٌ قط: الدالّة الخلفية وحدها
+    // تكتبه وتقرؤه بحساب المدير (Admin SDK يتجاوز هذه القاعدة أصلاً)، فلا
+    // حاجة لفتح شيء هنا لأي طرفٍ — مسؤول النظام نفسه لا يقرؤه من العميل.
+    match /deletedAccounts/{uid} {
+      allow read, write: if false;
+    }
+
+    // ------------------------- الإدارات -------------------------
+    // قراءة عامة (حتى قبل تسجيل الدخول) لأن أسماء الإدارات تُعرض في نموذج إنشاء الحساب
+    // لاختيار الإدارة المطلوبة؛ لا تحتوي على أي بيانات حساسة.
+    match /departments/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ------------------- أقسام الإدارات وأقسامها الفرعية -------------------
+    // تنظيم داخلي للإدارة (إدارة ← قسم ← قسم فرعي) يُسنَد إليه المشروع عبر
+    // sectionId. أسماء أقسام مجرّدة لا تحمل بيانات مشاريع، فتُقرأ كما تُقرأ
+    // الإدارات نفسها. الكتابة لمسؤول النظام أو مدير الإدارة صاحبة القسم —
+    // ولا علاقة لهذا ببوابات الاعتماد الثلاث.
+    match /sections/{id} {
+      allow read: if true;
+      allow create: if isAdmin() || isMyDeptAny(deptOf(request.resource.data));
+      // نقل قسم بين الإدارات لمسؤول النظام وحده: هو قرار هيكلي يغيّر من يرى
+      // مشاريع القسم ومن يعدّلها. مدير الإدارة يعدّل أقسامه داخل إدارته فقط،
+      // ولا يستطيع تمرير قسم إلى إدارة لا يملكها.
+      allow update: if isAdmin()
+                    || (isMyDeptAny(deptOf(resource.data))
+                        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['departmentId']));
+      allow delete: if isAdmin() || isMyDeptAny(deptOf(resource.data));
+    }
+
+    // ------------------------- المشاريع -------------------------
+    match /projects/{id} {
+      // القراءة: من يرى كل الإدارات، أو من يملك المشروع إدارةً أو مديراً، أو
+      // عضو فيه، أو **أي موظف معتمد في إدارة المشروع**. والأخير هو ما يجعل
+      // الموظف يرى مشاريع إدارته فور اعتماده بلا صلاحية إضافية.
+      allow read: if isApproved() && (canViewAll()
+                                      || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                                      || isProjectMember(resource.data)
+                                      || isMyDeptAny(deptOf(resource.data)));
+      // مسؤول النظام يُنشئ مباشرةً، ومعه من مُنِح `mpr` **داخل نطاقه**.
+      // ومن لا يملكها يمرّ بطلب اعتماد كما كان — وهذا هو الوضع الافتراضي
+      // لكل المستخدمين، فالمنحة لا يرثها دور ولا تُفتح إلا بقرار فردي.
+      // وصاحب `mpr` يُنشئ بعضويةٍ **ذاتية** لا أكثر، ثم يكتب الفريق عبر
+      // دالّة `setProjectTeam` التي تفحص رتبة كل عضو. والسبب أن لغة القواعد
+      // بلا حلقات: لا سبيل للمرور على `executorUids` عنصراً عنصراً هنا،
+      // فتُرك الفحص لمن يقدر عليه بدل أن يُترك بلا فحص.
+      allow create: if isAdmin()
+                    || (inScope('mpr', deptOf(request.resource.data))
+                        && request.resource.data.get('managerUids', []).toSet().hasOnly([request.auth.uid])
+                        && request.resource.data.get('executorUids', []).toSet().hasOnly([request.auth.uid]));
+      // يمكن لمدير الإدارة أو مدير المشروع المُسنَد إليه تحديث حقول التقدم والحالة
+      // فقط، دون المساس بالموعد النهائي أو نقل المشروع لإدارة أخرى أو تغيير
+      // مديره - أي تغيير في الموعد النهائي يمر عبر طلب موافقة منفصل، وتغيير
+      // مدير المشروع لا يقوم به إلا مسؤول النظام.
+      // ــ وحقولُ التحويل خارج كل مسار إلا فكَّ الارتباط ــ
+      //
+      // وموضعُها هنا لا داخل الفرع العادي: اختبارٌ عند أول تشغيل كشف أن
+      // مسار **الحذف المنطقي** كان يمرّرها، فيستطيع مديرُ الإدارة أن يحذف
+      // سجلاً ويَسِمه «محوَّلاً» في الكتابة نفسها — فيمتنع على مسؤول النظام
+      // استعادتُه، ويُعرض في «المحذوفات» بتحويلٍ لم يقع.
+      allow update: if (isSoftDeleting(deptOf(resource.data)) || isRestoring()
+                        || isDetachingConversion())
+                    || (frozenWhileDeleted() && deletionUntouched()
+                    && (isAdmin()
+                    // ومديرُ المشروع — أيّاً كان دوره الأساسي — يحرّك تقدّمه
+                    // وحالته. و`canAccessProjectDocOrMember` لا
+                    // `canAccessProjectDoc`: الثانية تقرأ الحقل المفرد وحده،
+                    // فيسقط منها المدير الثاني فصاعداً.
+                    // ــــ البياناتُ الأساسية تمرّ بالاعتماد لا تُكتب هنا ــــ
+                    //
+                    // كانت القائمةُ تمنع الموعدَ والإدارةَ والعضوية وحدها،
+                    // فكان مديرُ الإدارة ومديرُ المشروع يكتبان الاسمَ والوصفَ
+                    // والأولويةَ والتصنيفَ وحقولَ العقد **مباشرةً**. وقيس
+                    // ذلك على المحاكي قبل التضييق: مرّت ثلاثٌ وعشرون كتابةً
+                    // كان يجب أن تُردّ (`test_rules/project_edit.rules.test.mjs`).
+                    //
+                    // فصارت تمرّ بمسار الاعتماد، ويُطبّقها الخادمُ بصلاحية
+                    // المدير بعد فحص المرحلة — راجع `projectEdit` في
+                    // `functions/src/index.ts`.
+                    //
+                    // **وقائمةُ منعٍ لا سماح** عمداً: قائمةُ السماح تُردّ كلَّ
+                    // حقلٍ يُضاف مستقبلاً عند أوّل تعديل — وهو الفخُّ الذي
+                    // عضّ الأعمالَ (`ba220b7`) والمهامَّ (`completedAt`).
+                    //
+                    // وما بقي مباشراً بقرارٍ صريح: نسبةُ الإنجاز والحالة
+                    // (التحديثُ اليومي)، و`sectionId` (تنظيمٌ داخلي لا يغيّر
+                    // من يرى المشروع)، و`executorNames` (أسماءٌ نصّية تتبدّل
+                    // في العمل اليومي).
+                    || (canAccessProjectDocOrMember(resource.data)
+                        && !request.resource.data.diff(resource.data).affectedKeys()
+                              .hasAny(['dueDate', 'startDate', 'departmentId', 'createdByUid',
+                                       'managerUid', 'managerUids', 'executorUids',
+                                       'name', 'description', 'priority', 'categoryIds',
+                                       'contractDate', 'contractStartDate',
+                                       'contractEndDate', 'invoiceDueDate',
+                                       'durationDays', 'contractValue',
+                                       'contractorName']))
+                    // وكان هنا فرعٌ يسمح لمدير الإدارة وصاحب `mpr` بكتابة
+                    // العضوية مباشرةً. وسقط: القاعدة لا تستطيع فحص **رتبة**
+                    // من في القائمتين (لا حلقات في لغتها)، فكان الفرع باباً
+                    // يُسنِد منه مدير الإدارة مشروعاً إلى المسؤول التنفيذي.
+                    // وصار الطريق دالّة `setProjectTeam` وحدها.
+                    //
+                    // والموظف يسجّل **نفسه فقط** — راجع selfOnlyDelta.
+                    || isSelfMembershipChange()));
+      // والحذف النهائي لمسؤول النظام وحده — والطريق المعتاد هو المنطقي.
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- مهام المشاريع -------------------------
+    match /tasks/{id} {
+      allow read: if isApproved() && (canViewAll()
+                                      || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                                      || isProjectMember(resource.data)
+                                      || isMyDeptAny(deptOf(resource.data)));
+      allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                        || isMemberOfRealProject(request.resource.data.projectId))
+                    && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
+      // ــ والمُسنَد إليه بحسابه يُحرّك مهمته ــ
+      //
+      // كانت القاعدة لا تعرف المُسنَد إليهم إطلاقاً (المهمة تحمل اسماً نصياً
+      // بلا حساب). فمن أُسنِدت إليه مهمةٌ لا يستطيع أن يضغط «تم الإنجاز»
+      // عليها أصلاً — والدورة الجديدة تقوم على أن يضغطها هو.
+      //
+      // والتوسيع أضيق ما يمكن: حقول الحالة والتقدّم والسجل وحدها، فلا يُعيد
+      // إسناد مهمته ولا ينقلها إلى مشروع آخر.
+      allow update: if (canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                        // ــ وصاحبُ «تعديل مواعيد المهام» في إدارته ــ
+                        //
+                        // والموعدُ وحده: `hasOnly` مغلقة، فلا يُعيد بها
+                        // إسناد مهمةٍ ولا يغيّر حالتَها ولا نسبتَها.
+                        || (canRescheduleTasks(deptOf(resource.data))
+                            && request.resource.data.diff(resource.data).affectedKeys()
+                                 .hasOnly(['dueDate', 'lastUpdated']))
+                        // ــ و`completedAt` معها ــ
+                        //
+                        // القائمةُ مغلقة (`hasOnly`)، فأيُّ حقلٍ جديد يكتبه
+                        // المُسنَد إليه يُردّ ما لم يُذكر فيها. ووقع ذلك
+                        // مرّتين في أسبوعٍ واحد — في تعديل العمل وفي تسمية
+                        // المشروع — فيُذكر هنا **قبل** أن يُكتب في النموذج،
+                        // ويُقاس على المحاكي أنه كان يُردّ ثم صار يمرّ.
+                        //
+                        // وتاريخُ الإنجاز يكتبه من أنجز: هو الوحيد الذي يعرف
+                        // متى وقع الإنجاز، ولا معنى لأن يُنتظر به معتمِد.
+                        || (resource.data.get('assigneeUid', '') == request.auth.uid
+                            && (request.resource.data.diff(resource.data).affectedKeys()
+                                   .hasOnly(['status', 'progressPercent', 'closure',
+                                             'lastUpdated', 'completedAt'])
+                                // وردُّها لعدم الاختصاص يمسّ الإسناد كذلك،
+                                // ولا يُقبل إلا تفريغاً باسم صاحبه.
+                                || (isSelfDecline()
+                                    && request.resource.data.diff(resource.data).affectedKeys()
+                                         .hasOnly(['status', 'assigneeUid', 'assigneeName',
+                                                   'closure', 'lastUpdated', 'completedAt'])))))
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['projectId', 'departmentId', 'managerUid'])
+                    // ــ وموعدُ المهمة لا يتجاوز موعدَ مشروعها — لأحدٍ كائناً من كان ــ
+                    //
+                    // شرطٌ على **كل** فروع الكتابة أعلاه، لا على فرع
+                    // الصلاحية وحده: مديرُ الإدارة ومديرُ المشروع يمرّان من
+                    // الفرع الأول، ولو تُرك لهما لَجاز أن تتجاوز مهمةٌ نهايةَ
+                    // مشروعها — فتتناقض شارةُ المشروع مع مهامّه.
+                    //
+                    // والقراءةُ لا تقع إلا حين يُمسّ الموعد: القواعدُ تُقيّم
+                    // كسِلةً، فالشرطُ الأول يقصر `get` على الكتابات التي
+                    // تحرّك التاريخ وحدها.
+                    && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['dueDate'])
+                        || taskDueWithinProject(resource.data.projectId))
+                    && closureRespected();
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- التحديثات اليومية (سجل غير قابل للتعديل) -------------------------
+    match /dailyUpdates/{id} {
+      allow read: if isApproved() && (canViewAll()
+                                      || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                                      || isProjectMember(resource.data)
+                                      || isMyDeptAny(deptOf(resource.data)));
+      allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                        || isMemberOfRealProject(request.resource.data.projectId))
+                    && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
+      // ــ السجل لا يُعدَّل، ويُحذف بشرط ــ
+      //
+      // `update: if false` باقيةٌ على حالها: التحديث اليومي أثرٌ لا يُنقّح
+      // بأثر رجعي، والتصحيح يكون بحذفٍ مُسجَّل ثم إضافةٍ جديدة. ولو فُتح
+      // التعديل مع الحذف لَصار السجلُّ نصّاً يُعاد كتابته بعد شهر.
+      //
+      // أما الحذف فكان لمسؤول النظام وحده، فلم يكن لمن كتب تحديثاً بالخطأ
+      // سبيلٌ إلى محوه — وهذا ما طُلب فتحه. ويُفتح لطرفين لا أكثر:
+      //
+      //   • **كاتبُه** — يمحو ما كتبه هو، لا ما كتبه غيره.
+      //   • **مالكُ المشروع** عبر `canAccessProjectDocOrMember`: مسؤول
+      //     النظام، ومدير الإدارة صاحبتِه، ومديرو المشروع (القائمة لا
+      //     المفرد، فيعمل المدير الثاني فصاعداً).
+      //
+      // ولا يشمل ذلك **منفّذي** المشروع: العضوية تنفيذاً ليست ملكاً، فلا
+      // يمحو منفّذٌ تحديثَ مديره. ولذلك لم تُستعمل `isProjectMember` هنا.
+      //
+      // وملفات المرفقات تمحوها دالّةُ `deleteDailyUpdate` على الخادم — وهي
+      // طريق الحذف من الواجهة — فقاعدة التخزين تبقى مغلقة أمام العميل.
+      allow update: if false;
+      //
+      // و`!isExecutive()` على فرع الكاتب: المستخدم التنفيذي يرى كل شيء ولا
+      // يغيّر شيئاً — قاعدةٌ قائمة في المنصة. وهو لا يكتب تحديثاً أصلاً،
+      // لكنه قد يكون كتبه **قبل** أن يُنقل إلى هذا الدور، فيبقى اسمُه على
+      // تحديثاتٍ قديمة. ولولا هذا الشرط لَحذفها بعد أن صار ناظراً لا عاملاً
+      // — والعميل ودالّة الخادم يمنعانه، فكان النصّ يفترق عن مرآتيه.
+      allow delete: if canAccessProjectDocOrMember(resource.data)
+                    || (isApproved()
+                        && !isExecutive()
+                        && resource.data.get('authorUid', '') == request.auth.uid);
+    }
+
+    // ------------------------- المخاطر والعوائق -------------------------
+    match /risks/{id} {
+      allow read: if isApproved() && (canViewAll()
+                                      || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                                      || isProjectMember(resource.data)
+                                      || isMyDeptAny(deptOf(resource.data)));
+      allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                        || isMemberOfRealProject(request.resource.data.projectId))
+                    && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
+      allow update: if canAccessProjectDocOrMember(resource.data)
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['projectId', 'departmentId', 'managerUid']);
+      allow delete: if isAdmin();
+    }
+
+    match /blockers/{id} {
+      allow read: if isApproved() && (canViewAll()
+                                      || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
+                                      || isProjectMember(resource.data)
+                                      || isMyDeptAny(deptOf(resource.data)));
+      allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
+                        || isMemberOfRealProject(request.resource.data.projectId))
+                    && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
+      allow update: if canAccessProjectDocOrMember(resource.data)
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['projectId', 'departmentId', 'managerUid']);
+      allow delete: if isAdmin();
+    }
+
+    // ------------------- تثبيتات لوحة كل مستخدم -------------------
+    // ما يختار مسؤول النظام إظهاره في لوحة قيادة مستخدم بعينه. المستخدم يقرأ
+    // مستنده فقط ولا يكتبه — فلا يثبّت أحد لنفسه شيئاً.
+    match /userFocus/{uid} {
+      allow read: if isAdmin() || (isApproved() && request.auth.uid == uid);
+      allow write: if isAdmin();
+    }
+
+    // ------------------- تخطيط لوحة كل مستخدم -------------------
+    // تخصيص المستخدم لترتيب ودجات لوحته. بخلاف userFocus أعلاه، هذا المستند
+    // يكتبه صاحبه بنفسه — فهو تفضيل عرض شخصي لا يرى أحد غيره، ولا يمنح أي
+    // بيانات إضافية: كل ودجت يظل محكوماً بصلاحيات قراءة مصدره.
+    match /userDashboards/{uid} {
+      allow read, write: if isApproved() && request.auth.uid == uid;
+    }
+
+    // ------------------------- الأعمال التشغيلية -------------------------
+    // بنود عمل مستقلة عن المشاريع، مُسنَدة لموظف داخل إدارة.
+    // ــــ تحديثات الأعمال اليومية ــــ
+    //
+    // مجموعةٌ مستقلة عن `dailyUpdates` عمداً: تلك تشترط أن يقابل المستندَ
+    // **مشروعٌ حقيقي** (`matchesRealProject`)، وهو شرطٌ أمني به يُمنع من
+    // يكتب تحديثاً أن ينسبه إلى مشروعٍ ليس عضواً فيه. وتوسيعُه ليقبل مستنداً
+    // بلا مشروع يفتح ثغرةً هناك. والعمل ليس مشروعاً: إدارتُه وإسنادُه وحدهما
+    // يقرّران من يراه ومن يكتب فيه — فقاعدتُه صورةٌ من قاعدة `works` نفسها.
+    match /workUpdates/{id} {
+      allow read: if isApproved()
+                  && (canViewAll()
+                      || isMyDeptAny(deptOf(resource.data))
+                      || resource.data.get('assigneeUid', '') == request.auth.uid);
+      // من يكتب: مسؤول النظام، أو صاحب صلاحية إدارة الأعمال في نطاقه، أو
+      // **المُسنَد إليه العمل نفسه** — وهو أكثر من يكتب هنا.
+      //
+      // وشرطُ المطابقة لازم: بغيره يكتب الموظف مستنداً يزعم فيه أنه المُسنَد
+      // إليه عملاً ليس له، فيقرأه بعد ذلك بقاعدة القراءة أعلاه. فيُشترط أن
+      // يقابل التحديثَ **عملٌ حقيقي** إدارتُه وإسنادُه كما كُتبا.
+      allow create: if isApproved()
+                    && matchesRealWork(request.resource.data.workId,
+                                       deptOf(request.resource.data),
+                                       request.resource.data.get('assigneeUid', ''))
+                    && (isAdmin()
+                        || (perm('mw') && (canViewAll() || isMyDeptAny(deptOf(request.resource.data))))
+                        || request.resource.data.get('assigneeUid', '') == request.auth.uid);
+      // السجل غير قابل للتعديل، كما في `dailyUpdates`. والحذف لمسؤول النظام
+      // وحده — ولازمٌ لحذف عملٍ أو إدارةٍ حذفاً متسلسلاً بلا تحديثات يتيمة.
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    match /works/{id} {
+      // يقرأها من يرى كل الإدارات، أو مدير الإدارة صاحبة العمل، أو الموظف
+      // المُسنَد إليه العمل نفسه.
+      allow read: if isApproved()
+                  && (canViewAll()
+                      || isMyDeptAny(deptOf(resource.data))
+                      || resource.data.get('assigneeUid', '') == request.auth.uid);
+      // الإنشاء والإسناد لمن يملك صلاحية "إدارة الأعمال" ضمن نطاقه.
+      allow create: if (isAdmin()
+                    || (perm('mw')
+                        && (canViewAll() || isMyDeptAny(deptOf(request.resource.data))))
+                    || inScope('mpr', deptOf(request.resource.data)))
+                    && mayAssign(request.resource.data.get('assigneeUid', ''));
+      // الموظف المُسنَد إليه يحدّث تقدّم عمله وحالته فقط، دون إعادة إسناده
+      // لنفسه أو نقله لإدارة أخرى.
+      // حقولُ التحويل خارج كل مسار إلا فكَّ الارتباط — راجع نظيرَها في
+      // قاعدة المشاريع أعلاه، وسببَ موضعها.
+      allow update: if (isSoftDeleting(deptOf(resource.data)) || isRestoring()
+                        || isDetachingConversion())
+                    || (frozenWhileDeleted()
+                    && deletionUntouched()
+                    && (isAdmin()
+                    // ــ وتعديل العمل حقُّ مدير الإدارة بدوره لا بعلَمٍ يُطفأ ــ
+                    //
+                    // كان الطريق الوحيد `perm('mw')`، وهي مبدئياً مفتوحة له —
+                    // لكنها تُطفأ من شاشة صلاحيات الأدوار، والمستندُ المخزَّن
+                    // يُقدَّم على المبدئي. فكان مديرُ الإدارة يملك حذف العمل من
+                    // إدارته ولا يملك تصحيح سطرٍ فيه، بحسب علَمٍ قد يكون أُطفئ
+                    // قبل شهور لسببٍ آخر.
+                    || (isMyDeptAny(deptOf(resource.data)) && (isDeptManager() || perm('mw')))
+                    || (perm('mw') && canViewAll())
+                    || (resource.data.get('assigneeUid', '') == request.auth.uid
+                        && !request.resource.data.diff(resource.data).affectedKeys()
+                              .hasAny(['departmentId', 'createdByUid'])
+                        // الإسناد لا يمسّه المُسنَد إليه إلا ليرفع اسمه هو.
+                        && (assigneeUnchanged() || isSelfDecline())))
+                    && (assigneeUnchanged()
+                        || mayAssign(request.resource.data.get('assigneeUid', '')))
+                    // ولا يُغلقه إلا معتمِده — راجع closureRespected أعلاه.
+                    && closureRespected());
+      // ــ الحذف النهائي لمسؤول النظام وحده ــ
+      //
+      // وكانت `perm('del')` هنا **بلا نطاق**: حاملُها يمحو أعمال أي إدارة
+      // في الوزارة محواً لا رجعة فيه. وصارت تعني الحذف المنطقي داخل
+      // إداراته — راجع `mayDeleteIn`.
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- الشكاوى والاقتراحات -------------------------
+    // ما يرفعه الموظف إلى مسؤول النظام. صلاحيتان منفصلتان:
+    //   sfb — الرفع، ومتابعة ما رفعه هو.
+    //   mfb — الاطّلاع على كل الوارد والبتّ فيه.
+    // ويُمنحان لدور كامل أو لشخص بعينه (راجع permissionOverrides على المستخدم).
+    match /feedback/{id} {
+      // صاحبها يراها دائماً ولو سُحبت منه صلاحية الرفع لاحقاً — وإلا اختفى
+      // عنه ما رفعه هو وردُّ مسؤول النظام عليه.
+      allow read: if isApproved()
+                  && (isAdmin() || perm('mfb') || resource.data.submittedByUid == request.auth.uid);
+      // لا يرفع أحدٌ باسم غيره، ولا يرفع شكوى مبتوتاً فيها سلفاً.
+      allow create: if isApproved()
+                    && perm('sfb')
+                    && request.resource.data.submittedByUid == request.auth.uid
+                    && request.resource.data.status == 'submitted'
+                    && request.resource.data.get('responseNote', null) == null;
+      // البتّ لمن يتابعها. ونصُّ الشكوى نفسه لا يُعدَّل بعد رفعها — لا من
+      // صاحبها ولا ممن يبتّ فيها — فهي سجلٌّ لا مسوَّدة.
+      allow update: if (isAdmin() || perm('mfb'))
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status', 'responseNote', 'handledByName', 'handledAt']);
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- طلبات الموافقة (مركز القرارات التنفيذية) -------------------------
+    // تسجيل عضو / إضافة مشروع / تعديل موعد نهائي / قرار تنفيذي عام.
+    match /approvalRequests/{id} {
+      allow read: if isApproved()
+                  && (isAdmin() || isExecutive()
+                      || resource.data.requestedByUid == request.auth.uid
+                      || isMyDeptAny(resource.data.departmentId));
+      // يُسمح بالإنشاء حتى لمستخدم غير معتمد بعد (حالة التسجيل الذاتي).
+      allow create: if isSignedIn();
+      // لا يُعدَّل حقل الحالة (اعتماد/رفض) مباشرة من العميل بأي حال؛
+      // الاعتماد الفعلي يتم حصرياً عبر Cloud Functions (approveRequest / rejectRequest)
+      // التي تستخدم صلاحيات المسؤول الخلفية وتتحقق من الدور فعلياً على الخادم.
+      allow update, delete: if false;
+    }
+
+    // ------------------------- سجل التدقيق -------------------------
+    // القراءة حصراً لمسؤول النظام؛ لا يملك أي دور مخصص أو دور آخر الاطلاع عليه.
+    // ــــ سجل التدقيق ــــ
+    //
+    // كان `allow create: if isApproved()` بلا أيّ تحقّق: أيُّ موظفٍ معتمد
+    // يكتب سطراً **باسم مسؤول النظام وبأي تاريخ يختاره**. وسجلٌّ يُكتب فيه
+    // ما شاء من شاء ليس سجل تدقيق.
+    //
+    // فيُشترط: أن يكون الفاعلُ هو المتصل نفسه، وأن يكون الوقتُ وقتَ الخادم
+    // لا وقتَ جهاز الكاتب، وأن تكون الحقول الأساسية موجودة.
+    //
+    // **وحدُّ ذلك يُقال صراحةً**: الفاعلُ والوقت يصيران غير قابلين
+    // للتزوير، أما نصُّ «قبل/بعد» فيبقى ممّا يكتبه العميل — لأن التسجيل
+    // يقع في المتصفّح. وما تكتبه الدوالُّ الخلفية (ستَّ عشرة دالّة) موثوقٌ
+    // كاملاً، إذ تتجاوز هذه القاعدة بصلاحية المدير.
+    match /auditLog/{id} {
+      allow read: if isAdmin();
+      allow create: if isApproved()
+                    && request.resource.data.get('actorUid', null) == request.auth.uid
+                    && request.resource.data.timestamp == request.time
+                    && request.resource.data.keys().hasAll(['userName', 'action', 'details', 'type'])
+                    && request.resource.data.type is string
+                    && request.resource.data.type.size() > 0;
+      // ولا يُعدَّل ولا يُحذف — ولا لمسؤول النظام. سجلٌّ يُنقَّح لا يشهد.
+      allow update, delete: if false;
+    }
+
+    // ------------------- التقرير التنفيذي اليومي -------------------
+    //
+    // مستندٌ **لكل مستلم**، لا مستندٌ واحد يقرؤه الجميع. والسبب أن قواعد
+    // Firestore ترفض ولا تُصفّي: مستندٌ جامع يعني إمّا أن يقرأ مديرُ إدارةٍ
+    // ما ليس له، وإمّا أن يُرفض عليه فيرى شاشةً خالية. وبهذا يصير فرضُ
+    // النطاق سطراً واحداً لا يحتمل الخطأ.
+    //
+    // ولا يُكتب من العميل إطلاقاً: الحساب على الخادم بصلاحيات المسؤول،
+    // فلا يستطيع أحد أن يكتب لنفسه تقريراً أو يمحو منه ما لا يعجبه.
+    match /dailyReports/{day} {
+      allow read: if isApproved();
+      allow write: if false;
+
+      // `isApproved()` لا `isSignedIn()`: حسابٌ معطَّل أو ينتظر الاعتماد لا
+      // يقرأ شيئاً من المنصة، ولا يُستثنى من ذلك مستندٌ يحمل اسمه.
+      match /recipients/{uid} {
+        allow read: if isApproved() && (isAdmin() || request.auth.uid == uid);
+        allow write: if false;
+      }
+    }
+
+    // ------------------------- التقارير -------------------------
+    match /reports/{id} {
+      allow read: if isApproved();
+      allow create, update: if isAdmin() || isExecutive() || perm('mr');
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- تخصيص لوحة القيادة -------------------------
+    match /dashboardConfig/{id} {
+      allow read: if isApproved();
+      allow write: if isAdmin() || perm('md');
+    }
+
+    // ودجات مخصصة لكل مشروع على حدة (صفحة المشروع) — نفس صلاحية تخصيص
+    // لوحة القيادة، بمعرّف المستند هو معرّف المشروع نفسه.
+    match /projectWidgets/{id} {
+      allow read: if isApproved();
+      allow write: if isAdmin() || perm('md');
+    }
+
+    // إشعارات عامة تظهر لكل المستخدمين أعلى كل الصفحات — إنشاء وحذف حصراً
+    // من مسؤول النظام.
+    match /announcements/{id} {
+      allow read: if isApproved();
+      allow create, delete: if isAdmin();
+      allow update: if false;
+    }
+
+    // ------------------------- دليل الإجراءات -------------------------
+    //
+    // ــ القراءةُ صلاحيةٌ تُمنح، لا حقٌّ لكل معتمَد ــ
+    //
+    // الدليلُ يصف كيف تسير أعمالُ الوزارة، فليس كلُّ ما فيه لكل من دخل
+    // المنصة. و`vpc` تُمنح لدورٍ أو لفردٍ من مسؤول النظام، ومغلقةٌ حتى
+    // يمنحها. **ومن يحرّر يقرأ**: نصُّ هذا الشرط نفسُه في
+    // `AppStore.canViewProcedures` — ولو افترقا لَرأى من مُنح التحريرَ
+    // وحدَه شاشةً فارغةً يظنّها عطلاً.
+    //
+    // ــ والكتابةُ مغلقةٌ للجميع، ولمسؤول النظام كذلك ــ
+    //
+    // لأنّ كلَّ حفظٍ يجب أن يحفظ **صورةَ ما كان قبله** في المعاملة نفسِها،
+    // وذلك لا يقع إلا في `saveProcedure`. ولو فُتحت الكتابةُ هنا لأمكن أن
+    // تُكتب نسخةٌ جديدة بلا صورةٍ لسابقتها، فيضيع ما وُعد بحفظه ولا سبيل
+    // إلى استرجاعه. فالدالّةُ وحدَها هي الطريق — كما في `users`.
+    function canReadProcedures() {
+      return isApproved() && (isAdmin() || perm('vpc') || perm('epc'));
+    }
+
+    match /procedures/{id} {
+      allow read: if canReadProcedures();
+      allow write: if false;
+    }
+
+    // والنسخُ السابقة تُقرأ بما يُقرأ به الإجراء: نسخةٌ محجوبةٌ عمّن يقرأ
+    // الإجراءَ حجبٌ بلا معنى — هي هو، في يومٍ سابق.
+    match /procedureVersions/{id} {
+      allow read: if canReadProcedures();
+      allow write: if false;
+    }
+
+    // ------------------------- الأدوار المخصصة -------------------------
+    // تعريف الأدوار (الاسم ومجموعة الصلاحيات) يديره مسؤول النظام فقط؛ أما
+    // تعيين دور لمستخدم معيّن فيتم حصراً عبر Cloud Function (setUserRole)
+    // التي تضبط Custom Claims الفعلية.
+    match /roles/{id} {
+      allow read: if isApproved();
+      allow write: if isAdmin();
+    }
+
+    // ------------------------- إعدادات المظهر (ألوان الهوية) -------------------------
+    // قراءة عامة (حتى قبل تسجيل الدخول) لأن الألوان تُطبَّق على شاشتي الدخول
+    // والتسجيل أيضاً؛ لا تحتوي على أي بيانات حساسة. التعديل حصراً لمسؤول النظام.
+    match /settings/{id} {
+      // القراءة عامة عمداً: ألوان الهوية تُقرأ على شاشتَي الدخول والتسجيل
+      // **قبل** تسجيل الدخول، ولو أُغلقت لعادت الشاشة بيضاء بلا هوية.
+      //
+      // ويُستثنى `dailyReport` وحده: يحمل **قائمة معرّفات مستخدمين** (من
+      // يصله بريد التقرير)، وهي بيانات تنظيمية لا ألوان. فلا تُترك مقروءةً
+      // لزائرٍ بلا حساب.
+      allow read: if id != 'dailyReport' || isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}

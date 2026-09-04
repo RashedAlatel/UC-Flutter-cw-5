@@ -1,0 +1,65 @@
+rules_version = '2';
+
+// قواعد أمان تخزين الملفات.
+//
+// المرفقات تُرفع على تحديثات المشاريع اليومية، ومسارها يحمل معرّف المشروع:
+//   projects/{projectId}/dailyUpdates/{fileName}
+//
+// وقواعد التخزين **لا تستطيع قراءة Firestore**، فلا سبيل هنا لفحص عضوية
+// المشروع كما تفعل قواعد قاعدة البيانات. فالحراسة الممكنة هنا ثلاث طبقات:
+// أن يكون الرافع معتمداً، وأن يكون الملف ضمن الحجم والنوع المسموحين، وأن
+// يكون المسار من المسارات المعروفة. أما من يرى أي مرفق فمحكوم بمن يرى
+// **التحديث اليومي** الذي يحمل رابطه في Firestore — ولا يصل الرابط إلا من
+// يقرأ ذلك المستند.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isApproved() {
+      return request.auth != null && request.auth.token.approved == true;
+    }
+
+    // عشرة ميغابايت: يكفي تقريراً أو جدولاً أو صورة، ويمنع أن يصير التخزين
+    // مستودعاً للفيديو بلا قصد.
+    function withinSize() {
+      return request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // الأنواع المطلوبة وحدها: PDF، وورد، إكسل، صور. وأي نوع آخر يُرفض على
+    // الخادم لا في المتصفح.
+    function allowedType() {
+      return request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType.matches('application/vnd.openxmlformats-officedocument.*')
+          || request.resource.contentType == 'application/msword'
+          || request.resource.contentType == 'application/vnd.ms-excel';
+    }
+
+    match /projects/{projectId}/dailyUpdates/{fileName} {
+      allow read: if isApproved();
+      allow create: if isApproved() && withinSize() && allowedType();
+      // المرفق سجلٌّ لا مسوّدة: لا يُستبدل ولا يُحذف بعد رفعه، تماماً كما أن
+      // التحديث اليومي نفسه غير قابل للتعديل في Firestore.
+      allow update, delete: if false;
+    }
+
+    // مرفقاتُ خطوات دليل الإجراءات — نموذجٌ يُملأ، أو لائحةٌ يُرجع إليها.
+    //
+    // ورفعُها لمن يحرّر الدليل. وقواعدُ التخزين لا تقرأ Firestore ولا
+    // البطاقةَ إلا فيما فيها، فلا سبيل هنا إلى فحص `epc`: الحصرُ الفعليّ
+    // أنّ **رابطَ المرفق لا يُكتب إلا عبر `saveProcedure`** التي تفحصها.
+    // فمن رفع ملفاً بلا صلاحية رفع ملفاً لا يصل إليه أحد ولا يُذكر في
+    // إجراء. وهو الحدُّ نفسُه القائم في مرفقات التحديث اليومي.
+    match /procedures/{procedureId}/{fileName} {
+      allow read: if isApproved();
+      allow create: if isApproved() && withinSize() && allowedType();
+      // المرفقُ في دليلٍ تُحفظ نسخُه لا يُستبدل ولا يُحذف: نسخةٌ سابقة
+      // تشير إليه، فحذفُه يُفرغ صورةً وُعد بحفظها.
+      allow update, delete: if false;
+    }
+
+    // كل مسار آخر مغلق: لا يُفتح مسار إلا بقصد.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

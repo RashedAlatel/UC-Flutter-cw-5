@@ -415,7 +415,17 @@ reject_in "$WORKS_SCREEN" "ولا يُلزَم الطالب بتسمية منف�
   "if (crossDept && _assigneeUid.isEmpty)"
 want_in "$WORKS_SCREEN" "بل يُقال له إن مدير الإدارة يكلّف" "يكلّف مديرُ الإدارة"
 want_in "$WORKS_SCREEN" "وما ينتظر التكليف يُعدّ" "ينتظر التكليف"
-want_in "$WORKS_SCREEN" "ويُصفّى" "_assigneeFilter == _unassignedFilter"
+# ــ وانتقلت التصفيةُ إلى وحدةٍ تشترك فيها ثلاثُ شاشات ــ
+#
+# كان الشرطُ مكتوباً في الشاشة (`_assigneeFilter == _unassignedFilter`).
+# وصارت المشاريعُ والأعمالُ والبحثُ تُصفّي بـ`record_filter.dart` — فنُقل
+# الثابتُ والشرطُ إليها، ولو بقيا في الشاشة لَبقي للمنفّذ فلترانِ يفترقان.
+#
+# **والمحروسُ لم يتغيّر**: أن سطح «ما ينتظر التكليف» قائمٌ ويُصفّى. فيُحرس
+# في موضعه الجديد لا يُلغى.
+want_in "$WORKS_SCREEN" "ويُصفّى بالخيار الخاصّ" "kUnassignedFilter"
+want_in "lib/models/record_filter.dart" "والشرطُ في الوحدة التي تشترك فيها الشاشات" \
+  "if (f.executorUid == kUnassignedFilter) {"
 echo ""
 
 # ــــ التكليف عند الاعتماد: فتحةٌ في بابٍ مغلق ــــ

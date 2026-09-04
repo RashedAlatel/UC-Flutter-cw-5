@@ -4,11 +4,12 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
+import '../models/record_filter.dart';
 import '../models/project_category.dart';
 import '../models/project_sort.dart';
 import '../theme/app_theme.dart';
 import '../widgets/command_band.dart';
-import '../widgets/filter_bar.dart';
+import '../widgets/record_filter_bar.dart';
 import '../widgets/meta_row.dart';
 import '../utils/formatters.dart';
 import '../utils/platform_url.dart';
@@ -30,16 +31,14 @@ class ProjectsListScreen extends StatefulWidget {
 }
 
 class _ProjectsListScreenState extends State<ProjectsListScreen> {
-  final _searchCtrl = TextEditingController();
-  String _query = '';
-  String? _departmentFilter;
+  /// مفتاحُ خانة الفلتر لهذه الشاشة — راجع `AppStore.recordFilterFor`.
+  ///
+  /// ــ ولماذا في المتجر لا هنا ــ
+  ///
+  /// حالةُ الودجة تموت بخروجها من الشجرة. فمن فتح مشروعاً وعاد وجد الفلاتر
+  /// مصفَّرة، وهو ما طلبتَ إصلاحه. والمتجرُ يعيش طول الجلسة.
+  static const String _filterKey = 'projects';
 
-  /// معرّف حساب لا اسم نصّي: التصفية بالاسم كانت تُسقط من هو عضو في المشروع
-  /// بحسابه دون أن يرد اسمه في `executorNames`. والمطابقة تقع بـ`projectsOf`
-  /// وهي تعرف الصفتين معاً.
-  String? _userFilter;
-  ProjectStatus? _statusFilter;
-  String? _categoryFilter;
   // المبدئي «الأهم أولاً» لا «الاسم»: الصفحة تُفتح للسؤال «ما الذي يحتاجني
   // الآن؟»، والترتيب الأبجدي لا يجيب عنه.
   ProjectSort _sort = ProjectSort.smart;
@@ -50,29 +49,6 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
   /// Firestore: كائنٌ محفوظ يصير نسخةً قديمة بلا أن يظهر ذلك، فيُرسَل تنبيهٌ
   /// بنسبة إنجاز لم تعد صحيحة.
   final Set<String> _selected = {};
-
-  bool get _hasFilters =>
-      _departmentFilter != null ||
-      _userFilter != null ||
-      _statusFilter != null ||
-      _categoryFilter != null ||
-      _query.isNotEmpty;
-
-  void _clearFilters() => setState(() {
-        _departmentFilter = null;
-        _userFilter = null;
-        _statusFilter = null;
-        _selected.clear();
-        _categoryFilter = null;
-        _searchCtrl.clear();
-        _query = '';
-      });
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
-  }
 
   /// يعرض ما سيتغيّر **قبل** أن يتغيّر: تعديل عشرات المستندات دفعةً واحدة
   /// دون أن يرى مسؤول النظام ماذا سيمسّه ليس قراراً بل مقامرة.
@@ -172,34 +148,14 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    var projects = store.visibleProjects;
-
-    final q = _query.trim().toLowerCase();
-    if (q.isNotEmpty) {
-      projects = projects
-          .where((p) =>
-              p.name.toLowerCase().contains(q) ||
-              p.executorNames.any((e) => e.toLowerCase().contains(q)))
-          .toList();
-    }
-    if (_departmentFilter != null) {
-      projects = projects.where((p) => p.departmentId == _departmentFilter).toList();
-    }
-    if (_userFilter != null) {
-      final user = store.users.where((u) => u.id == _userFilter).firstOrNull;
-      // `projectsOf` تعرف العضوية بالحساب **والاسم النصي** معاً، فلا تُسقط
-      // مشاريع الوزارة المستوردة التي تحمل اسم المنفّذ بلا حساب يقابله.
-      final theirs = user == null ? const <String>{} : store.projectsOf(user).map((p) => p.id).toSet();
-      projects = projects.where((p) => theirs.contains(p.id)).toList();
-    }
-    if (_statusFilter != null) {
-      // الحالة الفعلية لا المخزَّنة — وهي مصدر الحقيقة الوحيد في المنصة،
-      // وبها وحدها تتفق التصفية مع الشارة المعروضة على البطاقة نفسها.
-      projects = projects.where((p) => p.effectiveStatus == _statusFilter).toList();
-    }
-    if (_categoryFilter != null) {
-      projects = projects.where((p) => p.categoryIds.contains(_categoryFilter)).toList();
-    }
+    // ــ التصفيةُ في `record_filter.dart` لا هنا ــ
+    //
+    // كانت خمسةَ شروطٍ مكتوبةً في هذه الشاشة، ونظائرُها في شاشة الأعمال
+    // بحسابٍ آخر. فصارت وحدةً واحدة تناديها ثلاثُ شاشات — فلا تفترق
+    // ثلاثةُ تعريفاتٍ لـ«متأخر».
+    final filter = store.recordFilterFor(_filterKey);
+    final input = store.recordFilterInput();
+    final projects = applyRecordFilter(filter, input).projects;
 
     final sortedProjects = sortProjects(
       projects: projects,
@@ -213,11 +169,11 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
     // مع فلتر «متأخر» وحده. وليس تضييقاً بلا سبب: الإجراء الجماعي الوحيد
     // اليوم تنبيهُ تأخير، ومربّع تحديدٍ على مشروعٍ ليس متأخراً يَعِد بإجراء
     // لا وجود له. ومتى وُجد إجراء آخر وُسِّع الشرط عندها.
-    final selectionMode = store.canBulkDelayAlert && _statusFilter == ProjectStatus.delayed;
-
-    final departmentOptions = store.visibleDepartments.where((d) => store.projectsForDepartment(d.id).isNotEmpty).toList();
-    final userOptions = store.users.where((u) => u.status == UserStatus.approved).toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    // و«متأخر» تُقرأ من البابين: قائمةُ الحالة، وشريحةُ الحالة السريعة —
+    // فمن اختارها من أيّهما يجد مربّعاتِ التحديد.
+    final selectionMode = store.canBulkDelayAlert &&
+        (filter.projectStatus == ProjectStatus.delayed ||
+            filter.quick == QuickState.late$);
 
     return SingleChildScrollView(
       child: Column(
@@ -276,121 +232,42 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-          FilterBar(
-            fields: [
-              (
-                preferredWidth: 280,
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _query = v),
-                  decoration: InputDecoration(
-                    hintText: 'ابحث باسم المشروع أو المنفذ',
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                    isDense: true,
-                    suffixIcon: _query.isEmpty
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.close_rounded, size: 18),
-                            tooltip: 'مسح البحث',
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              setState(() => _query = '');
-                            },
-                          ),
-                  ),
-                ),
-              ),
-              (
-                preferredWidth: 220,
-                child: DropdownButtonFormField<String?>(
-                  initialValue: _departmentFilter,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'تصفية حسب الإدارة', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('كل الإدارات')),
-                    ...departmentOptions.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))),
-                  ],
-                  onChanged: (v) => setState(() => _departmentFilter = v),
-                ),
-              ),
-              (
-                preferredWidth: 220,
-                child: DropdownButtonFormField<String?>(
-                  initialValue: _userFilter,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'تصفية حسب المستخدم', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('كل المستخدمين')),
-                    ...userOptions.map((u) => DropdownMenuItem(
-                          value: u.id,
-                          child: Text(u.name, overflow: TextOverflow.ellipsis),
-                        )),
-                  ],
-                  onChanged: (v) => setState(() => _userFilter = v),
-                ),
-              ),
-              (
-                preferredWidth: 200,
-                child: DropdownButtonFormField<ProjectStatus?>(
-                  initialValue: _statusFilter,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'تصفية حسب الحالة', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('كل الحالات')),
-                    ...ProjectStatus.values.map((s) => DropdownMenuItem(value: s, child: Text(s.label))),
-                  ],
-                  onChanged: (v) => setState(() {
-                    _statusFilter = v;
-                    // تبدُّل الفلتر يُسقط التحديد: مشروعٌ حُدِّد ثم خرج من
-                    // المعروض يبقى في المجموعة صامتاً، فيُرسَل تنبيهه مع
-                    // دفعةٍ أخرى ولا يرى المُرسِل اسمه على الشاشة.
-                    _selected.clear();
-                  }),
-                ),
-              ),
-              // حقل التصنيف لا يظهر قبل تعريف تصنيف واحد على الأقل: قائمةٌ
-              // خيارها الوحيد «كل التصنيفات» تشغل مكاناً ولا تفعل شيئاً.
-              if (store.categories.isNotEmpty)
-                (
-                  preferredWidth: 200,
-                  child: DropdownButtonFormField<String?>(
-                    initialValue: _categoryFilter,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: 'تصفية حسب التصنيف', isDense: true),
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('كل التصنيفات')),
-                      ...store.categories.map((c) => DropdownMenuItem(
-                            value: c.id,
-                            child: Text(c.name, overflow: TextOverflow.ellipsis),
-                          )),
-                    ],
-                    onChanged: (v) => setState(() => _categoryFilter = v),
-                  ),
-                ),
-              (
-                preferredWidth: 190,
-                child: DropdownButtonFormField<ProjectSort>(
-                  initialValue: _sort,
-                  isExpanded: true,
-                  // «ترتيب حسب» لا «التصنيف»: المستخدم هنا لا يغيّر فئة
-                  // المشروع، بل يقرّر ما الذي يظهر أولاً.
-                  decoration: const InputDecoration(labelText: 'ترتيب حسب', isDense: true),
-                  items: ProjectSort.values
-                      .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
-                      .toList(),
-                  onChanged: (v) => setState(() => _sort = v ?? _sort),
-                ),
-              ),
-              if (_hasFilters)
-                (
-                  preferredWidth: 150,
-                  child: TextButton.icon(
-                    onPressed: _clearFilters,
-                    icon: const Icon(Icons.close_rounded, size: 16),
-                    label: const Text('مسح الفلاتر'),
-                  ),
-                ),
-            ],
+          RecordFilterBar(
+            store: store,
+            filter: filter,
+            shown: projects.length,
+            total: store.visibleProjects.length,
+            fields: const {
+              FilterField.query,
+              FilterField.department,
+              FilterField.section,
+              FilterField.executor,
+              FilterField.manager,
+              FilterField.projectStatus,
+              FilterField.category,
+            },
+            onChanged: (f) {
+              // تبدُّل الفلتر يُسقط التحديد: مشروعٌ حُدِّد ثم خرج من المعروض
+              // يبقى في المجموعة صامتاً، فيُرسَل تنبيهه مع دفعةٍ أخرى ولا
+              // يرى المُرسِل اسمه على الشاشة.
+              setState(_selected.clear);
+              store.setRecordFilter(_filterKey, f);
+            },
+          ),
+          const SizedBox(height: 12),
+          // والترتيبُ ليس فلتراً: لا يُخفي شيئاً، فيبقى خارج الشريط وخارج
+          // زرّ إعادة الضبط.
+          SizedBox(
+            width: 220,
+            child: DropdownButtonFormField<ProjectSort>(
+              initialValue: _sort,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'ترتيب حسب', isDense: true),
+              items: ProjectSort.values
+                  .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
+                  .toList(),
+              onChanged: (v) => setState(() => _sort = v ?? _sort),
+            ),
           ),
           const SizedBox(height: 20),
           if (selectionMode) ...[

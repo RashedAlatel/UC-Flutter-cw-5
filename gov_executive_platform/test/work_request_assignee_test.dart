@@ -90,11 +90,22 @@ void main() {
           reason: 'بطاقة العدّ غائبة.');
     });
 
+    // ــ وانتقل الثابتُ إلى وحدة التصفية ــ
+    //
+    // `null` تعني الكل، و`''` تُشبه `assigneeUid` الفارغ — فكلاهما مصدر
+    // التباس. والقيمة المختارة لا تصلح معرّفاً لأحد. وهذا لم يتغيّر.
+    //
+    // والذي تغيّر **موضعُه**: صار في `record_filter.dart` مع بقيّة قرار
+    // التصفية، لأن ثلاث شاشاتٍ تصفّي الآن بوحدةٍ واحدة. ولو بقي في الشاشة
+    // لَبقي للمنفّذ فلترانِ يفترقان — وهو العطل الذي جمعتها الوحدةُ لأجله.
     test('وقيمة الخيار ليست الفراغ فيلتبس بـ«كل المسؤولين»', () {
-      // `null` تعني الكل، و`''` تُشبه `assigneeUid` الفارغ — فكلاهما مصدر
-      // التباس. والقيمة المختارة لا تصلح معرّفاً لأحد.
-      expect(_source(screen).contains("const String _unassignedFilter = '__unassigned__';"),
-          isTrue);
+      expect(
+        _source('lib/models/record_filter.dart')
+            .contains("const String kUnassignedFilter = '__unassigned__';"),
+        isTrue,
+      );
+      expect(_source(screen).contains('kUnassignedFilter'), isTrue,
+          reason: 'والشاشةُ تستعمله — فلا يبقى الثابتُ بلا قارئ');
     });
   });
 

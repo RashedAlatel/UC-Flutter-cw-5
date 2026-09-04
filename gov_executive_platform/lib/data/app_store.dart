@@ -28,6 +28,7 @@ import '../models/enums.dart';
 import '../models/feedback_item.dart';
 import '../models/project.dart';
 import '../models/project_progress.dart';
+import '../models/record_filter.dart';
 import '../models/task_reschedule.dart';
 import '../models/project_category.dart';
 import '../models/periodic_report_settings.dart';
@@ -5927,6 +5928,63 @@ class AppStore extends ChangeNotifier {
   /// يُشتقّ من التحديثات نفسها ولا يُخزَّن على المشروع: حقلٌ مخزَّن يحتاج
   /// تحديثاً عند كل كتابة، وأول كتابةٍ تنساه تجعل المشروع يبدو مهملاً وهو
   /// ليس كذلك — وهو صنف الخطأ الذي عولج في «مصدر الحقيقة الوحيد» للحالة.
+  // ــــــــــــــ فلاترُ البحث والتصفية ــــــــــــــ
+
+  /// فلترُ كل شاشةٍ على حدة — **يبقى طوال الجلسة**.
+  ///
+  /// ــ ولماذا خانةٌ لكل شاشة لا خانةٌ واحدة ــ
+  ///
+  /// طلبتَ ألّا تُفقد الفلاتر عند فتح مشروعٍ والعودة. ولو كانت خانةً واحدة
+  /// لَتلاقحت الشاشات: تضييقُ صفحة المشاريع على إدارةٍ يضيّق صفحة الأعمال
+  /// معها، فيرى المستخدم قائمةً مصفّاة لم يصفِّها هو.
+  ///
+  /// ــ ولماذا في الذاكرة لا على الخادم ــ
+  ///
+  /// «طوال الجلسة» هو ما طُلب حرفاً: تبقى في التنقّل وتُصفَّر بإعادة
+  /// التحميل. وحفظُها على الخادم يجعل المستخدم يعود غداً إلى قائمةٍ مصفّاة
+  /// **لا يذكر لماذا** — وذلك يُقرأ نقصاً في البيانات لا فلتراً منسيّاً.
+  final Map<String, RecordFilter> _recordFilters = {};
+
+  /// فلترُ هذه الشاشة — والفارغُ لمن لم يُصفِّ بعد.
+  RecordFilter recordFilterFor(String screen) =>
+      _recordFilters[screen] ?? const RecordFilter();
+
+  void setRecordFilter(String screen, RecordFilter filter) {
+    _recordFilters[screen] = filter;
+    notifyListeners();
+  }
+
+  void clearRecordFilter(String screen) {
+    _recordFilters.remove(screen);
+    notifyListeners();
+  }
+
+  /// ما تحتاجه التصفيةُ من المنصة، مبنيّاً من الحيّ.
+  ///
+  /// و[today] يُحقن ليكون الاختبارُ ثابتاً — راجع [RecordFilterInput].
+  RecordFilterInput recordFilterInput({DateTime? today}) => RecordFilterInput(
+        projects: visibleProjects,
+        works: visibleWorks,
+        today: today ?? DateTime.now(),
+        inactiveAfterDays: periodicReportSettings.inactiveAfterDays,
+        lastProjectUpdate: lastUpdateByProject,
+        lastWorkUpdate: lastUpdateByWork,
+        projectsWithOpenBlockers: {
+          for (final b in blockers)
+            if (b.status == ItemStatus.open) b.projectId,
+        },
+      );
+
+  /// آخرُ تحديثٍ لكل عمل — نظيرُ [lastUpdateByProject].
+  Map<String, DateTime> get lastUpdateByWork {
+    final map = <String, DateTime>{};
+    for (final u in workUpdates) {
+      final current = map[u.workId];
+      if (current == null || u.date.isAfter(current)) map[u.workId] = u.date;
+    }
+    return map;
+  }
+
   Map<String, DateTime> get lastUpdateByProject {
     final map = <String, DateTime>{};
     for (final u in dailyUpdates) {

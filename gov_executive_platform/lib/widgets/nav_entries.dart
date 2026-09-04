@@ -25,6 +25,7 @@ enum NavKey {
   myDepartment('إدارتي'),
   projects('المشاريع'),
   works('الأعمال'),
+  search('البحث'),
   myAssignments('المُسنَد إليّ'),
   decisions('مركز القرارات'),
   dailyReport('التقرير اليومي'),
@@ -71,6 +72,12 @@ List<NavKey> navKeysFor(AppStore store) {
 
   keys.add(NavKey.projects);
   keys.add(NavKey.works);
+  // ــ والبحثُ يليهما: يجمع نوعَيهما في شاشةٍ واحدة ــ
+  //
+  // ولا بوابةَ له ولا صلاحية: نطاقُه `visibleProjects` و`visibleWorks` —
+  // أي ما يراه صاحبُه في الشاشتين أصلاً. فهو طريقٌ آخر إلى ما يملكه لا
+  // بابٌ إلى ما لا يملك.
+  keys.add(NavKey.search);
 
   // ــ «المُسنَد إليّ» لكل مستخدم بلا استثناء ــ
   //

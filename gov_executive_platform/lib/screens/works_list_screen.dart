@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_store.dart';
+import '../models/record_filter.dart';
+import '../widgets/record_filter_bar.dart';
 import '../models/app_user.dart';
 import '../models/assignment_policy.dart';
 import '../models/closure_trail.dart';
@@ -50,49 +52,40 @@ class WorksListScreen extends StatefulWidget {
 /// ولا تكون السلسلة الفارغة: `null` تعني «كل المسؤولين»، و`''` قد تُقرأ
 /// خطأً مساويةً لـ`assigneeUid` الفارغ في مقارنةٍ لاحقة — فيلتبس المرشِّح
 /// بالمرشَّح. وهذه قيمةٌ لا تصلح معرّفاً لأحد.
-const String _unassignedFilter = '__unassigned__';
 
 class _WorksListScreenState extends State<WorksListScreen> {
-  final _searchCtrl = TextEditingController();
-  String _query = '';
-  String? _departmentFilter;
-  String? _assigneeFilter;
-  TaskStatus? _statusFilter;
+  /// مفتاحُ خانة الفلتر لهذه الشاشة — راجع `AppStore.recordFilterFor`.
+  ///
+  /// وخانةٌ مستقلّة عن صفحة المشاريع بقصد: تضييقُ إحداهما لا يضيّق الأخرى.
+  static const String _filterKey = 'works';
+
   WorkSort _sort = WorkSort.newest;
   bool _showLog = false;
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final all = store.visibleWorks;
 
-    final q = _query.trim().toLowerCase();
-    var works = (_showLog ? store.completedWorks : all.where((w) => !w.isDone).toList()).where((w) {
-      if (_departmentFilter != null && w.departmentId != _departmentFilter) return false;
-      if (_assigneeFilter == _unassignedFilter) {
-        if (w.assigneeUid.isNotEmpty) return false;
-      } else if (_assigneeFilter != null && w.assigneeUid != _assigneeFilter) {
-        return false;
-      }
-      if (_statusFilter != null && w.status != _statusFilter) return false;
-      if (q.isEmpty) return true;
-      return w.title.toLowerCase().contains(q) || w.assigneeName.toLowerCase().contains(q);
-    }).toList();
+    // ــ التصفيةُ في `record_filter.dart` لا هنا ــ
+    //
+    // كانت مكتوبةً في هذه الشاشة بحسابٍ، وفي شاشة المشاريع بحسابٍ آخر.
+    // فصارت وحدةً واحدة تناديها ثلاثُ شاشات.
+    //
+    // و«سجلُّ المنجَز» ليس فلترَ حالة بل **مصدرُ القائمة**: زرٌّ يبدّل ما
+    // يُصفَّى لا شرطاً يُضاف إليه. فيبقى خارج الفلتر وخارج زرّ إعادة الضبط.
+    final filter = store.recordFilterFor(_filterKey);
+    final source = _showLog ? store.completedWorks : all.where((w) => !w.isDone).toList();
+    var works = applyRecordFilter(
+      filter,
+      store.recordFilterInput().copyWithWorks(source),
+    ).works;
     works = sortWorks(works, _sort);
 
     final overdue = all.where((w) => w.delayDays > 0).length;
     final canAssign = store.isAdmin || store.canManageWorks;
     final awaitingAssignment =
         all.where((w) => !w.isDone && w.assigneeUid.isEmpty).length;
-    final assigneeOptions = <String, String>{
-      for (final w in all) w.assigneeUid: w.assigneeName,
-    }..removeWhere((k, v) => k.isEmpty);
 
     return SingleChildScrollView(
       child: Column(
@@ -171,94 +164,38 @@ class _WorksListScreenState extends State<WorksListScreen> {
           ),
           const SizedBox(height: 16),
 
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              SizedBox(
-                width: 280,
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _query = v),
-                  decoration: InputDecoration(
-                    hintText: 'ابحث باسم العمل أو المسؤول',
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                    isDense: true,
-                    suffixIcon: _query.isEmpty
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.close_rounded, size: 18),
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              setState(() => _query = '');
-                            },
-                          ),
-                  ),
-                ),
-              ),
-              if (store.visibleDepartments.length > 1)
-                SizedBox(
-                  width: 210,
-                  child: DropdownButtonFormField<String?>(
-                    initialValue: _departmentFilter,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: 'الإدارة', isDense: true),
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('كل الإدارات')),
-                      ...store.visibleDepartments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))),
-                    ],
-                    onChanged: (v) => setState(() => _departmentFilter = v),
-                  ),
-                ),
-              SizedBox(
-                width: 210,
-                child: DropdownButtonFormField<String?>(
-                  initialValue: _assigneeFilter,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'المسؤول', isDense: true),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('كل المسؤولين')),
-                    // «غير مُسنَد» أوّلَ الخيارات لا آخرها: هو ما يحتاج
-                    // فعلاً — والأسماء تُقرأ بحثاً، وهذا يُقرأ عملاً.
-                    if (awaitingAssignment > 0)
-                      DropdownMenuItem(
-                        value: _unassignedFilter,
-                        child: Text('غير مُسنَد ($awaitingAssignment)'),
-                      ),
-                    ...assigneeOptions.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))),
-                  ],
-                  onChanged: (v) => setState(() => _assigneeFilter = v),
-                ),
-              ),
-              if (!_showLog)
-                SizedBox(
-                  width: 210,
-                  child: DropdownButtonFormField<TaskStatus?>(
-                    initialValue: _statusFilter,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: 'الحالة', isDense: true),
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('كل الحالات')),
-                      ...TaskStatus.values
-                          .where((s) => s != TaskStatus.done)
-                          .map((s) => DropdownMenuItem(value: s, child: Text(s.label))),
-                    ],
-                    onChanged: (v) => setState(() => _statusFilter = v),
-                  ),
-                ),
-              SizedBox(
-                width: 200,
-                child: DropdownButtonFormField<WorkSort>(
-                  initialValue: _sort,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'الترتيب', isDense: true),
-                  items: WorkSort.values
-                      .map((v) => DropdownMenuItem(value: v, child: Text(v.label)))
-                      .toList(),
-                  onChanged: (v) => setState(() => _sort = v ?? _sort),
-                ),
-              ),
-            ],
+          RecordFilterBar(
+            store: store,
+            filter: filter,
+            shown: works.length,
+            total: source.length,
+            fields: const {
+              FilterField.query,
+              FilterField.department,
+              FilterField.executor,
+              FilterField.workStatus,
+            },
+            // «بانتظار التكليف» وصفُ عملٍ لا مشروع — فلا يُعرض في شاشة
+            // المشاريع. وهو فلترٌ قائمٌ محروس، نُقل إلى الوحدة ولم يُفقد.
+            // والعددُ في العنوان لا في بطاقةٍ وحدها: من يبحث عمّا ينتظر
+            // تكليفاً يريد أن يعرف **كم** قبل أن يفتح القائمة.
+            extraExecutorOptions: {
+              kUnassignedFilter: 'غير مُسنَد ($awaitingAssignment)',
+            },
+            onChanged: (f) => store.setRecordFilter(_filterKey, f),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: 220,
+            child: DropdownButtonFormField<WorkSort>(
+              initialValue: _sort,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'الترتيب', isDense: true),
+              items: WorkSort.values
+                  .map((v) => DropdownMenuItem(value: v, child: Text(v.label)))
+                  .toList(),
+              onChanged: (v) => setState(() => _sort = v ?? _sort),
+            ),
           ),
           const SizedBox(height: 16),
 

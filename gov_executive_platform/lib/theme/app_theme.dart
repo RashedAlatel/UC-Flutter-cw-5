@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'app_palette.dart';
+import 'status_palette.dart';
+
 /// نظام الألوان والتنسيق الموحد للمنصة.
 /// [primary] و [accent] قابلان للتخصيص من قِبل مسؤول النظام (شاشة "إعدادات
 /// المظهر")، لذا هما حقلان قابلان للتغيير وقت التشغيل وليسا ثابتين (const) —
@@ -14,17 +17,28 @@ class AppColors {
   static const Color defaultPrimary = Color(0xFF0E4D3C);
   static const Color defaultAccent = Color(0xFFC9A227);
 
-  static const Color background = Color(0xFFF5F7FA);
-  static const Color surface = Colors.white;
+  static const Color background = AppPalette.slate50;
+  static const Color surface = AppPalette.surface;
 
-  static const Color success = Color(0xFF1E7A4D);
-  static const Color warning = Color(0xFFC98A15);
-  static const Color danger = Color(0xFFC0392B);
-  static const Color info = Color(0xFF1F6FA8);
+  // ــ أسماءٌ تُحيل إلى النظام، لا نسخةٌ ثانيةٌ منه ــ
+  //
+  // نحوُ أربعين ملفاً تقرأ `AppColors.success` مباشرةً. فبقيت الأسماءُ
+  // وتحوّل ما خلفها إلى `AppPalette`، فلا ينكسر شيءٌ دفعةً واحدة ولا يبقى
+  // لونُ معنىً مكتوباً مرّتين ينحرف أحدُهما يوماً عن الآخر.
+  static const Color success = AppPalette.green600;
+  static const Color warning = AppPalette.amber600;
+  static const Color danger = AppPalette.red600;
+  static const Color info = AppPalette.blue600;
 
-  static const Color textPrimary = Color(0xFF15202B);
-  static const Color textSecondary = Color(0xFF5F6B7A);
-  static const Color border = Color(0xFFE3E8EF);
+  /// **العائق**: يوقف العمل، وهو غيرُ الخطر الذي يهدّده.
+  ///
+  /// وكان `#E0692B` حرفاً مكرّراً في **عشرة** مواضع بلا اسم. وأُدكن قليلاً
+  /// ليُقرأ النصُّ الأبيضُ عليه — تباينُ الأوّل كان ٣٫٤٨ ولا يكفي.
+  static const Color blocker = AppPalette.orange600;
+
+  static const Color textPrimary = AppPalette.ink;
+  static const Color textSecondary = AppPalette.slate600;
+  static const Color border = AppPalette.slate100;
 
   /// خلفية اللوحة المتدرّجة — تُستخدم في شاشة الدخول والرموز الدائرية.
   /// مُشتقّة من لوني الهوية الحاليين حتى تواكب أي تخصيص من مسؤول النظام.
@@ -48,56 +62,17 @@ class AppColors {
   /// المظهر، فالقائمة تُبنى عند الطلب لتتبعهما.
   static List<Color> get chartPalette => [primary, accent, info, success, warning, danger];
 
-  static Color statusColor(String status) {
-    switch (status) {
-      case 'onTrack':
-        return success;
-      case 'atRisk':
-        return warning;
-      case 'delayed':
-        return danger;
-      case 'completed':
-        return info;
-      default:
-        return textSecondary;
-    }
-  }
+  /// لونُ حالةِ مشروع — **والقرارُ في `status_palette.dart`**.
+  static Color statusColor(String status) => StatusPalette.project(status);
 
-  static Color taskStatusColor(String status) {
-    switch (status) {
-      case 'todo':
-        return textSecondary;
-      case 'inProgress':
-        return info;
-      case 'review':
-        return accent;
-      // «بانتظار الاعتماد» تحذيرٌ لا نجاح: العمل واقفٌ على مكتبٍ لا يتقدّم،
-      // ولونُ النجاح عليه يجعله يبدو منتهياً وهو ليس كذلك.
-      case 'awaitingApproval':
-        return warning;
-      case 'blocked':
-        return danger;
-      case 'done':
-        return success;
-      default:
-        return textSecondary;
-    }
-  }
+  /// لونُ حالةِ مهمّة — **والقرارُ في `status_palette.dart`**.
+  ///
+  /// وكانت «قيد المراجعة» تُلوَّن بـ[accent]، فكان تغييرُ الهوية يجعلها
+  /// مطابقةً حرفاً لـ«متعثّرة». صارت بنفسجيّةً ثابتة.
+  static Color taskStatusColor(String status) => StatusPalette.task(status);
 
-  static Color priorityColor(String priority) {
-    switch (priority) {
-      case 'low':
-        return const Color(0xFF5C9E68);
-      case 'medium':
-        return warning;
-      case 'high':
-        return const Color(0xFFD97A3A);
-      case 'critical':
-        return danger;
-      default:
-        return textSecondary;
-    }
-  }
+  /// لونُ أولوية — **والقرارُ في `status_palette.dart`**.
+  static Color priorityColor(String priority) => StatusPalette.priority(priority);
 
   /// يطبّق لوني الهوية (الأساسي والتمييز) على مستوى المنصة كاملة، ويشتق منهما
   /// درجتين فاتحة وداكنة تلقائياً (تُستخدمان في التدرجات والقائمة الجانبية).

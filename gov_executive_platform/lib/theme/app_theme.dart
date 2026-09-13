@@ -9,13 +9,13 @@ import 'status_palette.dart';
 /// خلافاً لبقية الألوان الدلالية (نجاح/تحذير/خطر...) التي تبقى ثابتة عمداً
 /// لأنها تحمل معنى وظيفياً لا يجوز تخصيصه. راجع [AppColors.applyBrand].
 class AppColors {
-  static Color primary = const Color(0xFF0E4D3C); // أخضر كويتي عميق (افتراضي)
-  static Color primaryLight = const Color(0xFF1A7A5E);
-  static Color primaryDark = const Color(0xFF072E24);
-  static Color accent = const Color(0xFFC9A227); // ذهبي رسمي (افتراضي)
+  static Color primary = AppPalette.brandGreen;
+  static Color primaryLight = AppPalette.brandGreenLight;
+  static Color primaryDark = AppPalette.brandGreenDark;
+  static Color accent = AppPalette.brandGold;
 
-  static const Color defaultPrimary = Color(0xFF0E4D3C);
-  static const Color defaultAccent = Color(0xFFC9A227);
+  static const Color defaultPrimary = AppPalette.brandGreen;
+  static const Color defaultAccent = AppPalette.brandGold;
 
   static const Color background = AppPalette.slate50;
   static const Color surface = AppPalette.surface;

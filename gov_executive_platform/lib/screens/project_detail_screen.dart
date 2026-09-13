@@ -468,7 +468,7 @@ class ProjectDetailScreen extends StatelessWidget {
               final blockerCard = _IssuesCard(
                 title: 'العوائق النشطة',
                 icon: Icons.block_rounded,
-                color: const Color(0xFFE0692B),
+                color: AppColors.blocker,
                 items: blockers.map((b) => b.description).toList(),
               );
               if (!wide) {
@@ -558,7 +558,7 @@ class ProjectDetailScreen extends StatelessWidget {
                         Text(u.achievements, style: const TextStyle(fontSize: 13, height: 1.5)),
                         if (u.blockers.isNotEmpty) ...[
                           const SizedBox(height: 8),
-                          _UpdateLines(label: 'عوائق', lines: u.blockers, color: const Color(0xFFE0692B)),
+                          _UpdateLines(label: 'عوائق', lines: u.blockers, color: AppColors.blocker),
                         ],
                         if (u.notes.trim().isNotEmpty) ...[
                           const SizedBox(height: 8),

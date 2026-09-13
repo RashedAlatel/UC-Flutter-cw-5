@@ -6,6 +6,7 @@ import '../models/alert_rules.dart';
 import '../models/announcement.dart';
 import '../theme/app_theme.dart';
 import '../widgets/command_band.dart';
+import '../theme/status_palette.dart';
 
 /// شاشة إعدادات المظهر (مسؤول النظام فقط): تخصيص لوني الهوية (الأساسي
 /// والتمييز) عبر لوحة ألوان مقترحة أو إدخال يدوي حر (Hex)، مع معاينة فورية
@@ -240,18 +241,9 @@ class _AnnouncementsManagerState extends State<_AnnouncementsManager> {
 
   Future<void> _delete(String id) => context.read<AppStore>().deleteAnnouncement(id);
 
-  Color _colorFor(AnnouncementStyle s) {
-    switch (s) {
-      case AnnouncementStyle.info:
-        return AppColors.info;
-      case AnnouncementStyle.success:
-        return AppColors.success;
-      case AnnouncementStyle.warning:
-        return AppColors.warning;
-      case AnnouncementStyle.danger:
-        return AppColors.danger;
-    }
-  }
+  /// لونُ نمط الإعلان — **والقرارُ في `status_palette.dart`**.
+  Color _colorFor(AnnouncementStyle s) =>
+      StatusPalette.announcementTone(s.name).fill;
 
   @override
   Widget build(BuildContext context) {

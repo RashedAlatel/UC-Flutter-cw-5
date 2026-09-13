@@ -432,7 +432,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'العوائق النشطة',
           value: '$count',
           icon: Icons.block_rounded,
-          color: const Color(0xFFE0692B),
+          color: AppColors.blocker,
           emphasize: count > 0,
         );
       case DashboardWidgetType.kpiPendingApprovals:

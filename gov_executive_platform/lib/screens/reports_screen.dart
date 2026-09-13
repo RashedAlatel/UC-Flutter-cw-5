@@ -276,7 +276,7 @@ class _ReportCardState extends State<_ReportCard> {
                   KpiCard(title: 'متوسط الإنجاز', value: Formatters.percent(r.avgProgress), icon: Icons.trending_up_rounded, color: AppColors.success),
                   KpiCard(title: 'متوسط التأخير', value: '${r.avgDelayDays.toStringAsFixed(1)} يوم', icon: Icons.schedule_rounded, color: AppColors.warning),
                   KpiCard(title: 'المخاطر', value: '${r.totalRisks}', icon: Icons.warning_amber_rounded, color: AppColors.danger),
-                  KpiCard(title: 'العوائق', value: '${r.totalBlockers}', icon: Icons.block_rounded, color: const Color(0xFFE0692B)),
+                  KpiCard(title: 'العوائق', value: '${r.totalBlockers}', icon: Icons.block_rounded, color: AppColors.blocker),
                   KpiCard(title: 'قرارات معلقة', value: '${r.pendingDecisions}', icon: Icons.gavel_rounded, color: AppColors.info),
                 ],
               );

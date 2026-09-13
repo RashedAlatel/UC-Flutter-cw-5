@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
+import '../theme/status_palette.dart';
 
 /// شكوى أو اقتراح يرفعه موظف إلى مسؤول النظام.
 enum FeedbackKind {
@@ -37,18 +37,8 @@ enum FeedbackStatus {
     }
   }
 
-  Color get color {
-    switch (this) {
-      case FeedbackStatus.submitted:
-        return AppColors.info;
-      case FeedbackStatus.inReview:
-        return AppColors.warning;
-      case FeedbackStatus.resolved:
-        return AppColors.success;
-      case FeedbackStatus.dismissed:
-        return AppColors.textSecondary;
-    }
-  }
+  /// لونُ الحالة — **والقرارُ في `status_palette.dart`**.
+  Color get color => StatusPalette.feedbackTone(name).fill;
 
   static FeedbackStatus fromName(String name) =>
       FeedbackStatus.values.firstWhere((e) => e.name == name, orElse: () => FeedbackStatus.submitted);

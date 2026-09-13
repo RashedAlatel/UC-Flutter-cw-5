@@ -160,6 +160,22 @@ class AppPalette {
   static const Color slate700 = Color(0xFF44505E);
   static const Color slate800 = Color(0xFF2B3642);
   static const slate = Swatch(s50: slate50, s100: slate100, s300: slate300, s600: slate600, s700: slate700, s800: slate800);
+  // ــــ لونا الهوية الافتراضيان ــــ
+  //
+  // وهما **هويةٌ لا معنى**: يغيّرهما مسؤولُ النظام من شاشة المظهر، ولا
+  // تسري عليهما قاعدةُ الدلالة. ويُسمَّيان هنا ليبقى كلُّ لونٍ في المنصة
+  // مكتوباً بالرقم في ملفٍّ واحد.
+
+  /// أخضرُ الكويت العميق — الهويةُ الافتراضية.
+  static const Color brandGreen = Color(0xFF0E4D3C);
+
+  /// ذهبيٌّ رسميّ — لونُ التمييز الافتراضي.
+  static const Color brandGold = Color(0xFFC9A227);
+
+  /// ودرجتاه المشتقّتان ابتداءً — تُعاد اشتقاقُهما مع كلّ تغييرِ هوية.
+  static const Color brandGreenLight = Color(0xFF1A7A5E);
+  static const Color brandGreenDark = Color(0xFF072E24);
+
   /// نصُّ المتن والعناوين.
   static const Color ink = Color(0xFF15202B);
 

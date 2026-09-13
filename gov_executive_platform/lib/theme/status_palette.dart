@@ -208,6 +208,18 @@ class StatusPalette {
         _ => info,
       };
 
+  /// وأيقونةُ النمط كذلك — **وكانت مكرّرةً هي الأخرى**.
+  ///
+  /// فاللونُ والأيقونةُ قرارٌ واحد: «هذا تحذير» يُقال بالاثنين معاً. ولو
+  /// افترقا لَظهر يوماً إعلانٌ بلونِ خطرٍ وأيقونةِ معلومة.
+  static IconData announcementIcon(String style) => switch (style) {
+        'info' => Icons.info_outline_rounded,
+        'success' => Icons.check_circle_outline_rounded,
+        'warning' => Icons.warning_amber_rounded,
+        'danger' => Icons.error_outline_rounded,
+        _ => Icons.info_outline_rounded,
+      };
+
   // ــــــــــــــ بنودُ التقرير الدوري ــــــــــــــ
 
   static StatusTone reportItemTone(String status) => switch (status) {
@@ -215,6 +227,39 @@ class StatusPalette {
         'late_' => blocker,
         'needsFollowUp' => warning,
         'normal' => success,
+        _ => neutral,
+      };
+
+  // ــــــــــــــ شدّةُ بند التقرير اليومي ــــــــــــــ
+
+  static StatusTone severityTone(String severity) => switch (severity) {
+        'critical' => danger,
+        'needsAttention' => warning,
+        'normal' => success,
+        _ => neutral,
+      };
+
+  // ــــــــــــــ مستوى النشاط في التقرير الدوري ــــــــــــــ
+
+  /// و«متوسّط» **معلومةٌ زرقاء لا لونَ هوية**.
+  ///
+  /// كان `AppColors.primary` — وهو ثاني تسرُّبٍ للهوية إلى المعنى بعد «قيد
+  /// المراجعة»: من غيّر لونَ منصّته غيّر معه معنى «نشاطٍ متوسّط». والنشاطُ
+  /// خبرٌ يُقال لا حكمٌ يُصدَر، فالأزرقُ بابُه.
+  static StatusTone activityTone(String level) => switch (level) {
+        'high' => success,
+        'medium' => info,
+        'low' => warning,
+        'none' => neutral,
+        _ => neutral,
+      };
+
+  // ــــــــــــــ خلايا التقويم ــــــــــــــ
+
+  static StatusTone calendarDayTone(String state) => switch (state) {
+        'hasUpdate' => success,
+        'missed' => warning,
+        'disabled' => neutral,
         _ => neutral,
       };
 

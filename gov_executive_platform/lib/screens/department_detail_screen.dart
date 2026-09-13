@@ -88,7 +88,7 @@ class DepartmentDetailScreen extends StatelessWidget {
                 KpiCard(title: 'نسبة الإنجاز', value: Formatters.percent(progress), icon: Icons.trending_up_rounded, color: AppColors.success),
                 KpiCard(title: 'متوسط التأخير', value: '${delay.toStringAsFixed(1)} يوم', icon: Icons.schedule_rounded, color: AppColors.warning),
                 KpiCard(title: 'مخاطر قائمة', value: '$risks', icon: Icons.warning_amber_rounded, color: AppColors.danger),
-                KpiCard(title: 'عوائق نشطة', value: '$blockers', icon: Icons.block_rounded, color: const Color(0xFFE0692B)),
+                KpiCard(title: 'عوائق نشطة', value: '$blockers', icon: Icons.block_rounded, color: AppColors.blocker),
               ],
             );
           }),

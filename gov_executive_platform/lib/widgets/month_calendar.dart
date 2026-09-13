@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
+import '../theme/status_palette.dart';
 
 /// يوم بلا وقت — مفتاحُ المقارنة في التقويم.
 DateTime dayOnly(DateTime d) => DateTime(d.year, d.month, d.day);
@@ -184,13 +185,14 @@ class _MonthCalendarState extends State<MonthCalendar> {
       background = AppColors.primary;
       foreground = AppColors.onBrand(AppColors.primary);
     } else {
+      // ولونُ الحالة من `status_palette.dart` — لا يقرّره التقويمُ لنفسه.
       switch (state) {
         case CalendarDayState.hasUpdate:
-          background = AppColors.success.withValues(alpha: 0.16);
+          background = StatusPalette.calendarDayTone(state.name).fill.withValues(alpha: 0.16);
         case CalendarDayState.missed:
-          background = AppColors.warning.withValues(alpha: 0.14);
+          background = StatusPalette.calendarDayTone(state.name).fill.withValues(alpha: 0.14);
         case CalendarDayState.disabled:
-          foreground = AppColors.textSecondary.withValues(alpha: 0.4);
+          foreground = StatusPalette.calendarDayTone(state.name).fill.withValues(alpha: 0.4);
         case CalendarDayState.plain:
           break;
       }
@@ -238,8 +240,12 @@ class _Legend extends StatelessWidget {
       runSpacing: 4,
       alignment: WrapAlignment.center,
       children: [
-        _LegendItem(color: AppColors.success.withValues(alpha: 0.16), label: 'فيه تحديث'),
-        _LegendItem(color: AppColors.warning.withValues(alpha: 0.14), label: 'مضى بلا تحديث'),
+        _LegendItem(
+            color: StatusPalette.calendarDayTone('hasUpdate').fill.withValues(alpha: 0.16),
+            label: 'فيه تحديث'),
+        _LegendItem(
+            color: StatusPalette.calendarDayTone('missed').fill.withValues(alpha: 0.14),
+            label: 'مضى بلا تحديث'),
         _LegendItem(color: AppColors.primary, label: 'المختار'),
       ],
     );

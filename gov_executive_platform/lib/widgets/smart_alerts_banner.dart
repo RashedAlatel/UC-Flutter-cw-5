@@ -6,6 +6,7 @@ import '../screens/project_detail_screen.dart';
 import '../theme/app_theme.dart';
 import 'progress_bar.dart';
 import 'status_chip.dart';
+import '../theme/status_palette.dart';
 
 /// شريط التنبيهات الذكية التلقائية (محسوبة حيّة من بيانات المشاريع حسب
 /// إعدادات مسؤول النظام في "إعدادات المظهر") — يظهر أعلى كل صفحة، والضغط
@@ -32,19 +33,12 @@ class _AlertBar extends StatelessWidget {
   final ProjectAlertGroup group;
   const _AlertBar({required this.group});
 
-  Color get _color {
-    switch (group.style) {
-      case AnnouncementStyle.info:
-        return AppColors.info;
-      case AnnouncementStyle.success:
-        return AppColors.success;
-      case AnnouncementStyle.warning:
-        return AppColors.warning;
-      case AnnouncementStyle.danger:
-        return AppColors.danger;
-    }
-  }
+  /// لونُ النمط — **والقرارُ في `status_palette.dart`**.
+  Color get _color => StatusPalette.announcementTone(group.style.name).fill;
 
+  /// وأيقونتُه **تبقى هنا بقصد**: تحذيرُ هذه اللافتة تأخيرٌ، فأيقونتُه
+  /// ساعةٌ لا مثلَّثُ تحذير — وهو فرقٌ مقصودٌ عن لافتة الإعلانات. وتوحيدُها
+  /// مع نظيرتها كان سيمحو معنىً لا تكراراً.
   IconData get _icon {
     switch (group.style) {
       case AnnouncementStyle.info:

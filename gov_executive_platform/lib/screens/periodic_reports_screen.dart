@@ -26,6 +26,7 @@ import '../widgets/command_band.dart';
 import '../widgets/filter_bar.dart';
 import '../widgets/kpi_card.dart';
 import 'periodic_report_settings_dialog.dart';
+import '../theme/status_palette.dart';
 
 class PeriodicReportsScreen extends StatefulWidget {
   const PeriodicReportsScreen({super.key});
@@ -444,12 +445,10 @@ class _ActivityChip extends StatelessWidget {
   final int total;
   const _ActivityChip({required this.level, required this.total});
 
-  Color get _color => switch (level) {
-        ActivityLevel.high => AppColors.success,
-        ActivityLevel.medium => AppColors.primary,
-        ActivityLevel.low => AppColors.warning,
-        ActivityLevel.none => AppColors.textSecondary,
-      };
+  /// لونُ مستوى النشاط — **والقرارُ في `status_palette.dart`**.
+  ///
+  /// وكان «متوسّط» بلون الهوية، فكان تغييرُ الهوية يغيّر معناه.
+  Color get _color => StatusPalette.activityTone(level.name).fill;
 
   @override
   Widget build(BuildContext context) {
@@ -850,12 +849,8 @@ class _ReportFilterBar extends StatelessWidget {
 
 // ─────────────────── ثالثاً: المشاريع والأعمال ───────────────────
 
-Color _statusColor(ReportItemStatus s) => switch (s) {
-      ReportItemStatus.needsIntervention => AppColors.danger,
-      ReportItemStatus.late_ => const Color(0xFFE0692B),
-      ReportItemStatus.needsFollowUp => AppColors.warning,
-      ReportItemStatus.normal => AppColors.success,
-    };
+/// لونُ حالةِ بندٍ في التقرير — **والقرارُ في `status_palette.dart`**.
+Color _statusColor(ReportItemStatus s) => StatusPalette.reportItemTone(s.name).fill;
 
 /// عددٌ قد لا ينطبق — «—» لا صفر. راجع [ItemPerformance].
 Widget _num(int? v) => Text(

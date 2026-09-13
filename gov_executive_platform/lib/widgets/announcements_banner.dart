@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/announcement.dart';
-import '../theme/app_theme.dart';
+import '../theme/status_palette.dart';
 
 /// شريط الإشعارات العامة التي أنشأها مسؤول النظام — يظهر أعلى كل صفحة لكل
 /// المستخدمين. يمكن لأي مستخدم إخفاء إشعار لجلسته الحالية فقط (لا يُحذف من
@@ -37,31 +37,12 @@ class _AnnouncementBar extends StatelessWidget {
   final VoidCallback onDismiss;
   const _AnnouncementBar({required this.announcement, required this.onDismiss});
 
-  Color get _color {
-    switch (announcement.style) {
-      case AnnouncementStyle.info:
-        return AppColors.info;
-      case AnnouncementStyle.success:
-        return AppColors.success;
-      case AnnouncementStyle.warning:
-        return AppColors.warning;
-      case AnnouncementStyle.danger:
-        return AppColors.danger;
-    }
-  }
+  /// لونُ النمط وأيقونتُه — **والقرارُ في `status_palette.dart`**.
+  ///
+  /// وكان هذا المفتاحُ مكتوباً **ثلاثَ مرّاتٍ متطابقة** في ثلاثة ملفّات.
+  Color get _color => StatusPalette.announcementTone(announcement.style.name).fill;
 
-  IconData get _icon {
-    switch (announcement.style) {
-      case AnnouncementStyle.info:
-        return Icons.info_outline_rounded;
-      case AnnouncementStyle.success:
-        return Icons.check_circle_outline_rounded;
-      case AnnouncementStyle.warning:
-        return Icons.warning_amber_rounded;
-      case AnnouncementStyle.danger:
-        return Icons.error_outline_rounded;
-    }
-  }
+  IconData get _icon => StatusPalette.announcementIcon(announcement.style.name);
 
   @override
   Widget build(BuildContext context) {

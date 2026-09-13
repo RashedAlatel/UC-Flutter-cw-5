@@ -342,7 +342,7 @@ class _DailyUpdateFormState extends State<DailyUpdateForm> {
                       hint: 'أضف عائقاً واضغط إدخال',
                       items: _blockers,
                       icon: Icons.block_rounded,
-                      color: const Color(0xFFE0692B),
+                      color: AppColors.blocker,
                       onChanged: () => setState(() {}),
                     ),
                     const SizedBox(height: 16),

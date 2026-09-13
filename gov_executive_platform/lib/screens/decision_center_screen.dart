@@ -11,6 +11,7 @@ import '../widgets/command_band.dart';
 import '../utils/formatters.dart';
 import '../widgets/field_changes_table.dart';
 import '../widgets/status_chip.dart';
+import '../theme/status_palette.dart';
 
 class DecisionCenterScreen extends StatefulWidget {
   const DecisionCenterScreen({super.key});
@@ -513,23 +514,10 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color color;
-    switch (status) {
-      case DecisionStatus.pending:
-        color = AppColors.warning;
-        break;
-      case DecisionStatus.approved:
-        color = AppColors.success;
-        break;
-      case DecisionStatus.rejected:
-        color = AppColors.danger;
-        break;
-      // «معاد للتعديل» ليس رفضاً، فلا يُلوَّن بلونه: الطلبُ حيٌّ عند مقدّمه
-      // ينتظر تصحيحاً — وهي حالُ متابعةٍ لا حالُ انتهاء.
-      case DecisionStatus.returnedForRevision:
-        color = AppColors.info;
-        break;
-    }
+    // و«معاد للتعديل» ليس رفضاً فلا يُلوَّن بلونه: الطلبُ حيٌّ عند مقدّمه
+    // ينتظر تصحيحاً — وهي حالُ متابعةٍ لا حالُ انتهاء. والقرارُ كلُّه في
+    // `status_palette.dart`.
+    final color = StatusPalette.decisionTone(status.name).fill;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),

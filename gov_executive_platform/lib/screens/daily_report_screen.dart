@@ -8,6 +8,7 @@ import '../widgets/command_band.dart';
 import 'daily_report_settings_dialog.dart';
 import 'project_detail_screen.dart';
 import 'work_detail_screen.dart';
+import '../theme/status_palette.dart';
 
 /// التقرير التنفيذي اليومي — **عرضاً فقط**.
 ///
@@ -179,11 +180,8 @@ String _formatDay(DateTime d) {
   return '${d.year}/${two(d.month)}/${two(d.day)}';
 }
 
-Color _colorOf(ReportSeverity s) => switch (s) {
-      ReportSeverity.critical => AppColors.danger,
-      ReportSeverity.needsAttention => AppColors.warning,
-      ReportSeverity.normal => AppColors.success,
-    };
+/// لونُ شدّةِ البند — **والقرارُ في `status_palette.dart`**.
+Color _colorOf(ReportSeverity s) => StatusPalette.severityTone(s.name).fill;
 
 class _ReportBody extends StatelessWidget {
   final DailyReport report;

@@ -1,0 +1,337 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../data/app_store.dart';
+import '../models/app_user.dart';
+import '../models/assignment_policy.dart';
+import '../models/enums.dart';
+import '../theme/app_theme.dart';
+import '../widgets/executors_field.dart';
+import '../widgets/person_picker.dart';
+import '../widgets/section_picker.dart';
+
+/// نموذج إضافة مشروع: لمسؤول النظام يُنشئ المشروع مباشرة (موافقته الذاتية
+/// كافية)، ولأي دور آخر يُرسل "طلب إضافة مشروع" ينتظر اعتماد مسؤول النظام
+/// من مركز القرارات التنفيذية. إن لم تُحدَّد [departmentId] (الاستدعاء من
+/// شاشة "المشاريع" الموحّدة بدل شاشة إدارة بعينها) يظهر حقل اختيار إدارة
+/// اختياري يشمل خيار "بدون إدارة" — لا يتوفر هذا المسار إلا لمسؤول النظام.
+/// اسم إدارة المستخدم كما يُعرض ويُبحث به — و«بلا إدارة» ليست فراغاً: من لم
+/// يُربط بإدارة بعد يجب أن يظهر في البحث لا أن يختفي منه.
+String _departmentNameOf(AppStore store, AppUser user) {
+  final id = user.departmentId;
+  if (id == null || id.isEmpty) return 'بلا إدارة';
+  return store.departmentById(id)?.name ?? 'بلا إدارة';
+}
+
+class RequestProjectDialog extends StatefulWidget {
+  final String? departmentId;
+  const RequestProjectDialog({super.key, this.departmentId});
+
+  @override
+  State<RequestProjectDialog> createState() => _RequestProjectDialogState();
+}
+
+class _RequestProjectDialogState extends State<RequestProjectDialog> {
+  final _nameCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
+  List<String> _executorNames = [];
+  PriorityLevel _priority = PriorityLevel.medium;
+  DateTime _startDate = DateTime.now();
+  DateTime _dueDate = DateTime.now().add(const Duration(days: 60));
+  final Set<String> _managerUids = {};
+  final Set<String> _executorUids = {};
+  late String? _selectedDepartmentId = widget.departmentId;
+  String? _sectionId;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate({required bool isStart}) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: isStart ? _startDate : _dueDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 3)),
+    );
+    if (picked != null) {
+      setState(() => isStart ? _startDate = picked : _dueDate = picked);
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_nameCtrl.text.trim().isEmpty || _descCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'الرجاء تعبئة اسم المشروع ووصفه');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final store = context.read<AppStore>();
+    final departmentId = _selectedDepartmentId ?? '';
+    // المعيار هو النطاق لا الدور: مسؤول النظام يُنشئ في أي إدارة، وصاحب
+    // منحة «إنشاء المشاريع» يُنشئ داخل نطاقه، ومن سواهما يقدّم طلباً.
+    final direct = store.canCreateIn(departmentId);
+
+    // ــــ ولماذا `try` هنا الآن ــــ
+    //
+    // لم تكن، فكان أيُّ خطأ يرتفع من المتجر يترك `_busy` على `true` بلا
+    // رجعة: نافذةٌ مجمَّدة على دوّارة، وزرٌّ معطَّل، ولا رسالة. والكتابةُ
+    // **وقعت** قبل الخطأ. فيُغلقها صاحبها ظانّاً أنها فشلت ويعيدها — فيصير
+    // الطلب طلبين في مركز القرارات. وهذا ما وقع فعلاً حين رُدّت كتابة سطر
+    // التدقيق: كلُّ مشروعٍ يُطلب ظهر مرّتين.
+    //
+    // والنمط قائمٌ في `works_list_screen` و`daily_update_form` — فاتَ هذه
+    // وحدها، وهي أكثرهنّ استعمالاً.
+    try {
+      if (direct) {
+        await store.createProjectDirect(
+          departmentId: departmentId,
+          sectionId: _sectionId,
+          name: _nameCtrl.text.trim(),
+          description: _descCtrl.text.trim(),
+          startDate: _startDate,
+          dueDate: _dueDate,
+          priority: _priority,
+          executorNames: _executorNames,
+          managerUids: _managerUids.toList(),
+          executorUids: _executorUids.toList(),
+        );
+      } else {
+        // والمكرّر يُردّ برسالةٍ لا بكتابةٍ ثانية — راجع `findDuplicatePending`.
+        final blocked = await store.submitProjectRequest(
+          departmentId: departmentId,
+          name: _nameCtrl.text.trim(),
+          description: _descCtrl.text.trim(),
+          startDate: _startDate,
+          dueDate: _dueDate,
+          priority: _priority,
+          executorNames: _executorNames,
+          managerUids: _managerUids.toList(),
+          executorUids: _executorUids.toList(),
+          sectionId: _sectionId,
+        );
+        if (blocked != null) {
+          if (!mounted) return;
+          setState(() {
+            _busy = false;
+            _error = blocked;
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'تعذّر الحفظ: $e';
+      });
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(direct
+            ? 'تمت إضافة المشروع بنجاح'
+            : 'تم إرسال طلب إضافة المشروع للاعتماد'),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final departmentId = _selectedDepartmentId;
+    final isAdmin = store.canCreateIn(departmentId);
+    // ــــ من يُسنَد إلى المشروع ــــ
+    //
+    // كانت القائمة `users.where(role == projectOfficer)` — فالموظف صاحب
+    // صلاحية الإنشاء **لا يجد اسمه فيها** ولو أراد تسجيل نفسه. ثم صارت
+    // «كل معتمَد في الإدارة»، فظهر **المسؤول التنفيذي** لمن هو دونه.
+    //
+    // والمعيار الآن واحدٌ لكل المنصة: `eligibleAssignees` — الحالة والإدارة
+    // و**رتبة الإسناد** معاً. لا شرط محلياً في هذه الشاشة.
+    final candidates = eligibleAssignees(
+      allUsers: store.users,
+      actor: store.currentUser,
+      departmentId: departmentId,
+    );
+    final me = store.currentUser;
+    return AlertDialog(
+      title: Text(isAdmin ? 'إضافة مشروع جديد' : 'طلب إضافة مشروع جديد'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: 'اسم المشروع')),
+              const SizedBox(height: 12),
+              TextField(controller: _descCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'وصف المشروع')),
+              const SizedBox(height: 12),
+              ExecutorsField(
+                initial: _executorNames,
+                departmentId: departmentId,
+                onChanged: (v) => _executorNames = v,
+              ),
+              const SizedBox(height: 12),
+              if (widget.departmentId == null) ...[
+                DropdownButtonFormField<String?>(
+                  initialValue: _selectedDepartmentId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'الإدارة (اختياري)'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('بدون إدارة')),
+                    ...store.departments.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))),
+                  ],
+                  onChanged: (v) => setState(() => _selectedDepartmentId = v),
+                ),
+                const SizedBox(height: 12),
+              ],
+              // القسم داخل الإدارة — لا يظهر إلا للإدارات التي أنشأت أقساماً،
+              // فلا يُزحم النموذج على من لا يستخدمها.
+              if (departmentId != null && departmentId.isNotEmpty) ...[
+                SectionPicker(
+                  departmentId: departmentId,
+                  initialSectionId: _sectionId,
+                  onChanged: (v) => _sectionId = v,
+                ),
+                if (store.sectionsOf(departmentId).isNotEmpty) const SizedBox(height: 12),
+              ],
+              // ــــ العضوية: تُختار هنا وتُكتب مع المشروع ــــ
+              //
+              // وتظهر لمن يُنشئ ولمن يطلب معاً: الطلب يحمل العضوية في حمولته،
+              // فيخرج المشروع المُعتمَد وعليه أعضاؤه ويظهر لهم في «المُسنَد
+              // إليّ» فوراً. وكان يخرج بلا عضو واحد فلا يجده أحد.
+              if (me != null) ...[
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: OutlinedButton.icon(
+                    onPressed: () => setState(() {
+                      final mine = _managerUids.contains(me.id) && _executorUids.contains(me.id);
+                      if (mine) {
+                        _managerUids.remove(me.id);
+                        _executorUids.remove(me.id);
+                      } else {
+                        _managerUids.add(me.id);
+                        _executorUids.add(me.id);
+                      }
+                    }),
+                    icon: Icon(
+                      _managerUids.contains(me.id) && _executorUids.contains(me.id)
+                          ? Icons.person_remove_outlined
+                          : Icons.person_add_alt_1_outlined,
+                      size: 16,
+                    ),
+                    label: Text(
+                      _managerUids.contains(me.id) && _executorUids.contains(me.id)
+                          ? 'أزلني من المشروع'
+                          : 'أضفني مديراً ومنفّذاً',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              if (candidates.isNotEmpty) ...[
+                PersonPicker(
+                  label: 'مديرو المشروع',
+                  hint: 'من يقود المشروع ويكتب تحديثاته اليومية',
+                  candidates: candidates,
+                  departmentNameOf: (u) => _departmentNameOf(store, u),
+                  selected: _managerUids,
+                  onChanged: () => setState(() {}),
+                ),
+                const SizedBox(height: 10),
+                PersonPicker(
+                  label: 'المنفّذون (حسابات)',
+                  hint: 'أعضاء المنصة المسجَّلون على المشروع — غير الأسماء المكتوبة أعلاه',
+                  candidates: candidates,
+                  departmentNameOf: (u) => _departmentNameOf(store, u),
+                  selected: _executorUids,
+                  onChanged: () => setState(() {}),
+                ),
+                const SizedBox(height: 12),
+              ] else ...[
+                // صندوقٌ خالٍ يبدو عطلاً. والسبب يُقال: إمّا لا حساب في
+                // الإدارة، وإمّا أن من فيها أعلى من المستخدم في ترتيب الإسناد.
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(
+                    emptyAssigneeReason(
+                      allUsers: store.users,
+                      actor: store.currentUser,
+                      departmentId: departmentId,
+                    ),
+                    style: const TextStyle(
+                        fontSize: 12, height: 1.7, color: AppColors.textSecondary),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              DropdownButtonFormField<PriorityLevel>(
+                initialValue: _priority,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'الأولوية'),
+                items: PriorityLevel.values.map((p) => DropdownMenuItem(value: p, child: Text(p.label))).toList(),
+                onChanged: (v) => setState(() => _priority = v ?? _priority),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _pickDate(isStart: true),
+                      icon: const Icon(Icons.event_outlined, size: 16),
+                      label: Text('البدء: ${_startDate.year}/${_startDate.month}/${_startDate.day}'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _pickDate(isStart: false),
+                      icon: const Icon(Icons.event_available_outlined, size: 16),
+                      label: Text('الاستحقاق: ${_dueDate.year}/${_dueDate.month}/${_dueDate.day}'),
+                    ),
+                  ),
+                ],
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+        ElevatedButton(
+          onPressed: _busy ? null : _submit,
+          child: _busy
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : Text(isAdmin ? 'إضافة المشروع' : 'إرسال الطلب'),
+        ),
+      ],
+    );
+  }
+}
+
+/// اختيار أعضاء من حسابات الإدارة.
+///
+/// قائمة مربّعات لا قائمة منسدلة: العضوية متعددة، والمنسدلة تعطي واحداً.
+/// وهي محدودة الارتفاع وتُمرَّر داخلها — إدارة فيها ثلاثون موظفاً تجعل
+/// الحوار أطول من الشاشة وتُخفي زرّ الحفظ.

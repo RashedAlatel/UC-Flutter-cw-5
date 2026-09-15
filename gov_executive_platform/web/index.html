@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <!-- بدون هذا الوسم تعرض متصفحات الجوال (سفاري خاصةً) الصفحة بعرض سطح
+       المكتب مصغّرة، فتبدو الخطوط دقيقة ولا تعمل نقاط التوقف الاستجابية. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0E4D3C">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="المنصة التنفيذية لمتابعة مشاريع وزارة العدل — دولة الكويت">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="وزارة العدل — المنصة التنفيذية">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>وزارة العدل — المنصة التنفيذية</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <!--
+    You can customize the "flutter_bootstrap.js" script.
+    This is useful to provide a custom configuration to the Flutter loader
+    or to give the user feedback during the initialization process.
+
+    For more details:
+    * https://docs.flutter.dev/platform-integration/web/initialization
+  -->
+  <!--
+    تحميل محرك الرسم (CanvasKit) من ملفات المنصة نفسها لا من CDN خارجي.
+    بدون هذا يجلبه Flutter من www.gstatic.com عند كل فتح (نحو ٧ ميغابايت)،
+    وأي شبكة حكومية تحجب هذا النطاق تُظهر للمستخدم شاشة بيضاء فارغة بلا رسالة
+    خطأ. التثبيت هنا يجعل السلوك صحيحاً حتى لو بُني المشروع بلا راية
+    ‎--no-web-resources-cdn.
+  -->
+  <!--
+    شاشة تحميل مبدئية + حارس إقلاع.
+
+    سبب وجود الحارس: حزم Firebase تُحمَّل من www.gstatic.com أثناء تسجيل
+    إضافات Flutter، أي **قبل** تنفيذ main() في Dart. فإذا حُجب النطاق أو
+    انقطعت الشبكة لا يبدأ التطبيق أصلاً ولا يمكن التقاط العطل من داخل Dart،
+    فيرى المستخدم صفحة بيضاء صامتة بلا أي تفسير. الحارس هنا مكتوب بجافاسكربت
+    خالصة فيعمل مهما كان موضع التعليق.
+  -->
+  <style>
+    html, body { margin: 0; height: 100%; background: #072E24; }
+    #boot {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; text-align: center;
+      padding: 24px; box-sizing: border-box;
+      /* أعلى قيمة ممكنة — وهذا سطر جوهري لا تجميلي:
+         محرك Flutter يُلحق عنصره <flutter-view> بـ body وقت التشغيل، أي بعد
+         هذه الشاشة في ترتيب المستند. وعنصران موضوعان بلا z-index يفوز آخرهما
+         ترتيباً، فكان المحرك يغطّي شاشة الإقلاع بلوحة رسم شفافة فارغة قبل أن
+         يرسم التطبيق شيئاً — فيرى المستخدم خلفية body الخضراء وحدها ويظن أن
+         المنصة لا تفتح. قِيس ذلك على الجوال: العنصر في منتصف الشاشة كان
+         flutter-view بينما #boot ما زال موجوداً وظاهراً خلفه. */
+      z-index: 2147483647;
+    }
+    #boot .card { max-width: 460px; }
+    #boot h1 { font-size: 17px; margin: 0 0 10px; font-weight: 800; }
+    #boot p  { font-size: 13.5px; line-height: 1.9; color: rgba(255,255,255,.75); margin: 0 0 18px; }
+    #boot button {
+      background: #C9A227; color: #072E24; border: 0; border-radius: 8px;
+      padding: 11px 22px; font-size: 13.5px; font-weight: 700; cursor: pointer;
+      font-family: inherit;
+    }
+    .spinner {
+      width: 34px; height: 34px; margin: 0 auto 18px; border-radius: 50%;
+      border: 3px solid rgba(255,255,255,.22); border-top-color: #C9A227;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+  <div id="boot">
+    <div class="card">
+      <div class="spinner" id="boot-spinner"></div>
+      <h1 id="boot-title">جارٍ تحميل المنصة… <span id="boot-elapsed" style="opacity:.6;font-weight:600"></span></h1>
+      <p id="boot-msg">وزارة العدل — دولة الكويت</p>
+      <button id="boot-retry" style="display:none" onclick="location.reload()">إعادة المحاولة</button>
+      <button id="boot-skip" style="display:none;background:transparent;color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.3);margin-inline-start:8px" onclick="hideBoot()">المتابعة على أي حال</button>
+      <!-- رقم الإصدار ورابط الفحص يظهران دائماً: أي لقطة شاشة يرسلها المستخدم
+           تحمل عندها النسخة المنشورة وطريق التشخيص، فلا نحتاج جولة أسئلة. -->
+      <div style="margin-top:22px;font-size:11px;color:rgba(255,255,255,.42)">
+        <span id="boot-version">…</span>
+        &nbsp;·&nbsp;<a href="diag.html" style="color:rgba(255,255,255,.55)">فحص تقني</a>
+      </div>
+    </div>
+  </div>
+
+
+  <script>
+    // مقصود: يُحمَّل المُقلِع كملف خارجي ولا يُدرَج محتواه هنا.
+    //
+    // إدراج محتواه عبر رموز القوالب (flutter_js / flutter_build_config)
+    // يضع بصمة إصدار
+    // التطبيق (engineRevision) داخل هذا الملف، فتُجمَّد النسخة كاملةً في أي
+    // متصفح يخزّن index.html — وهو ما جعل سفاري يعرض النسخة القديمة بعد
+    // النشر. إبقاؤه ملفاً خارجياً (وهو no-cache في firebase.json) يضمن جلب
+    // أحدث إصدار دائماً حتى لو كانت نسخة index.html مخزّنة.
+    //
+    // مسار CanvasKit المحلي يُضبط عبر راية البناء --no-web-resources-cdn،
+    // انظر tool/build_web.sh.
+
+    // خطأ Dart قاتل: يُعرض ولا يُمحى. التطبيق يُرسل إشارة «ظهرت واجهتي» من
+    // أول إطار حتى لو فشل بناء شجرته، فكانت الإشارة تمسح رسالة الخطأ بعد
+    // عرضها بأجزاء من الثانية ويعود المستخدم إلى سطح صامت. أما الخطأ الذي
+    // يقع **بعد** ظهور الواجهة فلا يُعرض إطلاقاً: تطبيق يعمل لا تُغطّى واجهته
+    // برسالة عطل.
+    var bootFatal = false;
+    var bootReady = false;
+
+    function hideBoot() {
+      if (bootFatal) return;
+      bootReady = true;
+      clearTimeout(bootTimer);
+      clearInterval(bootTick);
+      if (bootObserver) bootObserver.disconnect();
+      var el = document.getElementById('boot');
+      if (el) el.remove();
+    }
+
+    // أخطاء جافاسكربت تُكتب على شاشة الإقلاع نفسها.
+    //
+    // على الجوال لا توجد طرفية يفتحها المستخدم، فخطأ يقتل الإقلاع يبقى سرّاً
+    // بينه وبين المتصفح — وكل ما يصلنا "صفحة لا تفتح". هذه الأسطر تُخرج الخطأ
+    // إلى الشاشة، فتحمله أي لقطة يرسلها. ولا نكتب شيئاً بعد ظهور الواجهة:
+    // خطأ متأخر في تطبيق يعمل ليس عطل إقلاع، وإظهاره يُقلق بلا سبب.
+    var bootErrors = [];
+    function noteBootError(text) {
+      var msg = String(text).slice(0, 300);
+      if (bootErrors.indexOf(msg) !== -1) return;
+      bootErrors.push(msg);
+      var el = document.getElementById('boot-msg');
+      if (!el) return;
+      // يُهرَّب نص كل خطأ **قبل** الوصل لا بعده: الوصل بعد التهريب يُهرِّب
+      // فواصل الأسطر التي أضفناها نحن، فتظهر للمستخدم كنصّ خام.
+      var safe = bootErrors.map(function (m) {
+        return m.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      });
+      el.innerHTML = 'تعذّر تشغيل المنصة على هذا المتصفح:<br>' +
+        '<span style="font-size:11.5px;color:rgba(255,255,255,.6);word-break:break-word">' +
+        safe.join('<br>') + '</span>';
+    }
+    window.addEventListener('error', function (e) {
+      noteBootError((e && e.message ? e.message : 'خطأ غير معروف') +
+        (e && e.filename ? ' @ ' + String(e.filename).split('/').pop() : ''));
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      noteBootError('وعد مرفوض: ' + (e && e.reason ? e.reason : '—'));
+    });
+
+    // أخطاء Dart. يستدعيها التطبيق نفسه (راجع lib/boot_signal.dart)، فتصل
+    // إلى الشاشة بدل أن تبقى في طرفية لا يفتحها أحد على الجوال. ونُعيد بناء
+    // شاشة الإقلاع إن كانت قد أُزيلت: خطأ Dart بعد إخفائها هو تحديداً حالة
+    // «السطح الأخضر الصامت» التي نطاردها.
+    window.platformError = function (message) {
+      if (bootReady) return;
+      if (!document.getElementById('boot')) {
+        var el = document.createElement('div');
+        el.id = 'boot';
+        el.innerHTML =
+          '<div class="card">' +
+          '<h1 id="boot-title">تعذّر تشغيل المنصة</h1>' +
+          '<p id="boot-msg"></p>' +
+          '<button onclick="location.reload()">إعادة المحاولة</button>' +
+          '<a href="diag.html" style="display:inline-block;margin-inline-start:8px;background:transparent;' +
+          'color:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.3);border-radius:8px;' +
+          'padding:11px 20px;font-size:13.5px;font-weight:700;text-decoration:none">فحص تقني</a>' +
+          '<div style="margin-top:20px;font-size:11px;color:rgba(255,255,255,.42)" id="boot-version2"></div>' +
+          '</div>';
+        document.body.appendChild(el);
+        showBootVersion();
+      }
+      bootFailed = true;
+      bootFatal = true;
+      var title = document.getElementById('boot-title');
+      if (title) title.textContent = 'تعذّر تشغيل المنصة';
+      var spin = document.getElementById('boot-spinner');
+      if (spin) spin.style.display = 'none';
+      var retry = document.getElementById('boot-retry');
+      if (retry) retry.style.display = 'inline-block';
+      noteBootError('خطأ في التطبيق: ' + message);
+    };
+
+    // المرحلة التي يعرضها التطبيق، تقرأها صفحة الفحص من الإطار.
+    // الاسمان مختلفان عمداً: تسمية المتغيّر والدالة بالاسم نفسه على النافذة
+    // تجعل كلاً منهما يدوس الآخر، فيصير الاستدعاء نصّاً والقراءة دالة.
+    var platformStageValue = '—';
+    window.platformStage = function (stage) { platformStageValue = String(stage); };
+    window.platformStageName = function () { return platformStageValue; };
+
+    // بصمة البناء داخل شاشة الإقلاع. تُحفظ في متغيّر أيضاً لا في العنصر وحده،
+    // لأن الشاشة قد تُزال ثم يُعيد الحارس بناءها — وقتها يجب أن يبقى رقم
+    // الإصدار معنا، فهو أهم معلومة في أي بلاغ عطل.
+    var bootVersionText = 'إصدار غير معروف';
+    function showBootVersion() {
+      var el = document.getElementById('boot-version');
+      if (el) el.textContent = bootVersionText;
+      var el2 = document.getElementById('boot-version2');
+      if (el2) el2.textContent = bootVersionText;
+    }
+    fetch('build.json?t=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        // الالتزام لا التاريخ وحده: التاريخ يتغيّر مع كل ضغطة بناء ولو كانت
+        // الشيفرة قديمة، أما هوية الالتزام فتقول أي شيفرة تعمل أمامك حقاً.
+        bootVersionText = 'إصدار ' + (j.stamp || '—') + (j.commit ? ' · ' + j.commit : '');
+        showBootVersion();
+      })
+      .catch(function () { showBootVersion(); });
+
+    // حارس ما بعد الرسم — آخر باب مفتوح أمام الصمت، ويُغلق هنا.
+    //
+    // إشارة Dart تعني "بُنيت شجرة الودجات"، لا "ظهرت بكسلات على الشاشة". فلو
+    // تعذّر على محرك الرسم أن يرسم (WebGL غير مدعوم، لوحة بمقاس صفر، أو أي
+    // عطل عرض) لأزلنا شاشة الإقلاع وتركنا المستخدم أمام خلفية خضراء صمّاء —
+    // وهو بالضبط ما اشتكى منه. فبعد الإشارة نتحقق أن لوحة الرسم موجودة
+    // وبمقاس حقيقي، وإلا أعدنا رسالة مفهومة بدل الفراغ.
+    //
+    // البحث عن اللوحة **يجب** أن يخترق جذور الظل (shadow roots): محرك Flutter
+    // يضع لوحة الرسم داخل flt-glass-pane ← shadowRoot ← flt-scene-host ←
+    // flt-scene ← flt-canvas-container ← canvas. و`querySelector` العادي لا
+    // يعبر جذر الظل إطلاقاً، فبحث سطحي واحد يرجع "لا توجد لوحة" حتى على
+    // إقلاع سليم تماماً — وهو خطأ أخطر من الصمت نفسه لأنه يُنذر بعطل غير
+    // موجود ويدفع المستخدم لترك منصة تعمل. قِسناه فعلياً: اللوحة موجودة
+    // بمقاس ٤١٢×٨٣٩ داخل الظل بينما البحث السطحي يراها معدومة.
+    function hasPaintedCanvas(root) {
+      var nodes = root.querySelectorAll('*');
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        if (n.tagName === 'CANVAS') {
+          var r = n.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) return true;
+        }
+        if (n.shadowRoot && hasPaintedCanvas(n.shadowRoot)) return true;
+      }
+      return false;
+    }
+
+    // محاولات متتابعة قبل إعلان الفشل: الأجهزة البطيئة قد تتأخر في تجهيز
+    // اللوحة بعد أول بناء للودجات، فإنذار من أول فحص يظلمها.
+    var watchdogTries = 0;
+    function paintWatchdog() {
+      var view = document.querySelector('flutter-view') || document.querySelector('flt-glass-pane');
+      var painted = false;
+      if (view) {
+        var box = view.getBoundingClientRect();
+        painted = box.width > 0 && box.height > 0 && hasPaintedCanvas(view);
+      }
+      if (painted) return;
+      if (++watchdogTries < 3) {
+        setTimeout(paintWatchdog, 2500);
+        return;
+      }
+
+      var el = document.getElementById('boot');
+      if (!el) {
+        // أُزيلت الشاشة عند الإشارة، فنُعيد بناء رسالة بديلة في مكانها.
+        el = document.createElement('div');
+        el.id = 'boot';
+        document.body.appendChild(el);
+      }
+      el.innerHTML =
+        '<div class="card">' +
+        '<h1>تعذّر عرض واجهة المنصة على هذا المتصفح</h1>' +
+        '<p>حُمِّلت المنصة لكن لم تُرسم على الشاشة. قد لا يدعم هذا المتصفح ' +
+        'محرّك الرسم المطلوب، أو منع إعداد فيه تشغيله. جرّب متصفحاً آخر على ' +
+        'الجهاز نفسه، أو افتح صفحة الفحص التقني وأرسل صورتها لمسؤول النظام.</p>' +
+        '<button onclick="location.reload()">إعادة المحاولة</button>' +
+        '<a href="diag.html" style="display:inline-block;margin-inline-start:8px;background:transparent;' +
+        'color:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.3);border-radius:8px;' +
+        'padding:11px 20px;font-size:13.5px;font-weight:700;text-decoration:none">فحص تقني</a>' +
+        '<div style="margin-top:20px;font-size:11px;color:rgba(255,255,255,.42)" id="boot-version2"></div>' +
+        '</div>';
+      showBootVersion();
+    }
+
+    // من يُخفي هذه الشاشة؟ **التطبيق نفسه** عبر هذه الدالة، لا حدث من المحرك.
+    //
+    // كان الإخفاء مربوطاً بـ flutter-first-frame، وهو حدث يُطلقه المحرك عند
+    // أول إطار **ولو كان المشهد فارغاً تماماً**. فكان يُخفي الشاشة قبل أن
+    // يرسم التطبيق أي واجهة حقيقية. الآن يستدعي Dart هذه الدالة بعد أول بناء
+    // فعلي لجذر التطبيق (راجع lib/boot_signal.dart)، فالإخفاء يعني حرفياً
+    // "بُنيت شجرة الودجات" — ويبقى حارس ما بعد الرسم يتأكد أنها ظهرت فعلاً.
+    window.platformUiReady = function () {
+      hideBoot();
+      // مهلة قصيرة قبل الفحص: أول إطار قد يسبق ظهور اللوحة بمقاسها النهائي.
+      setTimeout(paintWatchdog, 2500);
+    };
+
+    // ظهور flutter-view يُحدّث النص فقط ليعرف المستخدم أن التقدّم مستمر.
+    // ولا يفعل ذلك بعد انقضاء المهلة: المحرك قد يُنشئ عنصره متأخراً فيمسح
+    // رسالة الحارس التي تشرح سبب العطل، ويبقى المستخدم بلا تفسير.
+    var bootFailed = false;
+    var bootObserver = new MutationObserver(function () {
+      if (!document.querySelector('flutter-view')) return;
+      bootObserver.disconnect();
+      if (bootFailed) return;
+      var msg = document.getElementById('boot-msg');
+      if (msg) msg.textContent = 'جارٍ الاتصال بخدمات المنصة…';
+    });
+    bootObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+    // عدّاد ثوانٍ حيّ: شاشة ساكنة تبدو متجمّدة، ورقم يتحرّك يطمئن المستخدم أن
+    // العمل جارٍ ويعطينا رقماً يذكره عند الإبلاغ عن أي عطل.
+    var bootStarted = Date.now();
+    var bootTick = setInterval(function () {
+      var el = document.getElementById('boot-elapsed');
+      if (el) el.textContent = '(' + Math.round((Date.now() - bootStarted) / 1000) + ' ث)';
+    }, 1000);
+
+    // إن لم تظهر واجهة خلال ١٢ ثانية نعرض سبباً مفهوماً بدل الانتظار الصامت،
+    // مع مخرج يدوي حتى لا يُحبس المستخدم خلف الشاشة لو كان التطبيق يعمل فعلاً.
+    var bootTimer = setTimeout(function () {
+      clearInterval(bootTick);
+      // خطأ صريح من التطبيق أثمن من تخمين عام عن الشبكة. فإن كان قد وصلنا
+      // سببٌ حقيقي، لا نمسحه برسالة «تأكد من اتصال الشبكة».
+      if (bootFatal) return;
+      bootFailed = true;
+
+      // كل عنصر يُفحص قبل لمسه. سبب ذلك عطل وقع فعلاً: حين يُبلّغ التطبيق عن
+      // خطأ Dart تُعاد بناء بطاقة الإقلاع برسالة الخطأ، فتختفي عناصر الدوّار
+      // والعنوان والعدّاد. ثم تحين هذه المهلة فتصطدم بعنصر غير موجود:
+      //   TypeError: null is not an object
+      //     (evaluating "document.getElementById('boot-elapsed').textContent")
+      // فيموت ما تبقّى من هذه الدالة، ويُضاف خطأ زائف يُربك التشخيص. ولا
+      // يجوز أن يتعطّل حارسُ العطل بعطلٍ من صنعه.
+      var el = document.getElementById('boot-spinner');
+      if (el) el.style.display = 'none';
+      el = document.getElementById('boot-elapsed');
+      if (el) el.textContent = '';
+      el = document.getElementById('boot-title');
+      if (el) el.textContent = 'يستغرق التحميل وقتاً أطول من المعتاد';
+      el = document.getElementById('boot-msg');
+      if (el) {
+        el.innerHTML =
+          'إن استمر ذلك فتأكد من اتصال الشبكة، وإن كنت داخل شبكة الوزارة فقد يكون ' +
+          'الوصول إلى النطاق <strong>www.gstatic.com</strong> محجوباً — يلزم السماح ' +
+          'به لتشغيل المنصة.';
+      }
+      el = document.getElementById('boot-retry');
+      if (el) el.style.display = 'inline-block';
+      el = document.getElementById('boot-skip');
+      if (el) el.style.display = 'inline-block';
+    }, 12000);
+  </script>
+
+  <!--
+    تحميل حزم Firebase من المنصة نفسها بدل www.gstatic.com.
+
+    إضافة firebase_core_web تحقن سكربتاً لكل خدمة من ذلك النطاق وقت التشغيل
+    وقبل أن يُرسم أي شيء، فإن حجبته الشبكة أو أبطأته تعلّقت المنصة قبل ظهورها.
+    لكن الإضافة تتخطّى الحقن **كاملاً** إن وجدت window.firebase_core مضبوطاً
+    مسبقاً (راجع firebase_core_web/lib/src/firebase_core_web.dart:
+    `_initializeCore` — إن لم يكن firebase_core فارغاً عادت الدالة فوراً).
+    فنضبطه هنا من ملفات محلية.
+
+    ــــ ولماذا لا تُكتب أسماء الحزم هنا؟ ــــ
+
+    لأن كتابتها هنا كلّفتنا عطلاً: كانت أربعة أسطر صريحة (app, auth,
+    firestore, functions) صحيحةً يوم كُتبت، ثم أُضيفت firebase_storage
+    للمرفقات فلم يلحقها أحد. وبما أن ضبط firebase_core **يُلغي** حقن البقية
+    لا يُكمّله، بقي window.firebase_storage غير معرَّف، فانهار رفع الملفات
+    بخطأ نوعٍ مشوَّه من داخل Firebase لا يذكر التخزين أصلاً.
+
+    فالقائمة الآن في مكان واحد: tool/fetch_firebase_sdk.sh يشتقّها من
+    pubspec.yaml ويولّد loader.js بجانب الحزم التي جلبها. وهذه الصفحة تستورده
+    ولا تعرف عدد الحزم ولا أسماءها.
+
+    وإن غاب المجلد — أو فشل الاستيراد لأي سبب — لا يحدث شيء وتعود الإضافة
+    لجلب الحزم من الشبكة كما كانت. أي أن أسوأ الاحتمالات هو سلوك اليوم نفسه،
+    لا انحدار.
+  -->
+  <script type="module">
+    // إقلاع Flutter يبدأ من هنا **بعد** محاولة ضبط الحزم المحلية، لا بوسم
+    // مستقل: لو تُرك وسماً مستقلاً لتسابق التحميلان، وقد يسأل التطبيق عن
+    // window.firebase_core قبل أن يُضبط فيعود لجلبه من الشبكة أحياناً وأحياناً
+    // لا — وهو أسوأ من عطل ثابت لأنه يظهر ويختفي.
+    (async () => {
+      try {
+        // المُحمِّل مُولَّد: يستورد كل حزمة جُلبت ويضبط window.firebase_* لها.
+        // الفحص في الإضافة يقع على firebase_core وحده، فضبطُه دون البقية
+        // يُسقط الحزم الأخرى صامتةً — ولذلك يضبطها المُحمِّل كلها معاً.
+        const { default: installFirebaseSdk } = await import('./firebase_sdk/loader.js');
+        await installFirebaseSdk();
+      } catch (e) {
+        // لا شيء: تعود الإضافة لجلب الحزم من الشبكة كما كانت.
+        console.info('حزم Firebase المحلية غير متوفرة، سيُعتمد على المصدر الافتراضي.', e);
+      } finally {
+        // في finally لا في try: مهما فشل ما سبق يجب أن يُقلع التطبيق.
+        var s = document.createElement('script');
+        s.src = 'flutter_bootstrap.js';
+        s.async = true;
+        document.body.appendChild(s);
+      }
+    })();
+  </script>
+  <!-- متصفح لا يفهم الوحدات (module) يتخطّى ما سبق، فيُقلع من هنا. -->
+  <script nomodule src="flutter_bootstrap.js" async></script>
+</body>
+</html>

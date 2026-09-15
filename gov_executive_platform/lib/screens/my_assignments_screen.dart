@@ -12,6 +12,8 @@ import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
 import 'project_detail_screen.dart';
 import 'work_detail_screen.dart';
+import '../widgets/app_card.dart';
+import '../widgets/app_empty_state.dart';
 
 /// «المُسنَد إليّ»: مشاريع المستخدم وأعماله في مكان واحد.
 ///
@@ -51,7 +53,7 @@ class MyAssignmentsScreen extends StatelessWidget {
           // المستخدم نفسه**: بقيةُ الصفحة عملٌ عليه أن ينفّذه، وهذا قرارٌ
           // ينتظره غيره منه.
           if (awaiting.isNotEmpty) ...[
-            _SectionTitle('بانتظار اعتمادك', count: awaiting.length),
+            SectionTitle('بانتظار اعتمادك', count: '(${awaiting.length})'),
             const SizedBox(height: 10),
             Container(
               width: double.infinity,
@@ -71,24 +73,27 @@ class MyAssignmentsScreen extends StatelessWidget {
             ...awaiting.map((w) => _WorkTile(work: w)),
             const SizedBox(height: 26),
           ],
-          _SectionTitle('مشاريعي', count: projects.length),
+          SectionTitle('مشاريعي', count: '(${projects.length})'),
           const SizedBox(height: 10),
           if (projects.isEmpty)
-            const _Empty(
+            const AppEmptyState(
               icon: Icons.folder_off_outlined,
               title: 'لم تُسنَد إليك مشاريع بعد',
-              hint: 'حين يضيفك مدير الإدارة إلى مشروع — أو تسجّل نفسك على أحدها من صفحة المشاريع — يظهر هنا.',
+              message: 'حين يضيفك مدير الإدارة إلى مشروع — أو تسجّل نفسك على أحدها من صفحة المشاريع — يظهر هنا.',
             )
           else
             ...projects.map((p) => _ProjectTile(project: p)),
           const SizedBox(height: 26),
-          _SectionTitle('أعمالي', count: works.length, openCount: openWorks),
+          SectionTitle('أعمالي',
+              count: openWorks > 0
+                  ? '(${works.length} — $openWorks قيد العمل)'
+                  : '(${works.length})'),
           const SizedBox(height: 10),
           if (works.isEmpty)
-            const _Empty(
+            const AppEmptyState(
               icon: Icons.checklist_rtl_rounded,
               title: 'لم يُسنَد إليك عمل بعد',
-              hint: 'الأعمال التشغيلية يُسنِدها مدير الإدارة، وتظهر هنا فور إسنادها إليك.',
+              message: 'الأعمال التشغيلية يُسنِدها مدير الإدارة، وتظهر هنا فور إسنادها إليك.',
             )
           else
             ...works.map((w) => _WorkTile(work: w)),
@@ -101,66 +106,7 @@ class MyAssignmentsScreen extends StatelessWidget {
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  final String text;
-  final int count;
-  final int? openCount;
 
-  const _SectionTitle(this.text, {required this.count, this.openCount});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(width: 3, height: 16, color: AppColors.accent),
-        const SizedBox(width: 8),
-        Text(text,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-        const SizedBox(width: 8),
-        Text(
-          openCount != null && openCount! > 0 ? '($count — $openCount قيد العمل)' : '($count)',
-          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(width: 12),
-        const Expanded(child: Divider(height: 1, color: AppColors.border)),
-      ],
-    );
-  }
-}
-
-class _Empty extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String hint;
-
-  const _Empty({required this.icon, required this.title, required this.hint});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 18),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 30, color: AppColors.textSecondary.withValues(alpha: 0.5)),
-          const SizedBox(height: 10),
-          Text(title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.textSecondary)),
-          const SizedBox(height: 6),
-          Text(hint,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12.5, height: 1.7, color: AppColors.textSecondary)),
-        ],
-      ),
-    );
-  }
-}
 
 class _ProjectTile extends StatelessWidget {
   final Project project;

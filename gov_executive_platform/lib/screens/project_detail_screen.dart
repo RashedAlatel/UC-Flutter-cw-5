@@ -34,6 +34,7 @@ import 'project_progress_dialog.dart';
 import 'task_reschedule_dialog.dart';
 import 'project_transfer_dialog.dart';
 import 'request_deadline_change_dialog.dart';
+import '../widgets/app_card.dart';
 
 class ProjectDetailScreen extends StatelessWidget {
   final String projectId;
@@ -415,7 +416,7 @@ class ProjectDetailScreen extends StatelessWidget {
           const SizedBox(height: 16),
           LayoutBuilder(builder: (context, constraints) {
             final wide = constraints.maxWidth > 760;
-            final statusChart = _ChartCard(
+            final statusChart = AppCard(
               title: 'توزيع حالة المهام',
               height: 240,
               child: StatusDonutChart(
@@ -801,29 +802,6 @@ class _DueDateBox extends StatelessWidget {
   }
 }
 
-class _ChartCard extends StatelessWidget {
-  final String title;
-  final Widget child;
-  final double height;
-  const _ChartCard({required this.title, required this.child, required this.height});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: AppColors.textPrimary)),
-            const SizedBox(height: 14),
-            SizedBox(height: height - 50, child: child),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 /// جدول المهام المتأخرة عن موعدها النهائي ولم تُنجز بعد.
 class _OverdueTasksCard extends StatelessWidget {
@@ -835,7 +813,7 @@ class _OverdueTasksCard extends StatelessWidget {
     final today = DateTime.now();
     final overdue = tasks.where((t) => t.status != TaskStatus.done && t.dueDate.isBefore(today)).toList()
       ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
-    return _ChartCard(
+    return AppCard(
       title: 'المهام المتأخرة',
       height: 240,
       child: overdue.isEmpty
@@ -889,7 +867,7 @@ class _WorkloadCard extends StatelessWidget {
     }).toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    return _ChartCard(
+    return AppCard(
       title: 'الأعباء حسب المسؤول عن التنفيذ',
       height: 240,
       child: entries.isEmpty
@@ -939,7 +917,7 @@ class _UpcomingDeadlinesCard extends StatelessWidget {
     final upcoming = tasks.where((t) => t.status != TaskStatus.done).toList()
       ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
     final items = upcoming.take(5).toList();
-    return _ChartCard(
+    return AppCard(
       title: 'أقرب المواعيد النهائية',
       height: 240,
       child: items.isEmpty

@@ -6,6 +6,7 @@ import '../models/work_item.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import 'progress_bar.dart';
+import 'status_pill.dart';
 
 /// بطاقة عمل تشغيلي مثبَّت في لوحة قيادة مستخدم بعينه — نظيرة
 /// [FocusedProjectCard] لكن للأعمال بدل المشاريع.
@@ -80,8 +81,8 @@ class PinnedWorkCard extends StatelessWidget {
               spacing: 18,
               runSpacing: 6,
               children: [
-                _Bit(icon: Icons.event_outlined, text: Formatters.shortDate(work.dueDate)),
-                if (delay > 0) _Bit(icon: Icons.schedule_rounded, text: 'متأخر $delay يوم', color: AppColors.danger),
+                MetaBit(icon: Icons.event_outlined, text: Formatters.shortDate(work.dueDate)),
+                if (delay > 0) MetaBit(icon: Icons.schedule_rounded, text: 'متأخر $delay يوم', color: AppColors.danger),
               ],
             ),
           ],
@@ -91,22 +92,3 @@ class PinnedWorkCard extends StatelessWidget {
   }
 }
 
-class _Bit extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  final Color? color;
-  const _Bit({required this.icon, required this.text, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = color ?? AppColors.textSecondary;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 13, color: c),
-        const SizedBox(width: 4),
-        Text(text, style: TextStyle(fontSize: 11, color: c, fontWeight: FontWeight.w600)),
-      ],
-    );
-  }
-}

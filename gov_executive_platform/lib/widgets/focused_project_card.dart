@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import 'progress_bar.dart';
 import 'status_chip.dart';
+import 'status_pill.dart';
 
 /// بطاقة مشروع "تحت التركيز": تُعرض بجانب بطاقات الإدارات وأعلى لوحة القيادة،
 /// مميّزة بحدّ ذهبي وشارة نجمة لتنفصل بصرياً عن بطاقات الإدارات المحيطة بها.
@@ -88,11 +89,11 @@ class FocusedProjectCard extends StatelessWidget {
                 spacing: 18,
                 runSpacing: 6,
                 children: [
-                  _Bit(icon: Icons.event_outlined, text: Formatters.shortDate(project.dueDate)),
+                  MetaBit(icon: Icons.event_outlined, text: Formatters.shortDate(project.dueDate)),
                   if (delay > 0)
-                    _Bit(icon: Icons.schedule_rounded, text: 'متأخر $delay يوم', color: AppColors.danger),
+                    MetaBit(icon: Icons.schedule_rounded, text: 'متأخر $delay يوم', color: AppColors.danger),
                   if (project.executorNames.isNotEmpty)
-                    _Bit(icon: Icons.person_outline_rounded, text: project.executorLabel),
+                    MetaBit(icon: Icons.person_outline_rounded, text: project.executorLabel),
                 ],
               ),
             ],
@@ -103,22 +104,3 @@ class FocusedProjectCard extends StatelessWidget {
   }
 }
 
-class _Bit extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  final Color? color;
-  const _Bit({required this.icon, required this.text, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = color ?? AppColors.textSecondary;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 13, color: c),
-        const SizedBox(width: 4),
-        Text(text, style: TextStyle(fontSize: 11, color: c, fontWeight: FontWeight.w600)),
-      ],
-    );
-  }
-}

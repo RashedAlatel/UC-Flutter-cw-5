@@ -24,6 +24,8 @@ import 'customize_dashboard_dialog.dart';
 import 'decision_center_screen.dart';
 import 'department_detail_screen.dart';
 import 'project_detail_screen.dart';
+import '../widgets/app_card.dart';
+import '../widgets/app_empty_state.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -245,7 +247,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 26),
           // المؤشرات لم تعد أسفل هذا العنوان — انتقلت إلى الشريط القيادي.
           // وباختصاره زال كذلك اقتطاعه على الهاتف إلى «المؤشرات ولوحات الت…».
-          const _SectionTitle('لوحات التحليل'),
+          const SectionTitle('لوحات التحليل'),
           const SizedBox(height: 14),
           if (_arranging) ...[
             const _ArrangeHint(),
@@ -255,10 +257,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // إلى آخر التمرير، ولا شيء يقول للمستخدم أن لوحته فارغة ولا كيف
           // يملؤها. وهذا يقع بسهولة — يكفي أن يحذف ودجاته من «تخصيص اللوحة».
           if (boardWidgets.isEmpty)
-            _EmptyBoardNotice(
-              onAdd: () => showDialog(
-                context: context,
-                builder: (_) => const CustomizeDashboardDialog(),
+            AppEmptyState(
+              icon: Icons.dashboard_customize_outlined,
+              title: 'لوحتك بلا رسوم ولا قوائم',
+              message: 'المؤشرات أعلاه تبقى ظاهرة دائماً. '
+                  'أما الرسوم والقوائم فتُضاف من هنا.',
+              action: ElevatedButton.icon(
+                onPressed: () => showDialog(
+                  context: context,
+                  builder: (_) => const CustomizeDashboardDialog(),
+                ),
+                icon: const Icon(Icons.add_rounded, size: 17),
+                label: const Text('أضف ودجة'),
               ),
             )
           else
@@ -522,7 +532,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return KpiCard(title: kpi.title, value: kpi.value, icon: kpi.icon, color: kpi.color);
       case DashboardWidgetType.deptBarChart:
         final ranking = _departmentRanking(store, rankingProjects, metric);
-        return _ChartCard(
+        return AppCard(
           title: '${scoped ? 'أداء إدارتي' : 'ترتيب الإدارات'} حسب: ${metric.label}',
           subtitle: metric.hint,
           height: 300,
@@ -559,7 +569,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           },
         );
       case DashboardWidgetType.statusPieChart:
-        return _ChartCard(
+        return AppCard(
           title: 'توزيع حالة المشاريع',
           subtitle: 'اضغط على أي قطاع أو تسمية لعرض مشاريعها',
           height: 260,
@@ -721,7 +731,7 @@ class _TopUsersCard extends StatelessWidget {
     rows.sort((a, b) => b.value.compareTo(a.value));
     final top = rows.take(_limit).toList();
 
-    return _ChartCard(
+    return AppCard(
       title: 'الأشخاص حسب: ${metric.label}',
       subtitle: metric.hint,
       height: 300,
@@ -786,9 +796,9 @@ class _FilterBar extends StatelessWidget {
               spacing: 6,
               runSpacing: 6,
               children: [
-                _StatusPill(label: 'الكل', selected: statusFilter == null, onTap: () => onStatusChanged(null)),
+                _StatusFilterChip(label: 'الكل', selected: statusFilter == null, onTap: () => onStatusChanged(null)),
                 ...ProjectStatus.values.map(
-                  (s) => _StatusPill(label: s.label, selected: statusFilter == s, onTap: () => onStatusChanged(s)),
+                  (s) => _StatusFilterChip(label: s.label, selected: statusFilter == s, onTap: () => onStatusChanged(s)),
                 ),
               ],
             ),
@@ -813,11 +823,16 @@ class _FilterBar extends StatelessWidget {
   }
 }
 
-class _StatusPill extends StatelessWidget {
+/// مرشِّحُ حالةٍ يُختار — **وليس شارةَ حالة**.
+///
+/// كان اسمُه `_StatusPill`، وهو اسمُ شارةِ الحالة في نظام التصميم. واسمان
+/// متقاربان لشيئين مختلفين أوّلُ ما يُوقع في الخطأ: كاد يُدمج بها، وهذه
+/// تُضغط فتُصفّي، وتلك تُقرأ فتُخبر.
+class _StatusFilterChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  const _StatusPill({required this.label, required this.selected, required this.onTap});
+  const _StatusFilterChip({required this.label, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -854,7 +869,7 @@ class _TopProjectsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final top = projects.toList()..sort((a, b) => b.progressPercent.compareTo(a.progressPercent));
     final items = top.take(3).toList();
-    return _ChartCard(
+    return AppCard(
       title: 'أعلى المشاريع تقدماً',
       height: 210,
       // ثلاثة مشاريع لا تملأ مئتي بكسل، والباقي كان فراغاً داخل البطاقة.
@@ -1052,57 +1067,6 @@ class _CompactProjectRow extends StatelessWidget {
   }
 }
 
-class _ChartCard extends StatelessWidget {
-  final String title;
-  final String? subtitle;
-  final Widget child;
-
-  /// ارتفاع البطاقة. وهو **سقفٌ** لا مقدارٌ مفروض حين يكون [shrinkToChild].
-  final double height;
-
-  /// هل يُترك للمحتوى أن يُقصّر البطاقة؟
-  ///
-  /// الرسوم لا محتوى لها يُقاس فتحتاج ارتفاعاً محدداً؛ أما القوائم فتعرف
-  /// ارتفاعها من صفوفها. وفرضُ ارتفاعٍ ثابت على قائمةٍ من ثلاثة صفوف يترك
-  /// فراغاً داخل البطاقة، وعلى الجوال — حيث كل ودجة بعرض السطر — تتراكم
-  /// هذه الفراغات فتصير الصفحة بيضاء أكثر مما هي مقروءة.
-  final bool shrinkToChild;
-
-  const _ChartCard({
-    required this.title,
-    this.subtitle,
-    required this.child,
-    required this.height,
-    this.shrinkToChild = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textPrimary)),
-            if (subtitle != null) ...[
-              const SizedBox(height: 3),
-              Text(subtitle!, style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
-            ],
-            const SizedBox(height: 14),
-            if (shrinkToChild)
-              ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: subtitle != null ? height - 68 : height - 50),
-                child: child,
-              )
-            else
-              SizedBox(height: subtitle != null ? height - 68 : height - 50, child: child),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _PendingDecisionsCard extends StatelessWidget {
   final AppStore store;
@@ -1980,69 +1944,6 @@ class _ArrangeableCard extends StatelessWidget {
 /// اللوحة كانت أقساماً متلاصقة بلا فواصل، فيقرؤها الناظر كتلةً واحدة. والخيط
 /// الذهبي هو العنصر نفسه المستعمل في شاشة الدخول وترويسة اللوحة — تكراره
 /// المقصود هو ما يجعل الشاشات تبدو منصةً واحدة لا شاشات جُمعت.
-class _SectionTitle extends StatelessWidget {
-  final String text;
-  const _SectionTitle(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(width: 3, height: 16, color: AppColors.accent),
-        const SizedBox(width: 8),
-        // `Flexible` لا نصٌّ حرّ: `Row` يعطي ابنه عرضاً غير محدود، فعنوانٌ
-        // أطول قليلاً يتجاوز حدّ الشاشة على الجوال ويظهر شريط التجاوز.
-        Flexible(
-          child: Text(text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-        ),
-        const SizedBox(width: 12),
-        const Expanded(child: Divider(height: 1, color: AppColors.border)),
-      ],
-    );
-  }
-}
 
 
 /// لوحة بلا ودجات — تقول ذلك وتدلّ على الطريق، بدل صفحة بيضاء صامتة.
-class _EmptyBoardNotice extends StatelessWidget {
-  final VoidCallback onAdd;
-  const _EmptyBoardNotice({required this.onAdd});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 34, horizontal: 20),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          Icon(Icons.dashboard_customize_outlined, size: 32, color: AppColors.textSecondary.withValues(alpha: 0.6)),
-          const SizedBox(height: 12),
-          const Text(
-            'لوحتك بلا رسوم ولا قوائم',
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'المؤشرات أعلاه تبقى ظاهرة دائماً. أما الرسوم والقوائم فتُضاف من هنا.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12.5, height: 1.8, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 14),
-          ElevatedButton.icon(
-            onPressed: onAdd,
-            icon: const Icon(Icons.add_rounded, size: 17),
-            label: const Text('أضف ودجة'),
-          ),
-        ],
-      ),
-    );
-  }
-}

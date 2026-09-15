@@ -15,6 +15,7 @@ import '../data/app_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/formatters.dart';
 import '../widgets/command_band.dart';
+import '../widgets/app_card.dart';
 
 class ArchivedItemsScreen extends StatelessWidget {
   const ArchivedItemsScreen({super.key});
@@ -135,7 +136,8 @@ class ArchivedItemsScreen extends StatelessWidget {
                     ),
                   ),
                 if (projects.isNotEmpty) ...[
-                  const _SectionTitle('المشاريع المحذوفة'),
+                  const SectionTitle('المشاريع المحذوفة'),
+                  const SizedBox(height: 10),
                   for (final p in projects)
                     Builder(builder: (_) {
                       final to = store.convertedTargetName(p.convertedToType, p.convertedToId);
@@ -159,7 +161,8 @@ class ArchivedItemsScreen extends StatelessWidget {
                   const SizedBox(height: 18),
                 ],
                 if (works.isNotEmpty) ...[
-                  const _SectionTitle('الأعمال المحذوفة'),
+                  const SectionTitle('الأعمال المحذوفة'),
+                  const SizedBox(height: 10),
                   for (final w in works)
                     Builder(builder: (_) {
                       final to = store.convertedTargetName(w.convertedToType, w.convertedToId);
@@ -190,16 +193,6 @@ class ArchivedItemsScreen extends StatelessWidget {
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  final String text;
-  const _SectionTitle(this.text);
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
-      );
-}
 
 class _ArchivedCard extends StatelessWidget {
   final String name;

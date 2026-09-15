@@ -27,6 +27,7 @@ import '../widgets/filter_bar.dart';
 import '../widgets/kpi_card.dart';
 import 'periodic_report_settings_dialog.dart';
 import '../theme/status_palette.dart';
+import '../widgets/app_empty_state.dart';
 
 class PeriodicReportsScreen extends StatefulWidget {
   const PeriodicReportsScreen({super.key});
@@ -359,7 +360,7 @@ class _PeopleSection extends StatelessWidget {
           const _ActivityNote(),
           const SizedBox(height: 12),
           if (report.people.isEmpty)
-            const _Empty('لا يوجد أشخاصٌ ضمن نطاقك.')
+            const AppEmptyState(title: 'لا يوجد أشخاصٌ ضمن نطاقك.')
           else
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -505,7 +506,7 @@ class _DepartmentsSection extends StatelessWidget {
       title: 'ثانياً: أداء الإدارات',
       icon: Icons.account_balance_rounded,
       child: report.departments.isEmpty
-          ? const _Empty('لا توجد إداراتٌ ضمن نطاقك.')
+          ? const AppEmptyState(title: 'لا توجد إداراتٌ ضمن نطاقك.')
           : SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
@@ -620,18 +621,6 @@ class _Lines extends StatelessWidget {
   }
 }
 
-class _Empty extends StatelessWidget {
-  final String message;
-  const _Empty(this.message);
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Center(
-          child: Text(message, style: const TextStyle(color: AppColors.textSecondary)),
-        ),
-      );
-}
 
 // ───────────────────────── الفلاتر التسعة ─────────────────────────
 
@@ -868,7 +857,7 @@ class _ItemsSection extends StatelessWidget {
       title: 'ثالثاً: أداء المشاريع والأعمال',
       icon: Icons.folder_copy_rounded,
       child: report.items.isEmpty
-          ? const _Empty('لا توجد مشاريع أو أعمالٌ ضمن التصفية الحالية.')
+          ? const AppEmptyState(title: 'لا توجد مشاريع أو أعمالٌ ضمن التصفية الحالية.')
           : SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
@@ -1001,7 +990,7 @@ class _InactiveSection extends StatelessWidget {
           '${report.inactiveAfterDays} أيام أو أكثر',
       icon: Icons.update_disabled_rounded,
       child: report.inactive.isEmpty
-          ? const _Empty('لا يوجد ما توقّف عن الحركة — كلُّها محدَّثة ضمن المدّة.')
+          ? const AppEmptyState(title: 'لا يوجد ما توقّف عن الحركة — كلُّها محدَّثة ضمن المدّة.')
           : SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(

@@ -22,6 +22,7 @@ import '../widgets/command_band.dart';
 import '../widgets/record_filter_bar.dart';
 import 'project_detail_screen.dart';
 import 'work_detail_screen.dart';
+import '../widgets/app_empty_state.dart';
 
 /// يفتح تفاصيلَ سجلٍّ في صفحةٍ فوق البحث — **فتبقى النتائجُ خلفَه**.
 ///
@@ -94,7 +95,11 @@ class SearchScreen extends StatelessWidget {
                   ),
                 const SizedBox(height: 16),
                 if (shown == 0)
-                  const _Empty()
+                  const AppEmptyState(
+                    icon: Icons.search_off_rounded,
+                    title: 'لا سجلَّ يطابق ما اخترت',
+                    message: 'جرّب إزالة أحد الفلاتر — وزرُّ إعادة الضبط أعلاه يزيلها كلَّها.',
+                  )
                 else ...[
                   if (out.projects.isNotEmpty) ...[
                     _GroupTitle('المشاريع', out.projects.length),
@@ -219,21 +224,3 @@ class _Row extends StatelessWidget {
       );
 }
 
-class _Empty extends StatelessWidget {
-  const _Empty();
-
-  @override
-  Widget build(BuildContext context) => const Card(
-        child: Padding(
-          padding: EdgeInsets.all(28),
-          child: Center(
-            child: Text(
-              'لا سجلَّ يطابق ما اخترت. جرّب إزالة أحد الفلاتر — '
-              'وزرُّ إعادة الضبط أعلاه يزيلها كلَّها.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.textSecondary, height: 1.8),
-            ),
-          ),
-        ),
-      );
-}

@@ -10,12 +10,20 @@ class Department {
   final int colorValue;
   final String iconKey; // مفتاح ضمن DepartmentIcons.byKey
 
+  /// القطاعُ الذي تتبعه — **تجميعٌ للقراءة لا للصلاحية**، وفارغٌ يعني
+  /// إدارةً مستقلّةً تعمل كما كانت حرفاً بحرف.
+  ///
+  /// ولا تدخل هذه القيمةُ قاعدةَ أمانٍ واحدة: `departmentId` يبقى مفتاحَ
+  /// النطاق وحدَه. راجع [Sector].
+  final String sectorId;
+
   const Department({
     required this.id,
     required this.name,
     required this.headName,
     required this.colorValue,
     required this.iconKey,
+    this.sectorId = '',
   });
 
   Color get color => Color(colorValue);
@@ -26,6 +34,7 @@ class Department {
         'headName': headName,
         'colorValue': colorValue,
         'iconKey': iconKey,
+        'sectorId': sectorId,
       };
 
   factory Department.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -36,6 +45,9 @@ class Department {
       headName: json['headName'] as String? ?? '',
       colorValue: json['colorValue'] as int? ?? 0xFF0B3D66,
       iconKey: json['iconKey'] as String? ?? DepartmentIcons.defaultKey,
+      // وإدارةٌ بلا قطاعٍ تبقى تعمل كما كانت: الحقلُ اختياريٌّ في القراءة،
+      // فكلُّ مستندٍ مكتوبٍ قبل اليوم يُقرأ بلا تعديلٍ ولا ترحيل.
+      sectorId: json['sectorId'] as String? ?? '',
     );
   }
 }

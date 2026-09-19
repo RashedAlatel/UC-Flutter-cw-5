@@ -64,8 +64,31 @@ class DepartmentSection {
     this.sourceDepartmentId,
   });
 
-  /// أقصى عمق مسموح تحت الإدارة: قسم ثم قسم فرعي.
-  static const int maxDepth = 2;
+  /// أقصى عمقٍ مسموحٍ تحت الإدارة.
+  ///
+  /// ــ ورُفع من اثنين إلى أربعة ــ
+  ///
+  /// كُتب في رأس هذا الملفّ أنّ التعميقَ لاحقاً «تغييرٌ في قيمة [maxDepth]
+  /// وحدها لا إعادةُ تصميم» — وهذا هو. طُلب هيكلٌ يحتمل **إدارة ← قسم ←
+  /// فريق ← وحدة**، وهي أربعُ طبقاتٍ تحت الإدارة بالضبط.
+  ///
+  /// وحارسُ الحلقة في [levelIn] قائمٌ أصلاً، فلا يدور الحسابُ بلا نهاية مع
+  /// العمق الجديد.
+  static const int maxDepth = 4;
+
+  /// مسمّى الطبقة بعمقها — «قسم» ثمّ «قسم فرعي» ثمّ «فريق» ثمّ «وحدة».
+  ///
+  /// ومن الأسماء يعرف القارئُ ما ينظر إليه: شجرةٌ بأربع طبقاتٍ بلا أسماء
+  /// تُقرأ تكراراً لا تنظيماً.
+  static const List<String> levelLabels = ['قسم', 'قسم فرعي', 'فريق', 'وحدة'];
+
+  /// مسمّى هذه الطبقة — وما جاوز المعروفَ يُقال «وحدة» ولا يُخترع له اسم.
+  String levelLabelIn(List<DepartmentSection> all) {
+    final level = levelIn(all);
+    if (level < 1) return levelLabels.first;
+    if (level > levelLabels.length) return levelLabels.last;
+    return levelLabels[level - 1];
+  }
 
   /// مستوى القسم: ١ لقسم مباشر تحت الإدارة، ٢ لقسم فرعي.
   int levelIn(List<DepartmentSection> all) {

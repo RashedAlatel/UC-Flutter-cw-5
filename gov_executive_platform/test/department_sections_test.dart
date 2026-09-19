@@ -93,14 +93,52 @@ void main() {
     expect(store.sectionPathLabel('محذوف'), '');
   });
 
-  test('العمق محدود بمستويين: لا قسم فرعي تحت قسم فرعي', () {
+  // ــ والعمقُ صار أربعةً بطلبٍ صريح ــ
+  //
+  // كان مستويين: «قسم» و«قسم فرعي». وطُلب هيكلٌ يحتمل **إدارة ← قسم ← فريق
+  // ← وحدة**، وهي أربعُ طبقاتٍ تحت الإدارة. فرُفع [maxDepth] — وهو التغييرُ
+  // المكتوبُ في رأس `department_section.dart` أنّه «قيمةٌ واحدة لا إعادةُ
+  // تصميم».
+  //
+  // ويبقى **حدٌّ**: شجرةٌ بلا قاعٍ تُنتج مساراتٍ لا تُقرأ في قائمةٍ منسدلة.
+  test('العمقُ أربعُ طبقاتٍ تحت الإدارة، والخامسةُ تُردّ', () {
     final store = _store();
     final top = store.sections.firstWhere((s) => s.id == 's1');
     final child = store.sections.firstWhere((s) => s.id == 's1a');
-    expect(store.canAddChildSection(top), isTrue);
-    expect(store.canAddChildSection(child), isFalse);
     expect(top.levelIn(store.sections), 1);
     expect(child.levelIn(store.sections), 2);
+    expect(store.canAddChildSection(top), isTrue);
+    expect(store.canAddChildSection(child), isTrue, reason: 'الفريقُ تحت القسم الفرعيّ');
+
+    // وطبقةٌ ثالثةٌ ورابعة، ثمّ يُغلق الباب.
+    final deeper = [
+      ...store.sections,
+      const DepartmentSection(id: 's1a1', departmentId: 'd1', parentId: 's1a', name: 'فريق'),
+      const DepartmentSection(id: 's1a1a', departmentId: 'd1', parentId: 's1a1', name: 'وحدة'),
+    ];
+    store.sections = deeper;
+    final team = deeper.firstWhere((s) => s.id == 's1a1');
+    final unit = deeper.firstWhere((s) => s.id == 's1a1a');
+    expect(team.levelIn(deeper), 3);
+    expect(unit.levelIn(deeper), 4);
+    expect(store.canAddChildSection(team), isTrue);
+    expect(store.canAddChildSection(unit), isFalse, reason: 'الرابعةُ آخرُ الطبقات');
+  });
+
+  // ــ ولكلّ طبقةٍ اسمُها ــ
+  //
+  // شجرةٌ بأربع طبقاتٍ بلا أسماء تُقرأ تكراراً لا تنظيماً.
+  test('ولكلّ طبقةٍ مسمّاها', () {
+    final all = [
+      const DepartmentSection(id: 'a', departmentId: 'd', name: 'أ'),
+      const DepartmentSection(id: 'b', departmentId: 'd', parentId: 'a', name: 'ب'),
+      const DepartmentSection(id: 'c', departmentId: 'd', parentId: 'b', name: 'ج'),
+      const DepartmentSection(id: 'e', departmentId: 'd', parentId: 'c', name: 'د'),
+    ];
+    expect(all[0].levelLabelIn(all), 'قسم');
+    expect(all[1].levelLabelIn(all), 'قسم فرعي');
+    expect(all[2].levelLabelIn(all), 'فريق');
+    expect(all[3].levelLabelIn(all), 'وحدة');
   });
 
   test('حساب المستوى لا يدور إلى ما لا نهاية لو حوت البيانات حلقة', () {
@@ -226,9 +264,18 @@ void main() {
       expect(error, contains('نفسها'));
     });
 
-    test('إدارة لها قسم فرعي أصلاً تُرفض حتى لا تتجاوز الشجرة الحد المسموح', () async {
+    // ــ والحدُّ باقٍ، وإن اتّسع ــ
+    //
+    // بعمقٍ من أربع طبقاتٍ لم يعد قسمٌ فرعيٌّ واحدٌ يتجاوز الحدَّ بالتحويل:
+    // ينزل إلى الثالثة وفيها متّسع. فيُقاس الحدُّ بشجرةٍ **تبلغ القاع** —
+    // وهي الحالُ التي يُردّ فيها التحويل.
+    test('وإدارةٌ شجرتُها تبلغ القاعَ تُرفض حتى لا تتجاوزه', () async {
       final store = _store();
-      // d1 فيه s1 وتحته s1a (مستوى ٢)، فتحويله ينزلهما إلى ٢ و٣.
+      store.sections = [
+        ...store.sections,
+        const DepartmentSection(id: 's1a1', departmentId: 'd1', parentId: 's1a', name: 'فريق'),
+        const DepartmentSection(id: 's1a1a', departmentId: 'd1', parentId: 's1a1', name: 'وحدة'),
+      ];
       store.departments = const [
         Department(id: 'd1', name: 'إدارة أولى', headName: 'رئيس', colorValue: 0, iconKey: 'flag'),
         Department(id: 'd2', name: 'إدارة ثانية', headName: 'رئيس', colorValue: 0, iconKey: 'flag'),

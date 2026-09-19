@@ -91,6 +91,54 @@ class Project {
   final int? durationDays;
 
   /// قيمةُ العقد بالدينار الكويتي.
+  // ــــــــــــــ حقولُ حافظة المشاريع ــــــــــــــ
+  //
+  // ــ وكلُّها **إضافةٌ محضة** ــ
+  //
+  // لا حقلَ قائمٌ غُيّر ولا حُذف. وكلُّ مستندِ مشروعٍ مكتوبٍ قبل اليوم
+  // يُقرأ بلا ترحيلٍ ولا إصلاح: القيمُ الغائبةُ تُقرأ فارغةً، وهو ما تفعله
+  // `readText` و`readDate` أصلاً. وهذا شرطُ ألّا يُكسر شيءٌ قائم.
+
+  /// **مالكُ العمل**: صاحبُ الحاجة من خارج تقنية المعلومات.
+  ///
+  /// وهو غيرُ مدير المشروع: هذا يقرّر **ماذا** يُبنى، وذاك يقود **كيف**
+  /// يُبنى. وخلطُهما هو أكثرُ ما يُعطّل المشاريع التقنية — يُسأل المنفّذُ
+  /// عن قرارٍ ليس له.
+  final String businessOwnerUid;
+  final String businessOwnerName;
+
+  /// **الراعي التنفيذيّ**: من يرفع العوائقَ التي تتجاوز الإدارة.
+  final String sponsorUid;
+  final String sponsorName;
+
+  /// المورّدُ المنفّذ — ويُربط لاحقاً بسجلّ المورّدين.
+  final String vendorName;
+
+  /// **حَرِجيّةُ المشروع**: أثرُ تعثّره على الوزارة، لا استعجالُه.
+  ///
+  /// وهي غيرُ [priority]: الأولويّةُ تقول «ابدأ بهذا»، والحَرِجيّةُ تقول
+  /// «إن تعثّر هذا تعطّلت خدمة». ومشروعٌ منخفضُ الأولويّة قد يكون حَرِجاً.
+  /// القيم: `tier1` · `tier2` · `tier3` — وفارغٌ يعني غيرَ مصنَّف.
+  final String criticality;
+
+  /// المرحلةُ الحالية والتالية — «التحليل» ثمّ «التطوير».
+  final String currentPhase;
+  final String nextPhase;
+
+  /// **الخطوةُ التالية وموعدُها** — وهما ما يُسأل عنه في كلّ اجتماع.
+  ///
+  /// ونسبةُ الإنجاز وحدَها لا تجيب: «٦٠٪» لا تقول ما الذي يجري الآن ولا
+  /// متى يقع ما بعده.
+  final String nextAction;
+  final DateTime? nextActionDate;
+
+  /// تاريخُ الإنجاز الفعليّ — يُقارَن بـ[dueDate] فيُقرأ الالتزامُ بالخطّة.
+  final DateTime? actualCompletionDate;
+
+  /// الميزانيةُ المعتمَدة — وهي غيرُ [contractValue]: تلك ما تعاقدت عليه
+  /// الوزارة، وهذه ما رُصد. وقد يُرصد أكثرُ مما يُتعاقَد عليه.
+  final double? budget;
+
   final double? contractValue;
 
   /// الجهةُ أو الشركة المنفّذة — نصٌّ حرّ، وفارغُه «غير مسجّل».
@@ -131,6 +179,18 @@ class Project {
     this.contractEndDate,
     this.invoiceDueDate,
     this.durationDays,
+    this.businessOwnerUid = '',
+    this.businessOwnerName = '',
+    this.sponsorUid = '',
+    this.sponsorName = '',
+    this.vendorName = '',
+    this.criticality = '',
+    this.currentPhase = '',
+    this.nextPhase = '',
+    this.nextAction = '',
+    this.nextActionDate,
+    this.actualCompletionDate,
+    this.budget,
     this.contractValue,
     this.contractorName = '',
     this.deletedAt,
@@ -271,6 +331,18 @@ class Project {
     int? durationDays,
     double? contractValue,
     String? contractorName,
+    String? businessOwnerUid,
+    String? businessOwnerName,
+    String? sponsorUid,
+    String? sponsorName,
+    String? vendorName,
+    String? criticality,
+    String? currentPhase,
+    String? nextPhase,
+    String? nextAction,
+    DateTime? nextActionDate,
+    DateTime? actualCompletionDate,
+    double? budget,
     bool clearSection = false,
     /// مسحُ بيانات العقد — و`null` وحدها لا تكفي، فهي تعني «لا تغيّر».
     /// ومن أراد أن يقول «لا عقد» يقولها صراحةً.
@@ -308,6 +380,23 @@ class Project {
       durationDays: clearContract ? null : (durationDays ?? this.durationDays),
       contractValue: clearContract ? null : (contractValue ?? this.contractValue),
       contractorName: clearContract ? '' : (contractorName ?? this.contractorName),
+      // ــ وحقولُ الحافظة تُنقَل، ولا تُترك للنسيان ــ
+      //
+      // `toMap` تكتب المستند **كاملاً**، ونسخةٌ بلا هذه الحقول تمحوها من
+      // كلّ مشروعٍ يُعدَّل — بلا أن يقصد ذلك أحد. وهو التحذيرُ المكتوبُ
+      // مرّتين في هذا الملفّ نفسِه (النقل، والحذف)، وهذه ثالثتُه.
+      businessOwnerUid: businessOwnerUid ?? this.businessOwnerUid,
+      businessOwnerName: businessOwnerName ?? this.businessOwnerName,
+      sponsorUid: sponsorUid ?? this.sponsorUid,
+      sponsorName: sponsorName ?? this.sponsorName,
+      vendorName: vendorName ?? this.vendorName,
+      criticality: criticality ?? this.criticality,
+      currentPhase: currentPhase ?? this.currentPhase,
+      nextPhase: nextPhase ?? this.nextPhase,
+      nextAction: nextAction ?? this.nextAction,
+      nextActionDate: nextActionDate ?? this.nextActionDate,
+      actualCompletionDate: actualCompletionDate ?? this.actualCompletionDate,
+      budget: budget ?? this.budget,
       // ــ علامات الحذف والتحويل تُنقَل، ولا تُترك للنسيان ــ
       //
       // `toMap` تكتب المستند كاملاً، و`copyWith` بلا هذه الحقول تُنتج نسخةً
@@ -372,6 +461,19 @@ class Project {
         'durationDays': durationDays,
         'contractValue': contractValue,
         'contractorName': contractorName,
+        'businessOwnerUid': businessOwnerUid,
+        'businessOwnerName': businessOwnerName,
+        'sponsorUid': sponsorUid,
+        'sponsorName': sponsorName,
+        'vendorName': vendorName,
+        'criticality': criticality,
+        'currentPhase': currentPhase,
+        'nextPhase': nextPhase,
+        'nextAction': nextAction,
+        'nextActionDate': nextActionDate == null ? null : Timestamp.fromDate(nextActionDate!),
+        'actualCompletionDate':
+            actualCompletionDate == null ? null : Timestamp.fromDate(actualCompletionDate!),
+        'budget': budget,
         // تُكتب دائماً ولو فارغة: `toMap` تُستعمل في تحديثٍ يكتب المستند
         // كاملاً، فحذفُ المفتاح عند الفراغ يُبقي علامةَ حذفٍ قديمة عالقة.
         'deletedAt': deletedAt == null ? null : Timestamp.fromDate(deletedAt!),
@@ -436,6 +538,23 @@ class Project {
       durationDays: _num(json['durationDays'])?.toInt(),
       contractValue: _num(json['contractValue'])?.toDouble(),
       contractorName: json['contractorName'] as String? ?? '',
+      // ــ وحقولُ الحافظة تُقرأ فارغةً حين تغيب ــ
+      //
+      // فكلُّ مشروعٍ مكتوبٍ قبل اليوم يُقرأ بلا ترحيل. و`_date` و`_num`
+      // يقرآن مهما كان النوعُ المخزَّن — وهو الدرسُ المدفوعُ ثمنُه يومَ
+      // اختفت مشاريعُ الوزارة بتاريخٍ وصل نصّاً.
+      businessOwnerUid: json['businessOwnerUid'] as String? ?? '',
+      businessOwnerName: json['businessOwnerName'] as String? ?? '',
+      sponsorUid: json['sponsorUid'] as String? ?? '',
+      sponsorName: json['sponsorName'] as String? ?? '',
+      vendorName: json['vendorName'] as String? ?? '',
+      criticality: json['criticality'] as String? ?? '',
+      currentPhase: json['currentPhase'] as String? ?? '',
+      nextPhase: json['nextPhase'] as String? ?? '',
+      nextAction: json['nextAction'] as String? ?? '',
+      nextActionDate: _date(json['nextActionDate']),
+      actualCompletionDate: _date(json['actualCompletionDate']),
+      budget: _num(json['budget'])?.toDouble(),
       deletedAt: _date(json['deletedAt']),
       deletedBy: json['deletedBy'] as String?,
       deletedReason: json['deletedReason'] as String?,

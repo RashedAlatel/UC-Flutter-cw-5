@@ -46,6 +46,7 @@ import '../theme/app_theme.dart';
 import '../utils/file_picker.dart';
 import '../models/daily_status.dart';
 import '../models/holiday.dart';
+import '../models/sector.dart';
 import '../models/status_type.dart';
 import '../models/work_week.dart';
 import '../utils/formatters.dart';
@@ -795,6 +796,68 @@ class AppStore extends ChangeNotifier {
   /// الخادمُ عند الفتح، وهو العطلُ الذي تكرّر في هذه المنصة مرّتين.
   bool get canViewProcedures =>
       hasPermission(RolePermission.viewProcedures) || canEditProcedures;
+
+  // ــــــــــــــ القطاعات ــــــــــــــ
+
+  /// القطاعاتُ كما يحرّرها مسؤولُ النظام — والبذرةُ حين لا مستندَ بعد.
+  List<Sector> sectors = Sector.seed();
+
+  Sector? sectorById(String id) {
+    for (final s in sectors) {
+      if (s.id == id) return s;
+    }
+    return null;
+  }
+
+  /// إداراتُ قطاعٍ بعينه — **من المرئيّ لا من الكلّ**.
+  ///
+  /// فمديرُ إدارةٍ في القطاع يرى قطاعَه باسمه ولا يرى مؤشّراتِ إدارةٍ ليست
+  /// له: التجميعُ لا يفتح نطاقاً.
+  List<Department> departmentsOfSector(String sectorId) =>
+      visibleDepartments.where((d) => d.sectorId == sectorId).toList();
+
+  /// القطاعاتُ التي للمستخدم فيها إدارةٌ مرئيّة — وهي ما يُعرض له.
+  List<Sector> get visibleSectors {
+    final ids = visibleDepartments.map((d) => d.sectorId).where((i) => i.isNotEmpty).toSet();
+    return sectors.where((s) => ids.contains(s.id)).toList()
+      ..sort((a, b) => a.order.compareTo(b.order));
+  }
+
+  /// يحفظ قائمةَ القطاعات — لمسؤول النظام وحده، كقاعدة `settings`.
+  Future<String?> saveSectors(List<Sector> items) async {
+    if (!isAdmin) return 'إدارة القطاعات لمسؤول النظام وحده';
+    try {
+      await _db.collection('settings').doc('sectors').set({
+        'items': items.map((x) => x.toMap()).toList(),
+      });
+      await _log('القطاعات', 'حُدّثت قائمة القطاعات (${items.length} قطاعاً)');
+      return null;
+    } catch (e) {
+      return 'تعذّر حفظ القطاعات: $e';
+    }
+  }
+
+  /// يربط إدارةً بقطاع — **ولا يمسّ نطاقَ أحد**.
+  ///
+  /// وقاعدةُ `departments` تقبل `sectorId` كبقيّة حقول الإدارة: هو بيانٌ
+  /// وصفيٌّ لا مفتاحُ تخويل، ومن يملك تعديلَ الإدارة يملك وسمَها بقطاعها.
+  Future<String?> setDepartmentSector(String departmentId, String sectorId) async {
+    if (!isAdmin) return 'ربط الإدارة بقطاعها لمسؤول النظام وحده';
+    try {
+      final before = departmentById(departmentId);
+      final wasIn = before?.sectorId ?? '';
+      await _db.collection('departments').doc(departmentId).update({'sectorId': sectorId});
+      await _log(
+        'القطاعات',
+        'الإدارة "${before?.name ?? departmentId}": '
+        '${sectorId.isEmpty ? 'أُخرجت من قطاعها' : 'صارت تتبع "${sectorById(sectorId)?.name ?? sectorId}"'}'
+        '${wasIn.isEmpty ? '' : ' بدلاً من "${sectorById(wasIn)?.name ?? wasIn}"'}',
+      );
+      return null;
+    } catch (e) {
+      return 'تعذّر ربط الإدارة بقطاعها: $e';
+    }
+  }
 
   // ــــــــــــــ حالاتُ الموظفين اليومية ــــــــــــــ
 
@@ -3125,6 +3188,14 @@ class AppStore extends ChangeNotifier {
     // قصيرة، ومستمعٌ واحد، وقاعدةُ `settings` تحكمه (يُقرأ عامّاً ويكتبه
     // مسؤولُ النظام). ومجموعتان مستقلّتان كانتا تعنيان كتلتَي قواعدَ
     // جديدتين وحارسَين يتبعانهما بلا حاجة.
+    _listen('settings/sectors', _db.collection('settings').doc('sectors').snapshots(), (doc) {
+      final items = doc.data()?['items'] as List?;
+      final parsed = items == null
+          ? const <Sector>[]
+          : items.map(Sector.fromMap).whereType<Sector>().toList();
+      sectors = parsed.isEmpty ? Sector.seed() : parsed;
+      notifyListeners();
+    });
     _listen('settings/statusTypes', _db.collection('settings').doc('statusTypes').snapshots(), (doc) {
       final items = doc.data()?['items'] as List?;
       // والبذرةُ تبقى حين لا مستندَ ولا عناصر — لا قائمةٌ خالية.

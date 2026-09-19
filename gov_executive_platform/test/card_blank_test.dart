@@ -7,7 +7,7 @@
 // الشاشة كلها، يصير الارتفاع هائلاً والمحتوى في وسطه.
 //
 // والقياس هنا هندسي: ارتفاع البطاقة ناقص ما رُسم فيها فعلاً، من أعلى ومن
-// أسفل معاً — لأن `KpiCard` يُوسّط محتواه، فيتوزّع الفراغ على الطرفين ولا
+// أسفل معاً — لأن بطاقة المؤشّر تُوسّط محتواها، فيتوزّع الفراغ على الطرفين ولا
 // يظهر ذيلاً وحده.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +23,7 @@ import 'package:gov_exec_platform/screens/department_detail_screen.dart';
 import 'package:gov_exec_platform/screens/departments_list_screen.dart';
 import 'package:gov_exec_platform/screens/reports_screen.dart';
 import 'package:gov_exec_platform/theme/app_theme.dart';
+import 'package:gov_exec_platform/widgets/stat_card.dart';
 
 const _dept = 'd-tech';
 
@@ -98,7 +99,14 @@ bool _paints(Widget w) {
   // لتأخذ كل بطاقة ارتفاعها، ولو بقي البحث على `GridView` وحدها لصار
   // الحارس ينظر إلى لا شيء بعد الإصلاح ويمرّ صامتاً.
   final container = find.byWidgetPredicate((w) => w is GridView || w is Wrap);
-  final cards = find.descendant(of: container, matching: find.byType(Card));
+  // و`StatCard` لا تبني `Card`: تبني `Material` بحدٍّ رفيعٍ أو بتدرّج. ولو
+  // بقي البحثُ على `Card` وحدها لصار الحارسُ ينظر إلى لا شيء بعد انتقال
+  // المؤشّرات إليها — **وقد وقع فعلاً**: شكا الحارسُ «صفر بطاقة» فوراً، وهو
+  // ما بُني له الشرطُ أسفلَه.
+  final cards = find.descendant(
+    of: container,
+    matching: find.byWidgetPredicate((w) => w is Card || w is StatCard),
+  );
   for (final cardElement in cards.evaluate()) {
     final card = cardElement.renderObject;
     if (card is! RenderBox || !card.hasSize || !card.attached) continue;

@@ -11,12 +11,13 @@ import '../models/enums.dart';
 import '../models/work_sort.dart';
 import '../models/work_item.dart';
 import '../theme/app_theme.dart';
+import '../theme/status_palette.dart';
+import '../widgets/stat_card.dart';
 import '../widgets/command_band.dart';
 import '../widgets/meta_row.dart';
 import '../utils/formatters.dart';
 import '../models/notify_templates.dart';
 import '../widgets/focus_assignment_dialog.dart';
-import '../widgets/kpi_card.dart';
 import '../widgets/notify_dialog.dart';
 import '../widgets/progress_bar.dart';
 import 'work_detail_screen.dart';
@@ -116,7 +117,7 @@ class _WorksListScreenState extends State<WorksListScreen> {
           LayoutBuilder(builder: (context, c) {
             final cols = c.maxWidth > 820 ? 4 : (c.maxWidth > 520 ? 2 : 1);
             const spacing = 14.0;
-            const itemHeight = KpiCard.tileHeight;
+            const itemHeight = StatCard.tileHeight;
             final itemWidth = (c.maxWidth - spacing * (cols - 1)) / cols;
             return GridView.count(
               crossAxisCount: cols,
@@ -126,14 +127,17 @@ class _WorksListScreenState extends State<WorksListScreen> {
               mainAxisSpacing: spacing,
               childAspectRatio: itemWidth / itemHeight,
               children: [
-                KpiCard(title: 'إجمالي الأعمال', value: '${all.length}', icon: Icons.checklist_rounded, color: AppColors.primary),
+                // والإجماليُّ **محايدٌ لا لونَ هوية**: كان بلون الهوية
+                // التي يختارها مسؤول النظام، وعددٌ يُخبر ولا يُنذر لا
+                // يتبع ذوقاً.
+                StatCard(title: 'إجمالي الأعمال', value: '${all.length}', icon: Icons.checklist_rounded, tone: StatusPalette.neutral),
                 // «قيد التنفيذ» لم تعد تعني «كل ما ليس منجَزاً»: ما أُعلن
                 // إتمامه ينتظر مكتباً لا تنفيذاً، وعدُّه مع الجاري يُخفي
                 // بالضبط ما طُلب إظهاره.
-                KpiCard(title: 'قيد التنفيذ', value: '${all.where((w) => !w.isDone && !w.isAwaitingApproval).length}', icon: Icons.play_arrow_rounded, color: AppColors.info),
-                KpiCard(title: 'بانتظار الاعتماد', value: '${all.where((w) => w.isAwaitingApproval).length}', icon: Icons.how_to_reg_outlined, color: AppColors.warning),
-                KpiCard(title: 'منجزة ومغلقة', value: '${all.where((w) => w.isDone).length}', icon: Icons.check_circle_outline_rounded, color: AppColors.success),
-                KpiCard(title: 'متأخرة عن موعدها', value: '$overdue', icon: Icons.schedule_rounded, color: AppColors.danger),
+                StatCard(title: 'قيد التنفيذ', value: '${all.where((w) => !w.isDone && !w.isAwaitingApproval).length}', icon: Icons.play_arrow_rounded, tone: StatusPalette.info),
+                StatCard(title: 'بانتظار الاعتماد', value: '${all.where((w) => w.isAwaitingApproval).length}', icon: Icons.how_to_reg_outlined, tone: StatusPalette.warning),
+                StatCard(title: 'منجزة ومغلقة', value: '${all.where((w) => w.isDone).length}', icon: Icons.check_circle_outline_rounded, tone: StatusPalette.success),
+                StatCard(title: 'متأخرة عن موعدها', value: '$overdue', icon: Icons.schedule_rounded, tone: StatusPalette.danger, emphasize: overdue > 0),
                 // ــــ ما ينتظر تكليفاً ــــ
                 //
                 // الطلب الوارد من إدارة أخرى يصل بلا منفّذ، ومن يُردّ لعدم
@@ -143,11 +147,11 @@ class _WorksListScreenState extends State<WorksListScreen> {
                 //
                 // ولمن يملك التكليف وحده: عدٌّ لا يملك قارئه فعلَه إزعاجٌ.
                 if (canAssign)
-                  KpiCard(
+                  StatCard(
                     title: 'ينتظر التكليف',
                     value: '$awaitingAssignment',
                     icon: Icons.person_search_rounded,
-                    color: AppColors.warning,
+                    tone: StatusPalette.warning,
                   ),
               ],
             );

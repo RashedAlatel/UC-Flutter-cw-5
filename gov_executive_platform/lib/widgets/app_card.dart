@@ -132,7 +132,14 @@ class SectionTitle extends StatelessWidget {
   /// عددٌ يُعرض بعد العنوان — «(١٢)» أو «(١٢ — ٣ قيد العمل)».
   final String? count;
 
-  const SectionTitle(this.text, {super.key, this.count});
+  /// أيقونةٌ بعد الشريط — **لقسمٍ يُعرف بها**.
+  ///
+  /// وليست زينةً تُضاف لكلّ عنوان: «مثبّت لك» و«مشاريع تحت التركيز» كانا
+  /// عنوانين مكتوبين بأيديهما، ولأحدهما دبّوسٌ يقول «هذا مثبَّت» قبل أن
+  /// يُقرأ النصّ. فلو أُسقط في التوحيد لضاع معنىً كان قائماً.
+  final IconData? icon;
+
+  const SectionTitle(this.text, {super.key, this.count, this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -140,6 +147,10 @@ class SectionTitle extends StatelessWidget {
       children: [
         Container(width: 3, height: 16, color: AppColors.accent),
         const SizedBox(width: 8),
+        if (icon != null) ...[
+          Icon(icon, size: 16, color: AppColors.primary),
+          const SizedBox(width: 6),
+        ],
         Flexible(child: Text(text, style: AppType.sectionTitle)),
         if (count != null) ...[
           const SizedBox(width: 8),

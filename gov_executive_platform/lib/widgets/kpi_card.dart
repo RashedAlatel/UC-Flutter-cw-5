@@ -2,95 +2,20 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// بطاقة مؤشر مضغوطة بطراز أدوات BI (حدود رفيعة، بدون ظل، بدون شارة أيقونة
-/// كبيرة): تسمية صغيرة أعلى، رقم كبير، ومؤشر اتجاه اختياري أسفله.
-class KpiCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final String? subtitle;
-  final VoidCallback? onTap;
-
-  /// ارتفاع بطاقة المؤشر في الشبكات — **تعريفٌ واحد** تستعمله كل شاشة
-  /// تعرض صفّ مؤشرات.
-  ///
-  /// ولماذا بكسلات لا نسبة من العرض؟ لأن `childAspectRatio` يجعل الارتفاع
-  /// تابعاً لعرض الشاشة: على المكتب صار الفراغ المفروض داخل البطاقة يتجاوز
-  /// مئة وثلاثين بكسلاً، وعلى الجوال — حيث عمود أو عمودان — يتضخّم كذلك.
-  /// ومحتوى هذه البطاقة ثابت (عنوان ورقم وأيقونة)، فارتفاعه معروف ولا
-  /// يُشتقّ من عرض الشاشة.
-  ///
-  /// والرقم يتّسع لعنوانٍ في سطرين: عناوين التقارير («متوسط التأخير»،
-  /// «قرارات معلقة») تلتفّ في العمود الضيّق، وارتفاعٌ أقلّ يسكب المحتوى
-  /// فيظهر شريط التحذير المخطَّط بدل البطاقة.
-  static const double tileHeight = 100;
-
-  const KpiCard({
-    super.key,
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-    this.subtitle,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary, fontWeight: FontWeight.w600),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                value,
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary, height: 1),
-              ),
-              if (subtitle != null) ...[
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 12, color: color),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        subtitle!,
-                        style: TextStyle(fontSize: 10.5, color: color, fontWeight: FontWeight.w700),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// نفس المؤشر بلا بطاقة — للعرض داخل الشريط القيادي على خلفية الهوية.
+/// مؤشّرٌ داخل الشريط القيادي — على خلفية الهوية.
 ///
-/// وهو ليس نسخةً ثانية من [KpiCard]: كلاهما يُغذّى من نفس دالة حساب المؤشر في
-/// شاشة اللوحة، فلا يفترق الرقم بين الشريط والبطاقة أبداً. المختلف هو اللباس
-/// وحده — والألوان تُشتقّ من الخلفية لا تُفترض.
+/// ــــ وكان في هذا الملفّ بطاقةٌ فحُذفت ــــ
+///
+/// `KpiCard` عاشت هنا، تُصيَّر في خمس شاشات، **وفيها `onTap` لم تُمرَّر
+/// قيمةً قطّ**: خطّافٌ بُني ولم يُوصَل. فلمّا انتقلت الشاشاتُ الخمس إلى
+/// `StatCard` — وفيها النغمةُ والتدرّجُ والضغط — لم يبقَ لها مستدعٍ واحد،
+/// فحُذفت.
+///
+/// ــــ وهذا ليس نسخةً ثانيةً منها ــــ
+///
+/// كلاهما يُغذّى من `_kpiData` في شاشة اللوحة، فلا يفترق الرقمُ بين الشريط
+/// والبطاقة أبداً. المختلفُ اللباسُ وحده — وهذا يعيش على خلفية الهوية،
+/// فألوانُه تُشتقّ منها ولا تُفترض.
 class KpiMetric extends StatelessWidget {
   final String title;
   final String value;
@@ -103,12 +28,19 @@ class KpiMetric extends StatelessWidget {
   /// فلا يصير الشريط قوس قزح ويفقد اللونُ معناه.
   final bool emphasize;
 
+  /// ما يقع عند الضغط — **و`null` تعني أنّ المؤشّر لا يُضغط أصلاً**.
+  ///
+  /// فلا مؤشّرَ يبدو قابلاً للضغط ولا يستجيب: المؤشّرُ الذي لا قائمةَ خلفه
+  /// لا يُحاط بسطحٍ يُضيء تحت المؤشّر ولا تتبدّل عليه إشارةُ الفأرة.
+  final VoidCallback? onTap;
+
   const KpiMetric({
     super.key,
     required this.title,
     required this.value,
     required this.color,
     this.emphasize = false,
+    this.onTap,
   });
 
   @override
@@ -118,7 +50,7 @@ class KpiMetric extends StatelessWidget {
     // على الخلفية الداكنة تُرفع إضاءة لون المعنى؛ وعلى الفاتحة يُترك كما هو.
     final valueColor = !emphasize ? fg : (onDark ? AppColors.liftForDark(color) : color);
 
-    return Column(
+    final body = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -145,6 +77,34 @@ class KpiMetric extends StatelessWidget {
           ),
         ),
       ],
+    );
+
+    // ــ والحشوةُ تُوضع سواءٌ أكان يُضغط أم لا ــ
+    //
+    // في الشريط مؤشّراتٌ تُضغط وأخرى لا تُضغط جنباً إلى جنب. ولو كانت
+    // الحشوةُ تابعةً للضغط لانزاح بعضُها عن بعض ستّةَ بكسلات — ويُقرأ ذلك
+    // اعوجاجاً في الصفّ لا فرقاً في المعنى.
+    final padded = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      child: body,
+    );
+    if (onTap == null) return padded;
+
+    // ــ سطحُ ضغطٍ يُقرأ على الهوية لا على الأبيض ــ
+    //
+    // الشريطُ ملوَّنٌ بلون الهوية، فسطحُ الضغط الافتراضي (رماديٌّ شفّاف)
+    // يكاد لا يُرى عليه. فيُشتقّ من لون النصّ المحسوب للخلفية — وهو الذي
+    // يُقرأ عليها بحكم اشتقاقه منها.
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        hoverColor: fg.withValues(alpha: 0.08),
+        splashColor: fg.withValues(alpha: 0.12),
+        child: padded,
+      ),
     );
   }
 }

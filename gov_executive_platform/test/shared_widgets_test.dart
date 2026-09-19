@@ -9,11 +9,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:gov_exec_platform/models/enums.dart';
 import 'package:gov_exec_platform/theme/app_theme.dart';
 import 'package:gov_exec_platform/theme/status_palette.dart';
 import 'package:gov_exec_platform/widgets/app_card.dart';
 import 'package:gov_exec_platform/widgets/app_empty_state.dart';
 import 'package:gov_exec_platform/widgets/stat_card.dart';
+import 'package:gov_exec_platform/widgets/status_chip.dart';
 import 'package:gov_exec_platform/widgets/status_pill.dart';
 
 Future<void> _pump(WidgetTester tester, Widget child) async {
@@ -164,6 +166,43 @@ void main() {
       ));
       final text = tester.widget<Text>(find.text('٢'));
       expect(text.style?.color, StatusPalette.danger.onFill);
+    });
+  });
+
+  // ــ وهذه المجموعةُ كُتبت لأنّ طفرةً نجت ــ
+  //
+  // جُعلت كلُّ حالات المشروع في `StatusChip` محايدةً — «في المسار»
+  // و«متعثّر» و«مكتمل» بلونٍ رماديٍّ واحد — **ومرّت المنصةُ كلُّها**. وهي
+  // تُقرأ في تسع شاشات، وكانت أطولَ ما في المنصة بلا اختبارٍ يمسّه.
+  group('وشارةُ الحالة تترجم الحالةَ إلى نغمتها', () {
+    testWidgets('لكلِّ حالةِ مشروعٍ نغمتُها هي', (tester) async {
+      for (final status in ProjectStatus.values) {
+        await _pump(tester, StatusChip(status: status));
+        final pill = tester.widget<StatusPill>(find.byType(StatusPill));
+        expect(pill.tone, StatusPalette.projectTone(status.name),
+            reason: 'حالةُ «${status.label}» لا تحمل نغمتَها');
+        expect(pill.label, status.label);
+      }
+    });
+
+    // ولا يمرّ ما سبق لأنّ كلَّ الحالات بنغمةٍ واحدة أصلاً.
+    testWidgets('ولا تتشارك حالتان نغمةً واحدة', (tester) async {
+      final tones = {
+        for (final s in ProjectStatus.values) StatusPalette.projectTone(s.name),
+      };
+      expect(tones.length, ProjectStatus.values.length,
+          reason: 'حالتان بلونٍ واحد تُبطلان فائدةَ الشارة كلَّها');
+    });
+
+    testWidgets('وشارةُ الأولوية كذلك، وبلا نقطة', (tester) async {
+      // بلا نقطة: تقع إلى جانب شارة الحالة في صفٍّ واحد، ونقطتان
+      // متجاورتان تُقرآن زينةً لا معنى.
+      for (final p in PriorityLevel.values) {
+        await _pump(tester, PriorityChip(priority: p));
+        final pill = tester.widget<StatusPill>(find.byType(StatusPill));
+        expect(pill.tone, StatusPalette.priorityTone(p.name));
+        expect(pill.dot, isFalse);
+      }
     });
   });
 }

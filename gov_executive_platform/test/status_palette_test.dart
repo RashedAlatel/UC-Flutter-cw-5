@@ -110,6 +110,58 @@ void main() {
     });
   });
 
+  // ــ وهذه المجموعةُ كُتبت لأنّ طفرةً نجت ــ
+  //
+  // نُزع فرعُ التحذير من `dueTone` — «أسبوعٌ أو أقلّ» صار أخضرَ مطمئنّاً —
+  // **ومرّت المنصةُ كلُّها خضراء**: ١١٨٠ اختباراً ولا واحدٌ يقيس اللون الذي
+  // يراه القارئ على موعد الاستحقاق. وهذا ما تقيسه الطفرةُ ولا يقيسه العدّ.
+  group('وقربُ الاستحقاق يُقال بلونه', () {
+    test('المتأخّرُ خطرٌ لا تحذير', () {
+      expect(
+        StatusPalette.dueTone(completed: false, delayDays: 3, remainingDays: 0),
+        StatusPalette.danger,
+      );
+    });
+
+    test('وأسبوعٌ أو أقلّ تحذيرٌ لا اطمئنان', () {
+      // وهو **آخرُ ما يمكن التصرّفُ فيه** — فلونُ النجاح عليه يقول «لا شأن
+      // لك به» وقد بقي ستّةُ أيام.
+      for (final left in [0, 1, StatusPalette.dueSoonDays]) {
+        expect(
+          StatusPalette.dueTone(completed: false, delayDays: 0, remainingDays: left),
+          StatusPalette.warning,
+          reason: 'بقي $left يوماً ولا تحذير',
+        );
+      }
+    });
+
+    test('وما جاوز الأسبوعَ مطمئنّ', () {
+      expect(
+        StatusPalette.dueTone(
+            completed: false, delayDays: 0, remainingDays: StatusPalette.dueSoonDays + 1),
+        StatusPalette.success,
+      );
+    });
+
+    test('والمكتملُ نجاحٌ ولو فات موعدُه', () {
+      // فالمشروعُ المنجَز لا يُنذَر بتأخيره: العملُ تمّ، والتأخيرُ خبرٌ
+      // للتقرير لا نداءٌ للتصرّف.
+      expect(
+        StatusPalette.dueTone(completed: true, delayDays: 40, remainingDays: 0),
+        StatusPalette.success,
+      );
+    });
+
+    test('ولا يتبدّل شيءٌ من ذلك بتبدّل الهوية', () {
+      final before = StatusPalette.dueTone(completed: false, delayDays: 0, remainingDays: 2);
+      AppColors.applyBrand(
+        primary: const Color(0xFF7B1FA2),
+        accent: const Color(0xFFB00020),
+      );
+      expect(StatusPalette.dueTone(completed: false, delayDays: 0, remainingDays: 2), before);
+    });
+  });
+
   group('وما لا يُعرف يُقال رمادياً لا يُخترع', () {
     test('حالةٌ مجهولةٌ تُقرأ محايدةً لا تُلوَّن بالخطأ', () {
       expect(StatusPalette.task('شيءٌ لم يوجد بعد'), StatusPalette.neutral.fill);

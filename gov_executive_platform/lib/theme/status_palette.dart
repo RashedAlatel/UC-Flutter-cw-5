@@ -263,6 +263,31 @@ class StatusPalette {
         _ => neutral,
       };
 
+  // ــــــــــــــ قربُ الاستحقاق ــــــــــــــ
+
+  /// نغمةُ موعدِ استحقاق — «متأخر» و«متبقّي ثلاثة أيام» و«مكتمل».
+  ///
+  /// وكانت مكتوبةً في `projects_list_screen.dart` باسم `_dueColor`: دالّةٌ
+  /// تقرّر أخضرَ وأحمرَ وأصفرَ في شاشة. ومرّت على الحارس **صامتة** لأنّها
+  /// صيغةُ `if`/`return` لا ذراعَ مفتاح — والقرارُ واحدٌ وإن اختلفت الصيغة.
+  ///
+  /// و**أسبوعٌ أو أقلّ تحذيرٌ لا اطمئنان**: هو آخرُ ما يمكن التصرّفُ فيه.
+  /// والحدُّ هنا لا في شاشة، فلا تفترق شاشتان في معنى «يوشك».
+  ///
+  /// وبأعدادٍ لا بمشروع: `StatusPalette` لا تعرف النماذج ولا تستوردها —
+  /// ولو عرفتها لصار موضعُ قرارِ اللون تابعاً لشكل البيانات.
+  static const int dueSoonDays = 7;
+
+  static StatusTone dueTone({
+    required bool completed,
+    required int delayDays,
+    required int remainingDays,
+  }) {
+    if (completed) return success;
+    if (delayDays > 0) return danger;
+    return remainingDays <= dueSoonDays ? warning : success;
+  }
+
   // ــــــــــــــ نسبةُ الإنجاز ــــــــــــــ
 
   /// نغمةُ شريطِ إنجازٍ بنسبته.

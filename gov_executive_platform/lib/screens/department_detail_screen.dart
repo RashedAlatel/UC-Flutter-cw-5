@@ -5,9 +5,10 @@ import '../data/app_store.dart';
 import '../models/department_section.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
+import '../theme/status_palette.dart';
+import '../widgets/stat_card.dart';
 import '../widgets/meta_row.dart';
 import '../utils/formatters.dart';
-import '../widgets/kpi_card.dart';
 import '../widgets/section_picker.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/status_chip.dart';
@@ -70,7 +71,7 @@ class DepartmentDetailScreen extends StatelessWidget {
           LayoutBuilder(builder: (context, constraints) {
             final cols = constraints.maxWidth > 900 ? 4 : (constraints.maxWidth > 520 ? 2 : 1);
             const spacing = 14.0;
-            const itemHeight = KpiCard.tileHeight;
+            const itemHeight = StatCard.tileHeight;
             final itemWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
             return GridView.count(
               crossAxisCount: cols,
@@ -80,15 +81,14 @@ class DepartmentDetailScreen extends StatelessWidget {
               mainAxisSpacing: spacing,
             // الارتفاع بالبكسل لا بنسبةٍ من العرض: النسبة تجعل ارتفاع
             // البطاقة تابعاً لعرض الشاشة، فيتضخّم الفراغ داخلها كلما
-            // اتّسعت. و٩٢ هو ارتفاع محتوى `KpiCard` كما في
-            // `works_list_screen.dart`، فالبطاقة نفسها بالارتفاع نفسه
-            // في كل شاشة تظهر فيها.
+            // اتّسعت. والارتفاع `StatCard.tileHeight` — **تعريفٌ واحد**
+            // تقرؤه كل شاشة تعرض صفّ مؤشرات، فلا تتفاوت الصفوف.
               childAspectRatio: itemWidth / itemHeight,
               children: [
-                KpiCard(title: 'نسبة الإنجاز', value: Formatters.percent(progress), icon: Icons.trending_up_rounded, color: AppColors.success),
-                KpiCard(title: 'متوسط التأخير', value: '${delay.toStringAsFixed(1)} يوم', icon: Icons.schedule_rounded, color: AppColors.warning),
-                KpiCard(title: 'مخاطر قائمة', value: '$risks', icon: Icons.warning_amber_rounded, color: AppColors.danger),
-                KpiCard(title: 'عوائق نشطة', value: '$blockers', icon: Icons.block_rounded, color: AppColors.blocker),
+                StatCard(title: 'نسبة الإنجاز', value: Formatters.percent(progress), icon: Icons.trending_up_rounded, tone: StatusPalette.success),
+                StatCard(title: 'متوسط التأخير', value: '${delay.toStringAsFixed(1)} يوم', icon: Icons.schedule_rounded, tone: StatusPalette.warning),
+                StatCard(title: 'مخاطر قائمة', value: '$risks', icon: Icons.warning_amber_rounded, tone: StatusPalette.danger, emphasize: risks > 0),
+                StatCard(title: 'عوائق نشطة', value: '$blockers', icon: Icons.block_rounded, tone: StatusPalette.blocker, emphasize: blockers > 0),
               ],
             );
           }),

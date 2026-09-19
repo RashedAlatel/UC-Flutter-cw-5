@@ -8,6 +8,9 @@ import '../models/record_filter.dart';
 import '../models/project_category.dart';
 import '../models/project_sort.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_typography.dart';
+import '../theme/status_palette.dart';
+import '../widgets/app_empty_state.dart';
 import '../widgets/command_band.dart';
 import '../widgets/record_filter_bar.dart';
 import '../widgets/meta_row.dart';
@@ -143,6 +146,22 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
         .toList();
     if (names.isEmpty) return 'لا توجد مشاريع في نطاقك بعد';
     return 'إدارتك: ${names.join('، ')} — لا مشاريع مسجّلة فيها بعد';
+  }
+
+  /// وسببُ الفراغ تحت عنوانه — سطرٌ أو سطران أو لا شيء.
+  ///
+  /// ــ ولماذا يُقال السبب ــ
+  ///
+  /// «لا توجد مشاريع» جملةٌ تصف القائمة ولا تصف الحال: أهي فارغةٌ لأنّ
+  /// البحثَ ضيّق، أم لأنّ الحسابَ بلا إدارة، أم لأنّ القراءةَ من الخادم لم
+  /// تصل؟ راجع [AppStore.projectsArrivalNote].
+  String? _emptyReasons(AppStore store) {
+    final lines = [
+      if (store.projectsArrivalNote != null) store.projectsArrivalNote!,
+      if (store.myDepartmentIds.isEmpty && !store.canViewAllDepartments)
+        'مشاريعك تُعرض بحسب إدارتك. اطلب من مسؤول النظام ربط حسابك بإدارتك.',
+    ];
+    return lines.isEmpty ? null : lines.join('\n');
   }
 
   @override
@@ -287,7 +306,8 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
             ),
             const SizedBox(height: 12),
           ],
-          Text('${projects.length} مشروع', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w700)),
+          Text('${projects.length} مشروع',
+              style: AppType.label.copyWith(color: AppColors.textSecondary)),
           // مشاريع الوزارة المستوردة لا تحمل تاريخ إضافة، فتُرتَّب بتاريخ
           // بدئها. ويُقال ذلك بدل إيهام دقّةٍ لا وجود لها — من يرتّب
           // بالأحدث يحقّ له أن يعرف أن بعض الصف مرتَّب بمقياس آخر.
@@ -304,42 +324,11 @@ class _ProjectsListScreenState extends State<ProjectsListScreen> {
           // نطاق المستخدم عندها **فارغ بنيوياً** لا مُصفّى، فيبحث عن عطل ليس
           // موجوداً. ونفرّق كذلك بين نطاق خالٍ وتصفية لم تطابق شيئاً.
           if (projects.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 30),
-              child: Center(
-                child: Column(
-                  children: [
-                    Icon(Icons.folder_off_outlined, size: 34, color: AppColors.textSecondary.withValues(alpha: 0.5)),
-                    const SizedBox(height: 10),
-                    Text(
-                      _emptyHeadline(store),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700),
-                    ),
-                    // ــ وما وصل من الخادم يُقال، فالصفرُ خبرٌ لا لغز ــ
-                    //
-                    // راجع [AppStore.projectsArrivalNote]: «لا توجد مشاريع»
-                    // جملةٌ تصف القائمة ولا تصف الحال.
-                    if (store.projectsArrivalNote != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        store.projectsArrivalNote!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                            color: AppColors.textSecondary, fontSize: 12.5, height: 1.7),
-                      ),
-                    ],
-                    if (store.myDepartmentIds.isEmpty && !store.canViewAllDepartments) ...[
-                      const SizedBox(height: 6),
-                      const Text(
-                        'مشاريعك تُعرض بحسب إدارتك. اطلب من مسؤول النظام ربط حسابك بإدارتك.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5, height: 1.7),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+            AppEmptyState(
+              icon: Icons.folder_off_outlined,
+              title: _emptyHeadline(store),
+              message: _emptyReasons(store),
+              framed: false,
             )
           else
             ...sortedProjects.map((p) => _ProjectRow(
@@ -384,12 +373,16 @@ String _days(int n) {
   return '$n يوماً';
 }
 
-Color _dueColor(Project project) {
-  if (project.effectiveStatus == ProjectStatus.completed) return AppColors.success;
-  if (project.delayDays > 0) return AppColors.danger;
-  // أسبوعٌ أو أقل تحذير لا اطمئنان: هو آخر ما يمكن التصرّف فيه.
-  return project.remainingDays <= 7 ? AppColors.warning : AppColors.success;
-}
+/// نغمةُ الاستحقاق — **والقرارُ في `StatusPalette` لا هنا**.
+///
+/// كانت هذه الدالّةُ تقرّر الألوانَ بنفسها، فحدُّ «يوشك» عندها سبعةُ أيام
+/// ولا يعرفه أحدٌ غيرُها. فصار الحدُّ واللونُ في موضع القرار، ولم يبقَ هنا
+/// إلا قراءةُ المشروع.
+StatusTone _dueTone(Project project) => StatusPalette.dueTone(
+      completed: project.effectiveStatus == ProjectStatus.completed,
+      delayDays: project.delayDays,
+      remainingDays: project.remainingDays,
+    );
 
 /// شريط الإجراء الجماعي — يظهر مع فلتر «متأخر».
 ///
@@ -628,7 +621,7 @@ class _ProjectRow extends StatelessWidget {
                   MetaChip(
                     icon: Icons.schedule_rounded,
                     text: _dueLabel(project),
-                    color: _dueColor(project),
+                    color: _dueTone(project).fill,
                   ),
                 ],
               ),

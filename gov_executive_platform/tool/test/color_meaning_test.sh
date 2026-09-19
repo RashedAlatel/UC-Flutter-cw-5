@@ -18,6 +18,7 @@
 # ــــ وما يُقاس هنا ــــ
 #
 # (١) لا ذراعَ مفتاحٍ تُسند لوناً دلاليّاً خارج `status_palette.dart`.
+# (١‑ب) ولا **دالّةً تعيد لوناً** تختار بين معنيين فأكثر بـ`if` و`return`.
 # (٢) ولا `Color(0x…)` حرفيٌّ خارج `app_palette.dart` — إلا بسببٍ مكتوب.
 #
 # ــــ ولماذا أذرعُ المفاتيح لا العدّ ــــ
@@ -27,6 +28,18 @@
 # قرار. وحارسٌ يشكو مما لا عيبَ فيه لا يُقرأ يومَ يشكو من عيب. فضُبط على
 # **ذراع المفتاح** — وهي صيغةُ القرار نفسِها — فأصاب ستّةَ مواضعَ كلُّها
 # حقيقيّ، بلا شكوى كاذبةٍ واحدة.
+#
+# ــــ وثغرةٌ في الكاشف الأوّل قِيست ــــ
+#
+# كان `_dueColor` في صفحة المشاريع يقرّر أخضرَ وأحمرَ وأصفرَ بنفسه — «متأخر
+# أحمر، وأسبوعٌ أو أقلّ تحذير، وما عداه أخضر» — ومرّ **صامتاً**: هو صيغةُ
+# `if`/`return` لا ذراعَ مفتاح. والقرارُ واحدٌ وإن اختلفت الصيغة. فأُضيف
+# الكاشفُ (١‑ب).
+#
+# والصيغةُ الثالثيّة (`شرط ? نجاح : خطر`) **لا تُعدّ وحدَها**: قِيست فوقعت
+# في واحدٍ وعشرين موضعاً سليماً — «نجح الحفظ أم أخفق» في الإشعارات — وذلك
+# خبرُ عمليةٍ لا خريطةُ حالات. فتُعدّ **داخل دالّةٍ تعيد لوناً وحدَها**،
+# وهناك لم تسمِّ إلا الموضعَ الحقيقيّ.
 set -eu
 cd "$(dirname "$0")/../.."
 
@@ -81,6 +94,60 @@ else
     bad "«${row%%:*}» لا يقرّر لوناً بنفسه" \
 "فيه ${row##*:} أذرعٍ تُسند لوناً دلاليّاً — والقرارُ في ${DECIDER}.
       ولو بقي هنا لانحرف عن بقيّة المنصة بلا أن يشكو أحد."
+  done
+fi
+echo ""
+
+# ــ (١‑ب) الدوالُّ التي تعيد لوناً ــ
+DECIDERS="$(python3 - "$SRC" "$DECIDER" <<'PY'
+import re, sys, pathlib
+
+root, decider = sys.argv[1], sys.argv[2]
+
+SEM = r"AppColors\.(?:success|warning|danger|info|blocker|textSecondary)\b"
+# ترويسةُ دالّةٍ تعيد لوناً — `Color _x(` و`static Color x(` و`Color get x`.
+head = re.compile(r"(?:^|\n)[ \t]*(?:static[ \t]+)?Color\??[ \t]+(?:get[ \t]+)?(\w+)[ \t]*[({=]")
+ret = re.compile(r"return\s+(?:const\s+)?" + SEM)
+# والثالثيّةُ تُعدّ **هنا وحدَها**: داخل دالّةِ لونٍ هي اختيارٌ بين معنيين.
+tern = re.compile(r"\?\s*(?:const\s+)?" + SEM + r"\s*:\s*(?:const\s+)?" + SEM)
+
+for p in sorted(pathlib.Path(root).rglob('*.dart')):
+    if str(p) == decider:
+        continue
+    src = p.read_text(encoding='utf-8')
+    for m in head.finditer(src):
+        open_at = src.find('{', m.end() - 1)
+        if open_at < 0:
+            continue
+        depth, j = 0, open_at
+        while j < len(src):
+            if src[j] == '{':
+                depth += 1
+            elif src[j] == '}':
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        body = src[open_at:j]
+        n = len(ret.findall(body)) + len(tern.findall(body))
+        if n >= 2:
+            print(f"{p}:{src[:m.start()].count(chr(10)) + 2}:{m.group(1)}:{n}")
+PY
+)"
+
+echo "ولا دالّةَ لونٍ تختار بين معنيين:"
+if [ -z "$DECIDERS" ]; then
+  ok "ولا دالّةَ تعيد لوناً تقرّر معنىً بنفسها"
+else
+  for row in $DECIDERS; do
+    file="${row%%:*}"
+    rest="${row#*:}"
+    line="${rest%%:*}"
+    rest="${rest#*:}"
+    name="${rest%%:*}"
+    bad "«${name}» في ${file}:${line} يقرّر لوناً بنفسه" \
+"يختار بين ${rest##*:} معانٍ — والقرارُ في ${DECIDER}.
+      وصيغةُ \`if\`/\`return\` قرارٌ كصيغةِ المفتاح سواءً بسواء."
   done
 fi
 echo ""

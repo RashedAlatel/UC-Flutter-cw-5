@@ -4,9 +4,10 @@ import 'package:provider/provider.dart';
 import '../data/app_store.dart';
 import '../models/app_user.dart';
 import '../theme/app_theme.dart';
+import '../theme/status_palette.dart';
+import '../widgets/stat_card.dart';
 import '../widgets/command_band.dart';
 import '../utils/formatters.dart';
-import '../widgets/kpi_card.dart';
 import '../widgets/notify_dialog.dart';
 import '../widgets/progress_bar.dart';
 import 'project_detail_screen.dart';
@@ -272,7 +273,7 @@ class PersonProfileScreen extends StatelessWidget {
           LayoutBuilder(builder: (context, c) {
             final cols = c.maxWidth > 820 ? 4 : (c.maxWidth > 520 ? 2 : 1);
             const spacing = 14.0;
-            const itemHeight = 92.0;
+            const itemHeight = StatCard.tileHeight;
             final itemWidth = (c.maxWidth - spacing * (cols - 1)) / cols;
             return GridView.count(
               crossAxisCount: cols,
@@ -282,10 +283,11 @@ class PersonProfileScreen extends StatelessWidget {
               mainAxisSpacing: spacing,
               childAspectRatio: itemWidth / itemHeight,
               children: [
-                KpiCard(title: 'أعماله', value: '${s.works}', icon: Icons.checklist_rounded, color: AppColors.primary),
-                KpiCard(title: 'منجزة منها', value: '${s.worksDone}', icon: Icons.check_circle_outline_rounded, color: AppColors.success),
-                KpiCard(title: 'متوسط الإنجاز', value: Formatters.percent(s.avgWorkProgress), icon: Icons.trending_up_rounded, color: AppColors.info),
-                KpiCard(title: 'متأخر عن موعده', value: '${s.worksOverdue + s.projectsOverdue}', icon: Icons.schedule_rounded, color: AppColors.danger),
+                // ومحايدٌ لا لونَ هوية: عددُ أعماله خبرٌ لا حكم.
+                StatCard(title: 'أعماله', value: '${s.works}', icon: Icons.checklist_rounded, tone: StatusPalette.neutral),
+                StatCard(title: 'منجزة منها', value: '${s.worksDone}', icon: Icons.check_circle_outline_rounded, tone: StatusPalette.success),
+                StatCard(title: 'متوسط الإنجاز', value: Formatters.percent(s.avgWorkProgress), icon: Icons.trending_up_rounded, tone: StatusPalette.info),
+                StatCard(title: 'متأخر عن موعده', value: '${s.worksOverdue + s.projectsOverdue}', icon: Icons.schedule_rounded, tone: StatusPalette.danger, emphasize: s.worksOverdue + s.projectsOverdue > 0),
               ],
             );
           }),

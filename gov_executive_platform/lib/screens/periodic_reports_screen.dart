@@ -19,14 +19,14 @@ import '../data/app_store.dart';
 import '../models/enums.dart';
 import '../reports/periodic_report.dart';
 import '../theme/app_theme.dart';
+import '../theme/status_palette.dart';
+import '../widgets/stat_card.dart';
 import '../utils/file_download.dart';
 import '../utils/formatters.dart';
 import '../utils/report_export.dart';
 import '../widgets/command_band.dart';
 import '../widgets/filter_bar.dart';
-import '../widgets/kpi_card.dart';
 import 'periodic_report_settings_dialog.dart';
-import '../theme/status_palette.dart';
 import '../widgets/app_empty_state.dart';
 
 class PeriodicReportsScreen extends StatefulWidget {
@@ -281,37 +281,39 @@ class _DigestSection extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               crossAxisSpacing: spacing,
               mainAxisSpacing: spacing,
-              childAspectRatio: itemWidth / KpiCard.tileHeight,
+              childAspectRatio: itemWidth / StatCard.tileHeight,
               children: [
-                KpiCard(
+                // ومحايدٌ لا لونَ هوية: عددٌ يُخبر ولا يُنذر.
+                StatCard(
                   title: 'إجمالي المشاريع',
                   value: '${d.totalProjects}',
                   icon: Icons.folder_copy_rounded,
-                  color: AppColors.primary,
+                  tone: StatusPalette.neutral,
                 ),
-                KpiCard(
+                StatCard(
                   title: 'مشاريع متأخرة',
                   value: '${d.lateProjects}',
                   icon: Icons.running_with_errors_rounded,
-                  color: AppColors.danger,
+                  tone: StatusPalette.danger,
+                  emphasize: d.lateProjects > 0,
                 ),
-                KpiCard(
+                StatCard(
                   title: 'تحتاج تدخّلاً',
                   value: '${d.projectsNeedingIntervention}',
                   icon: Icons.priority_high_rounded,
-                  color: AppColors.warning,
+                  tone: StatusPalette.warning,
                 ),
-                KpiCard(
+                StatCard(
                   title: 'بلا تحديثٍ في الفترة',
                   value: '${d.projectsNotUpdated}',
                   icon: Icons.update_disabled_rounded,
-                  color: AppColors.warning,
+                  tone: StatusPalette.warning,
                 ),
-                KpiCard(
+                StatCard(
                   title: 'مهامّ أُنجزت',
                   value: '${d.tasksCompleted}',
                   icon: Icons.task_alt_rounded,
-                  color: AppColors.success,
+                  tone: StatusPalette.success,
                 ),
               ],
             );

@@ -9,7 +9,9 @@ import '../models/department.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_typography.dart';
 import '../theme/brand.dart';
+import '../theme/status_palette.dart';
 import '../utils/formatters.dart';
 import '../widgets/charts.dart';
 import '../widgets/command_band.dart';
@@ -19,7 +21,9 @@ import '../widgets/focused_project_card.dart';
 import '../widgets/pinned_work_card.dart';
 import '../widgets/kpi_card.dart';
 import '../widgets/progress_bar.dart';
+import '../widgets/stat_card.dart';
 import '../widgets/status_chip.dart';
+import '../widgets/status_pill.dart';
 import 'customize_dashboard_dialog.dart';
 import 'decision_center_screen.dart';
 import 'department_detail_screen.dart';
@@ -191,14 +195,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // القسم العام لأنه شخصي وأوثق صلة به.
           if (store.myFocusProjects.isNotEmpty || store.myFocusWorks.isNotEmpty) ...[
             const SizedBox(height: 20),
-            Row(
-              children: [
-                Icon(Icons.push_pin_rounded, size: 16, color: AppColors.primary),
-                const SizedBox(width: 6),
-                const Text('مثبّت لك',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-              ],
-            ),
+            const SectionTitle('مثبّت لك', icon: Icons.push_pin_rounded),
             const SizedBox(height: 10),
             LayoutBuilder(builder: (context, constraints) {
               final cols = constraints.maxWidth > 1000 ? 3 : (constraints.maxWidth > 640 ? 2 : 1);
@@ -220,8 +217,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // قبل الفلاتر والمؤشرات العامة.
           if (store.focusedProjects.isNotEmpty) ...[
             const SizedBox(height: 20),
-            const Text('مشاريع تحت التركيز',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+            const SectionTitle('مشاريع تحت التركيز', icon: Icons.center_focus_strong_rounded),
             const SizedBox(height: 10),
             LayoutBuilder(builder: (context, constraints) {
               final cols = constraints.maxWidth > 1000 ? 3 : (constraints.maxWidth > 640 ? 2 : 1);
@@ -313,8 +309,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final metric = KpiMetric(
       title: kpi.title,
       value: kpi.value,
-      color: kpi.color,
+      color: kpi.tone.fill,
       emphasize: kpi.emphasize,
+      // ولا تُمرَّر أثناء الترتيب: الضغطُ عندها للسحب لا للتنقّل، وفتحُ
+      // قائمةٍ في منتصف السحب يُفقد المستخدمَ مكانه.
+      onTap: _arranging ? null : _kpiPeek(context, config.type, store, filteredProjects),
     );
     if (!_arranging) return metric;
     return _ArrangeableCard(
@@ -372,16 +371,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// حساب مؤشر واحد — **المصدر الوحيد** لعنوانه ورقمه ولونه.
+  /// حساب مؤشر واحد — **المصدر الوحيد** لعنوانه ورقمه ونغمته.
   ///
-  /// يقرأ منه موضعان: بطاقة `KpiCard` على اللوحة، و`KpiMetric` داخل الشريط
-  /// القيادي. ولولا توحيدهما لانفصل الرقمان بأول تعديل على أحدهما — وهو ما
-  /// حدث فعلاً بين `departmentRanking` في المخزن ونسخته داخل هذه الشاشة.
+  /// ــ وأين يُقرأ منه اليوم ــ
   ///
-  /// و[emphasize] تقول: هل يُلوَّن الرقم بلون المعنى في الشريط؟ الأرقام
-  /// المحايدة (الإجمالي، الأولوية) تبقى بلون النص، فلا يصير الشريط قوس قزح
-  /// ويفقد اللونُ دلالته.
-  static ({String title, String value, IconData icon, Color color, bool emphasize}) _kpiData(
+  /// كان مكتوباً هنا أنّ موضعين يقرآن منه: بطاقةٌ على اللوحة ومؤشّرٌ في
+  /// الشريط. **وقِيس فلم يبقَ إلا الشريط**: `_buildWidget` لا يُنادى إلا
+  /// بما ليس مؤشّراً (راجع القسمة في `build`)، فذراعُ البطاقة لا تُصيَّر.
+  /// ويقيس ذلك `dashboard_kpi_surface_test.dart` فلا يشيخ هذا الوصفُ صامتاً
+  /// مرّةً أخرى.
+  ///
+  /// ــ ونغمةٌ لا لون ــ
+  ///
+  /// كان «إجمالي عدد المشاريع» بلون `AppColors.primary` — وهو لونُ الهوية
+  /// الذي يختاره مسؤولُ النظام من شاشة المظهر. **وثالثُ تسرُّبٍ** للهوية
+  /// إلى المعنى بعد «قيد المراجعة» و«نشاطٍ متوسّط». فصار عدداً يُخبر لا
+  /// يُنذر: نغمةُ المعلومة.
+  ///
+  /// و[emphasize] تقول: هل هذا الرقمُ **نذير**؟ فيُلوَّن في الشريط ويُملأ
+  /// سطحُه في البطاقة. والأرقامُ المحايدة تبقى هادئة، فلا يصير الشريط قوسَ
+  /// قزحٍ ويفقد اللونُ دلالته.
+  static ({String title, String value, IconData icon, StatusTone tone, bool emphasize}) _kpiData(
     DashboardWidgetType type,
     AppStore store,
     List<Project> projects,
@@ -392,7 +402,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'نسبة الإنجاز العام',
           value: Formatters.percent(AppStore.metricValue(DashboardMetric.avgProgress, projects)),
           icon: Icons.trending_up_rounded,
-          color: AppColors.success,
+          tone: StatusPalette.success,
           emphasize: false,
         );
       case DashboardWidgetType.kpiAvgDelay:
@@ -403,7 +413,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'متوسط التأخير عن الخطة',
           value: '${avgDelay.toStringAsFixed(1)} يوم',
           icon: Icons.schedule_rounded,
-          color: AppColors.warning,
+          tone: StatusPalette.warning,
           emphasize: avgDelay > 0,
         );
       case DashboardWidgetType.kpiProjectCount:
@@ -411,7 +421,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'إجمالي عدد المشاريع',
           value: '${projects.length}',
           icon: Icons.folder_copy_rounded,
-          color: AppColors.primary,
+          tone: StatusPalette.info,
           emphasize: false,
         );
       case DashboardWidgetType.kpiHighPriority:
@@ -422,7 +432,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'المشاريع عالية الأولوية',
           value: '$high',
           icon: Icons.priority_high_rounded,
-          color: AppColors.priorityColor('high'),
+          tone: StatusPalette.priorityTone('high'),
           emphasize: false,
         );
       case DashboardWidgetType.kpiOpenRisks:
@@ -432,7 +442,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'المخاطر القائمة',
           value: '$count',
           icon: Icons.warning_amber_rounded,
-          color: AppColors.danger,
+          tone: StatusPalette.danger,
           emphasize: count > 0,
         );
       case DashboardWidgetType.kpiOpenBlockers:
@@ -442,7 +452,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'العوائق النشطة',
           value: '$count',
           icon: Icons.block_rounded,
-          color: AppColors.blocker,
+          tone: StatusPalette.blocker,
           emphasize: count > 0,
         );
       case DashboardWidgetType.kpiPendingApprovals:
@@ -450,7 +460,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'طلبات بانتظار القيادة',
           value: '${store.pendingApprovalsCount}',
           icon: Icons.gavel_rounded,
-          color: AppColors.info,
+          tone: StatusPalette.info,
           emphasize: store.pendingApprovalsCount > 0,
         );
       // ــ الحالتان اللتان طُلب فصلُهما ــ
@@ -464,7 +474,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'أفادت الإدارات بإتمامه',
           value: '$claimed',
           icon: Icons.how_to_reg_outlined,
-          color: AppColors.warning,
+          tone: StatusPalette.warning,
           emphasize: claimed > 0,
         );
       case DashboardWidgetType.kpiClosedApproved:
@@ -472,12 +482,84 @@ class _DashboardScreenState extends State<DashboardScreen> {
           title: 'مُعتمَد ومغلَق',
           value: '${store.closedApprovedCount}',
           icon: Icons.task_alt_rounded,
-          color: AppColors.success,
+          tone: StatusPalette.success,
           emphasize: false,
         );
       default:
         // لا يُستدعى إلا لأنواع المؤشرات؛ مذكور ليكتمل التفريع.
-        return (title: '', value: '', icon: Icons.help_outline, color: AppColors.textSecondary, emphasize: false);
+        return (title: '', value: '', icon: Icons.help_outline, tone: StatusPalette.neutral, emphasize: false);
+    }
+  }
+
+  /// ما يقع عند ضغط المؤشّر — و`null` حيث لا شيء يُفتح.
+  ///
+  /// ــــ خطّافٌ بُني ولم يُوصَل ــــ
+  ///
+  /// `onTap` كانت في بطاقة المؤشّر منذ أوّل يوم **ولم تُمرَّر قيمةً قطّ**
+  /// في عشرين موضعاً. فرقمٌ يُعرض ولا يُفتح يترك القارئ يسأل «وأيُّ مشاريعَ
+  /// هذه السبعة؟» ثمّ يبحث عنها في شاشةٍ أخرى بفلترٍ يبنيه بيده.
+  ///
+  /// ــــ و`null` قرارٌ لا إغفال ــــ
+  ///
+  /// «أفادت الإدارات بإتمامه» و«مُعتمَدٌ ومغلَق» يعدّان **أعمالاً لا
+  /// مشاريع**، ولا قائمةَ مشاريعَ تُفتح لهما بصدق. وبطاقةٌ تبدو قابلةً
+  /// للضغط ولا تستجيب عطلٌ في عين مستعملها — فلا تُظهر إشارةَ الضغط أصلاً.
+  VoidCallback? _kpiPeek(
+    BuildContext context,
+    DashboardWidgetType type,
+    AppStore store,
+    List<Project> projects,
+  ) {
+    void peek(String title, List<Project> list) =>
+        _showProjectsPeek(context, title: title, projects: list);
+
+    switch (type) {
+      case DashboardWidgetType.kpiAvgProgress:
+        // بترتيب الأدنى إنجازاً أوّلاً: من يضغط متوسّطاً يسأل عمّن يجرّه إلى
+        // أسفل، لا عمّن بلغ المئة.
+        // ونسخةٌ قبل الترتيب: `projects` هي قائمةُ الصفحة نفسُها، ولو
+        // رُتّبت في مكانها لأعادت ترتيبَ الجدول والقوائم تحتها بضغطةٍ على
+        // مؤشّر — وهو أثرٌ لا يطلبه من ضغط.
+        return () => peek('المشاريع بنسب إنجازها',
+            [...projects]..sort((a, b) => a.progressPercent.compareTo(b.progressPercent)));
+      case DashboardWidgetType.kpiProjectCount:
+        return () => peek('كل المشاريع المعروضة', projects);
+      case DashboardWidgetType.kpiAvgDelay:
+        return () => peek('المشاريع المتأخرة',
+            projects.where((p) => p.effectiveStatus == ProjectStatus.delayed).toList());
+      case DashboardWidgetType.kpiHighPriority:
+        return () => peek(
+            'المشاريع عالية الأولوية',
+            projects
+                .where((p) =>
+                    p.priority == PriorityLevel.high || p.priority == PriorityLevel.critical)
+                .toList());
+      case DashboardWidgetType.kpiOpenRisks:
+        final ids = store.risks
+            .where((r) => r.status == ItemStatus.open)
+            .map((r) => r.projectId)
+            .toSet();
+        return () => peek('مشاريع فيها مخاطر قائمة',
+            projects.where((p) => ids.contains(p.id)).toList());
+      case DashboardWidgetType.kpiOpenBlockers:
+        final ids = store.blockers
+            .where((b) => b.status == ItemStatus.open)
+            .map((b) => b.projectId)
+            .toSet();
+        return () => peek('مشاريع فيها عوائق نشطة',
+            projects.where((p) => ids.contains(p.id)).toList());
+      case DashboardWidgetType.kpiPendingApprovals:
+        return () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => Scaffold(
+                appBar: AppBar(title: const Text('مركز القرارات التنفيذية')),
+                body: const DecisionCenterScreen(),
+              ),
+            ));
+      case DashboardWidgetType.kpiClaimedDone:
+      case DashboardWidgetType.kpiClosedApproved:
+        return null;
+      default:
+        return null;
     }
   }
 
@@ -528,8 +610,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case DashboardWidgetType.kpiPendingApprovals:
       case DashboardWidgetType.kpiClaimedDone:
       case DashboardWidgetType.kpiClosedApproved:
+        // ــ ذراعٌ لا تُصيَّر اليوم، وتبقى صحيحةً إن صُيِّرت ــ
+        //
+        // `build` تقسم الودجات قسمين: ما كان مؤشّراً إلى الشريط القيادي،
+        // وما عداه إلى هذه اللوحة. فهذه الأذرعُ التسع لا يبلغها شيء — ولا
+        // تُحذف لأنّ المفتاح شاملٌ لكلّ نوعٍ في التعداد، ولأنّ من يعيد
+        // المؤشّرات إلى اللوحة يوماً يجدها مبنيّةً على النظام لا على
+        // بطاقةٍ قديمة.
+        //
+        // ويقيس `dashboard_kpi_surface_test.dart` أيُّ السطحين حيّ، فلا
+        // يُكتب هنا وصفٌ يشيخ صامتاً كما وقع من قبل.
         final kpi = _kpiData(config.type, store, filteredProjects);
-        return KpiCard(title: kpi.title, value: kpi.value, icon: kpi.icon, color: kpi.color);
+        return StatCard(
+          title: kpi.title,
+          value: kpi.value,
+          icon: kpi.icon,
+          tone: kpi.tone,
+          emphasize: kpi.emphasize,
+          onTap: _kpiPeek(context, config.type, store, filteredProjects),
+        );
       case DashboardWidgetType.deptBarChart:
         final ranking = _departmentRanking(store, rankingProjects, metric);
         return AppCard(
@@ -632,15 +731,23 @@ void _showProjectsPeek(BuildContext context, {required String title, required Li
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
               child: Row(
                 children: [
-                  Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5))),
-                  Text('${projects.length}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5, color: AppColors.textSecondary)),
+                  Expanded(child: Text(title, style: AppType.sectionTitle)),
+                  Text('${projects.length}',
+                      style: AppType.sectionTitle.copyWith(color: AppColors.textSecondary)),
                 ],
               ),
             ),
             const Divider(height: 1),
             Expanded(
               child: projects.isEmpty
-                  ? const Center(child: Text('لا توجد مشاريع مطابقة', style: TextStyle(color: AppColors.textSecondary)))
+                  ? const Center(
+                      child: AppEmptyState(
+                        icon: Icons.filter_alt_off_outlined,
+                        title: 'لا توجد مشاريع مطابقة',
+                        message: 'الفلاتر المختارة أعلى اللوحة تضيّق هذه القائمة كذلك.',
+                        framed: false,
+                      ),
+                    )
                   : ListView.separated(
                       controller: scrollController,
                       padding: const EdgeInsets.all(16),
@@ -669,7 +776,9 @@ void _showProjectsPeek(BuildContext context, {required String title, required Li
                                   Row(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Expanded(child: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5))),
+                                      Expanded(
+                                          child: Text(p.name,
+                                              style: AppType.cardTitle.copyWith(fontSize: 13.5))),
                                       StatusChip(status: p.effectiveStatus),
                                     ],
                                   ),
@@ -677,7 +786,7 @@ void _showProjectsPeek(BuildContext context, {required String title, required Li
                                   LabeledProgressBar(value: p.progressPercent, label: 'نسبة الإنجاز'),
                                   if (p.executorLabel.isNotEmpty) ...[
                                     const SizedBox(height: 8),
-                                    Text('المنفذ: ${p.executorLabel}', style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                                    MetaBit(icon: Icons.badge_outlined, text: 'المنفذ: ${p.executorLabel}'),
                                   ],
                                 ],
                               ),
@@ -949,18 +1058,17 @@ class _ProjectsTableCard extends StatelessWidget {
     final hidden = projects.length - shown.length;
     final narrow = MediaQuery.of(context).size.width < 720;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
+    return AppCard(
+      title: 'تفاصيل المشاريع (${projects.length})',
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('تفاصيل المشاريع (${projects.length})', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textPrimary)),
-            const SizedBox(height: 14),
             if (projects.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Center(child: Text('لا توجد مشاريع مطابقة', style: TextStyle(color: AppColors.textSecondary))),
+              const AppEmptyState(
+                icon: Icons.filter_alt_off_outlined,
+                title: 'لا توجد مشاريع مطابقة',
+                message: 'غيّر شريط الفلاتر أعلى اللوحة لتوسيع ما يُعرض.',
+                framed: false,
               )
             // على الشاشات الضيقة الجدول العريض يُقصّ ويظهر فراغاً؛ نعرض بدله
             // قائمة بطاقات رأسية مقروءة بالكامل بلا تمرير أفقي.
@@ -1018,13 +1126,12 @@ class _ProjectsTableCard extends StatelessWidget {
                 alignment: AlignmentDirectional.centerStart,
                 child: Text(
                   'يُعرض $_maxRows مشروعاً من ${projects.length} — افتح صفحة "المشاريع" لعرضها كلها مع البحث والتصفية.',
-                  style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                  style: AppType.micro.copyWith(color: AppColors.textSecondary),
                 ),
               ),
             ],
           ],
         ),
-      ),
     );
   }
 }
@@ -1053,7 +1160,14 @@ class _CompactProjectRow extends StatelessWidget {
                     style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700), maxLines: 2, overflow: TextOverflow.ellipsis),
               ),
               const SizedBox(width: 8),
-              StatusChip(status: project.status),
+              // ــ الفعليّةُ لا المخزَّنة ــ
+              //
+              // كان هذا الصفُّ وحدَه يعرض `project.status` بينما الجدولُ
+              // العريضُ فوقه يعرض `effectiveStatus`. **فالشاشةُ الواحدة
+              // كانت تقول حالتين بحسب عرض النافذة**: من ضيّق نافذته رأى
+              // «في المسار» لمشروعٍ تجاوز استحقاقه. والحالةُ المخزَّنة قد
+              // تتأخّر عن تواريخها حتى تُطابَق من صفحة المشاريع.
+              StatusChip(status: project.effectiveStatus),
             ],
           ),
           const SizedBox(height: 6),
@@ -1075,33 +1189,27 @@ class _PendingDecisionsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final decisions = store.pendingApprovalsSorted.take(5).toList();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
+    return AppCard(
+      title: 'قرارات مطلوبة من القيادة',
+      trailing: TextButton(
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('مركز القرارات التنفيذية')),
+            body: const DecisionCenterScreen(),
+          ),
+        )),
+        child: const Text('عرض الكل'),
+      ),
+      shrinkToChild: true,
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                const Expanded(
-                  child: Text('قرارات مطلوبة من القيادة', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => Scaffold(
-                      appBar: AppBar(title: const Text('مركز القرارات التنفيذية')),
-                      body: const DecisionCenterScreen(),
-                    ),
-                  )),
-                  child: const Text('عرض الكل'),
-                ),
-              ],
-            ),
-            const Divider(height: 20),
             if (decisions.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('لا توجد قرارات معلقة حالياً', style: TextStyle(color: AppColors.textSecondary)),
+              const AppEmptyState(
+                icon: Icons.inbox_outlined,
+                title: 'لا توجد قرارات معلقة حالياً',
+                message: 'ما يحتاج بتّاً من القيادة يظهر هنا فور رفعه.',
+                framed: false,
               )
             else
               ...List.generate(decisions.length, (i) {
@@ -1129,7 +1237,7 @@ class _PendingDecisionsCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('[${d.type.label}] ${d.title}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                            Text('[${d.type.label}] ${d.title}', style: AppType.body.copyWith(fontWeight: FontWeight.w700)),
                             const SizedBox(height: 5),
                             Wrap(
                               spacing: 8,
@@ -1137,10 +1245,21 @@ class _PendingDecisionsCard extends StatelessWidget {
                               crossAxisAlignment: WrapCrossAlignment.center,
                               children: [
                                 PriorityChip(priority: d.priority),
-                                Text(
-                                  '${dept?.name ?? 'عام'}${d.delayImpactDays > 0 ? ' · أثر التأخير: ${d.delayImpactDays} يوم' : ''}',
-                                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 11.5),
+                                MetaBit(
+                                  icon: Icons.apartment_rounded,
+                                  text: dept?.name ?? 'عام',
                                 ),
+                                // ــ أثرُ التأخير نذيرٌ فيُقال بلونه ــ
+                                //
+                                // كان يُلحَق بالإدارة في سطرٍ رماديٍّ واحد،
+                                // فيُقرأ «عامّ · أثر التأخير: ١٢ يوم» نصّاً
+                                // واحداً لا نذير فيه. وهو أهمُّ ما في السطر.
+                                if (d.delayImpactDays > 0)
+                                  MetaBit(
+                                    icon: Icons.schedule_rounded,
+                                    text: 'أثر التأخير: ${d.delayImpactDays} يوم',
+                                    color: StatusPalette.warning.text,
+                                  ),
                               ],
                             ),
                           ],
@@ -1152,7 +1271,6 @@ class _PendingDecisionsCard extends StatelessWidget {
               }),
           ],
         ),
-      ),
     );
   }
 }
@@ -1194,15 +1312,12 @@ class _DepartmentRankingList extends StatelessWidget {
     // السقف يُطبَّق بعد الترتيب، فالمعروض هو **الصدارة** لا أول ما ورد.
     final shown = ranking.take(_maxRows).toList();
     final hidden = ranking.length - shown.length;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
+    return AppCard(
+      title: 'ترتيب الإدارات حسب: ${metric.label}',
+      shrinkToChild: true,
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('ترتيب الإدارات حسب: ${metric.label}',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-            const Divider(height: 20),
             ...List.generate(shown.length, (i) {
               final entry = shown[i];
               final dept = entry.key;
@@ -1238,7 +1353,7 @@ class _DepartmentRankingList extends StatelessWidget {
                           dept.name,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                          style: AppType.body.copyWith(fontWeight: FontWeight.w700),
                         ),
                       ),
                       Expanded(
@@ -1263,7 +1378,7 @@ class _DepartmentRankingList extends StatelessWidget {
                                 ? Formatters.percent(value)
                                 : value.toStringAsFixed(0),
                             textAlign: TextAlign.end,
-                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
+                            style: AppType.label.copyWith(color: AppColors.textPrimary)),
                       ),
                       const Icon(Icons.chevron_left_rounded, color: AppColors.textSecondary),
                     ],
@@ -1278,13 +1393,12 @@ class _DepartmentRankingList extends StatelessWidget {
                 alignment: AlignmentDirectional.centerStart,
                 child: Text(
                   'يُعرض $_maxRows من ${ranking.length} إدارة — افتح صفحة "الإدارات" لعرضها كلها.',
-                  style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                  style: AppType.micro.copyWith(color: AppColors.textSecondary),
                 ),
               ),
             ],
           ],
         ),
-      ),
     );
   }
 }
@@ -1296,18 +1410,18 @@ class _RecentUpdatesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final updates = store.recentUpdates;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
+    return AppCard(
+      title: 'أحدث التحديثات اليومية',
+      shrinkToChild: true,
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('أحدث التحديثات اليومية', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-            const Divider(height: 20),
             if (updates.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('لا توجد تحديثات بعد', style: TextStyle(color: AppColors.textSecondary)),
+              const AppEmptyState(
+                icon: Icons.edit_note_rounded,
+                title: 'لا توجد تحديثات بعد',
+                message: 'ما يكتبه المنفّذون في تحديثهم اليومي يظهر هنا.',
+                framed: false,
               )
             else
               ...List.generate(updates.length, (i) {
@@ -1361,18 +1475,26 @@ class _RecentUpdatesCard extends StatelessWidget {
                                 children: [
                                   Expanded(
                                     child: Text(u.authorName,
-                                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: AppColors.primary),
+                                        style: AppType.label.copyWith(
+                                            fontWeight: FontWeight.w800, color: AppColors.primary),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis),
                                   ),
-                                  Text(Formatters.timeAgo(u.date), style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                                  Text(Formatters.timeAgo(u.date),
+                                      style: AppType.micro.copyWith(color: AppColors.textSecondary)),
                                 ],
                               ),
                               const SizedBox(height: 4),
-                              Text(u.achievements, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.5), maxLines: 2, overflow: TextOverflow.ellipsis),
+                              Text(u.achievements,
+                                  style: AppType.body.copyWith(
+                                      color: AppColors.textSecondary, height: 1.5),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis),
                               if (project != null) ...[
                                 const SizedBox(height: 5),
-                                Text(project.name, style: TextStyle(fontSize: 10.5, color: AppColors.accent, fontWeight: FontWeight.w700)),
+                                Text(project.name,
+                                    style: AppType.micro.copyWith(
+                                        color: AppColors.accent, fontWeight: FontWeight.w700)),
                               ],
                             ],
                           ),
@@ -1385,7 +1507,6 @@ class _RecentUpdatesCard extends StatelessWidget {
               }),
           ],
         ),
-      ),
     );
   }
 }

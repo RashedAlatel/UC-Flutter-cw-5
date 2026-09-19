@@ -457,7 +457,7 @@ enum DashboardWidgetType {
       this == DashboardWidgetType.departmentRankingList ||
       this == DashboardWidgetType.topUsersChart;
 
-  /// بطاقات المؤشرات: رقم واحد في بطاقة صغيرة، تُصيَّر بـ`KpiCard`.
+  /// بطاقات المؤشرات: رقم واحد في بطاقة صغيرة، تُصيَّر بـ`StatCard`.
   bool get isKpi => name.startsWith('kpi');
 
   static DashboardWidgetType fromName(String name) => DashboardWidgetType.values

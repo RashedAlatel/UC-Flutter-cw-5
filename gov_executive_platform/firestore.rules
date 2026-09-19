@@ -54,6 +54,29 @@ service cloud.firestore {
              && scopeOf(key) != null
              && (scopeOf(key) == '*' || deptId in scopeOf(key));
     }
+    // ــــ رئاسةُ القسم: صفةٌ في البطاقة لا دورٌ رابع ــــ
+    //
+    // طُلب أن يُربط رئيسُ القسم بقسمه **بلا استحداث دورٍ جديد**. فالرئاسةُ
+    // حقلٌ `headUid` على مستند القسم، تُقرأ منه دالّةُ `setSectionHead`
+    // فتختم قائمةَ الأقسام في البطاقة تحت المفتاح `hs`.
+    //
+    // ومن البطاقة لا بـ`get()` على مستند القسم: قاعدةٌ تقرأ مستنداً آخر
+    // تكلّف قراءةً في كلّ تقييم، والانضباطُ القائم في هذه المنصة أنّ
+    // القواعد تحتكم إلى البطاقة وحدها — راجع `perm()` و`scopeOf()` أعلاه.
+    //
+    // و`get` بقيمةٍ افتراضية لا الوصولُ المباشر: كلُّ بطاقةٍ خُتمت قبل هذه
+    // الميزة لا تحمل `hs`، والوصولُ إلى مفتاحٍ غائبٍ **يُخطئ** فيُرفض
+    // الطلب. والرفضُ هنا صحيحٌ بالمصادفة لا بالقصد.
+    //
+    // وكان فيها شرطٌ ثالث `sectionId != ''` فنجا بالطفرة: `hs` تُملأ
+    // بمعرّفات مستنداتٍ في Firestore، ومعرّفُ مستندٍ لا يكون فارغاً أبداً،
+    // فـ`'' in hs` كاذبٌ بلا هذا الشرط. **وحُذف لأنّه لا يحرس** — وشرطٌ
+    // لا يمكن أن يكون كاذباً في قاعدة أمانٍ ضجيجٌ يُخفي ما يحرس فعلاً.
+    function myHeadedSections() { return request.auth.token.get('hs', []); }
+    function isSectionHeadOf(sectionId) {
+      return isApproved() && sectionId != null && sectionId in myHeadedSections();
+    }
+
     function myDept() { return request.auth.token.departmentId; }
     function isMyDept(deptId) { return isApproved() && deptId != null && myDept() == deptId; }
     function isDeptManager() { return isApproved() && role() == 'departmentManager'; }
@@ -439,13 +462,25 @@ service cloud.firestore {
     // ولا علاقة لهذا ببوابات الاعتماد الثلاث.
     match /sections/{id} {
       allow read: if true;
-      allow create: if isAdmin() || isMyDeptAny(deptOf(request.resource.data));
+      // وقسمٌ يُنشأ بلا رئيس: `headUid` يُكتب من `setSectionHead` وحدها،
+      // ولو قُبل هنا لَمنح مُنشئُ القسم نفسَه رئاستَه ببطاقةٍ لا تحمل
+      // المفتاح — فيقرأ ولا يقرأ بحسب أجل رمزه.
+      allow create: if (isAdmin() || isMyDeptAny(deptOf(request.resource.data)))
+                    && request.resource.data.get('headUid', '') == '';
       // نقل قسم بين الإدارات لمسؤول النظام وحده: هو قرار هيكلي يغيّر من يرى
       // مشاريع القسم ومن يعدّلها. مدير الإدارة يعدّل أقسامه داخل إدارته فقط،
       // ولا يستطيع تمرير قسم إلى إدارة لا يملكها.
-      allow update: if isAdmin()
-                    || (isMyDeptAny(deptOf(resource.data))
-                        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['departmentId']));
+      //
+      // ــ و`headUid` لا يُكتب من هنا أصلاً، ولا لمسؤول النظام ــ
+      //
+      // رئاسةُ القسم تُقرأ من **البطاقة** (`hs`) لا من هذا المستند. فكتابةٌ
+      // هنا تترك بطاقةَ الرئيس الجديد بلا المفتاح حتى ينتهي أجلُ رمزه —
+      // يرى شاشةً فارغةً ولا شيء يفسّر له. وهو عينُ العطل الذي كلّف المنصةَ
+      // `mtd` و`bla`. فالباب `setSectionHead` وحدها: تكتب ثمّ تختم.
+      allow update: if !request.resource.data.diff(resource.data).affectedKeys().hasAny(['headUid'])
+                    && (isAdmin()
+                        || (isMyDeptAny(deptOf(resource.data))
+                            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['departmentId'])));
       allow delete: if isAdmin() || isMyDeptAny(deptOf(resource.data));
     }
 
@@ -630,6 +665,85 @@ service cloud.firestore {
                     || (isApproved()
                         && !isExecutive()
                         && resource.data.get('authorUid', '') == request.auth.uid);
+    }
+
+    // ------------------------- حالات الموظفين اليومية -------------------------
+    //
+    // ــــ ما تحرسه هذه الكتلة ــــ
+    //
+    // هذه **بياناتٌ شخصيّةٌ عن أشخاص بأعيانهم**: متى استأذن فلان، وكم مرّةً
+    // مرض، ومتى تغيّب. وهي أخصُّ ما في المنصّة — أخصُّ من أرقام المشاريع.
+    // فالقراءةُ هنا أضيقُ من القراءة في كلّ ما سبق: **الموظّفُ لا يرى إلا
+    // حالتَه هو**، ولو كان زميلَه في القسم نفسِه.
+    //
+    // ــــ ومن يرى ــــ
+    //
+    //   • صاحبُ السجلّ.
+    //   • رئيسُ قسمه — بالمفتاح `hs` في بطاقته.
+    //   • مديرُ إدارته.
+    //   • من مُنح `vds` في نطاق إدارته — **منحةٌ لفردٍ تُسحب**، لا دور.
+    //   • المستخدمُ التنفيذيّ ومسؤولُ النظام.
+    //
+    // و`perm('vds')` وحدها لا تكفي: `inScope` تشترط نطاقاً، ونطاقٌ غائبٌ
+    // ليس «الكل».
+    // ــ و`isMyDeptOfManager` لا `isMyDeptAny` — وهذا خروجٌ مقصودٌ عن
+    //    صيغة المنصة المعتادة ــ
+    //
+    // `isMyDeptAny` تجمع شرطين: «أنا مديرُ هذه الإدارة» **و«إدارتي هي
+    // هذه الإدارة»**. والثاني يصدُق على **كلّ موظّفٍ معتمَد** في الإدارة،
+    // وهو المقصودُ في المشاريع: الموظّف يرى مشاريع إدارته.
+    //
+    // وهو **عطلٌ صريح هنا**: يجعل كلَّ موظّفٍ يقرأ إجازات زملائه ومتى
+    // استأذنوا ومتى مرضوا. وقد كُتبت القاعدةُ بها أوّلَ مرّة، فشكا اختبارُ
+    // «وزميلُه في القسم نفسِه لا يقرؤها» — ولولاه لَشُحنت.
+    //
+    // فالإدارةُ هنا تفتح لمن **يديرها** وحدَه.
+    function canViewStatusDoc(uid, deptId, sectionId) {
+      return isApproved()
+             && (uid == request.auth.uid
+                 || canViewAll()
+                 || isSectionHeadOf(sectionId)
+                 || isMyDeptOfManager(deptId)
+                 || inScope('vds', deptId));
+    }
+
+    match /dailyStatuses/{id} {
+      allow read: if canViewStatusDoc(resource.data.get('uid', ''),
+                                      resource.data.get('departmentId', null),
+                                      resource.data.get('sectionId', ''));
+
+      // ــ الكتابةُ لصاحبها، وليومها، وعن نفسها ــ
+      //
+      // ثلاثةُ حدودٍ كلٌّ منها يُفرض هنا **وفي `recordMyStatus` معاً**:
+      //
+      //   • `uid == request.auth.uid` — لا يكتب أحدٌ باسم أحد. ولولاها لَكتب
+      //     موظّفٌ حضوراً لزميلٍ لم يحضر.
+      //   • `day == اليوم` — لا سجلَّ بأثرٍ رجعيّ، وهو قرارُ مسؤول النظام:
+      //     سجلٌّ يُكتب متى شاء صاحبُه يمكن ملءُ شهرٍ كاملٍ حضوراً في آخره.
+      //     واليومُ يُقاس بتوقيت الكويت في `dayKeyOf`، وهنا بمقارنة الختم
+      //     بحدَّي اليوم كما يرسلهما العميل — ويعيد الخادمُ حسابَه.
+      //   • `!isExecutive()` — المستخدمُ التنفيذيّ يرى كلَّ شيء ولا يغيّر
+      //     شيئاً، قاعدةٌ قائمةٌ في المنصة كلِّها.
+      allow create: if isApproved()
+                    && !isExecutive()
+                    && request.resource.data.get('uid', '') == request.auth.uid
+                    && request.resource.data.get('dayKey', '') != ''
+                    && request.resource.data.get('correctedByUid', '') == '';
+
+      // ــ والتصحيحُ لا يمرّ من هنا أصلاً ــ
+      //
+      // طُلب أن يكون التصحيحُ **للمسؤول وحدَه وبأثرٍ مُسجَّل**. والأثرُ
+      // يُكتب في `auditLog`، وقاعدةُ `auditLog` لا تقبل كتابةً من العميل.
+      // فلو فُتح التعديلُ هنا لَصار التصحيحُ يقع بلا أثرٍ يُسأل عنه —
+      // ويصير الفرقُ بين «صحّحه مسؤولُه» و«غيّره صاحبُه» غيرَ قابلٍ للقراءة.
+      //
+      // فالبابُ `correctStatus` وحدها: تفحص `mayCorrectStatus` ثمّ تكتب
+      // الأثر. وهي بصلاحية المدير فلا تقف عندها هذه القاعدة.
+      allow update: if false;
+
+      // والحذفُ لمسؤول النظام وحده: سجلُّ الحضور يُصحَّح ولا يُمحى. ومن
+      // مُحي سجلُّه صار يومُه «لم يسجّل» — وهو قولٌ آخرُ غيرُ الذي قاله.
+      allow delete: if isAdmin();
     }
 
     // ------------------------- المخاطر والعوائق -------------------------

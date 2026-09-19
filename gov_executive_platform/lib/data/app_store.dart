@@ -44,6 +44,10 @@ import '../models/work_update.dart';
 import '../reports/periodic_report.dart';
 import '../theme/app_theme.dart';
 import '../utils/file_picker.dart';
+import '../models/daily_status.dart';
+import '../models/holiday.dart';
+import '../models/status_type.dart';
+import '../models/work_week.dart';
 import '../utils/formatters.dart';
 import '../utils/safe_file_name.dart';
 import '../utils/storage_ready.dart';
@@ -791,6 +795,58 @@ class AppStore extends ChangeNotifier {
   /// الخادمُ عند الفتح، وهو العطلُ الذي تكرّر في هذه المنصة مرّتين.
   bool get canViewProcedures =>
       hasPermission(RolePermission.viewProcedures) || canEditProcedures;
+
+  // ــــــــــــــ حالاتُ الموظفين اليومية ــــــــــــــ
+
+  /// أنواعُ الحالات كما يحرّرها مسؤولُ النظام — والبذرةُ حين لا مستندَ بعد.
+  ///
+  /// ولا تُعرض قائمةٌ خالية: الوزارةُ تفتح الشاشةَ يومَ النشر فتجد الثمانيةَ
+  /// حاضرةً تعمل، وتحرّرها متى شاءت.
+  List<StatusType> statusTypes = StatusType.seed();
+
+  /// ما يُعرض لمن يسجّل اليومَ — المؤرشَفُ يبقى يُقرأ في تقارير ما مضى.
+  List<StatusType> get activeStatusTypes =>
+      statusTypes.where((t) => t.isActive).toList()
+        ..sort((a, b) => a.order.compareTo(b.order));
+
+  StatusType? statusTypeById(String id) {
+    for (final t in statusTypes) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
+  /// العطلُ الرسميّة — مفاتيحُ أيامها.
+  List<Holiday> holidays = const [];
+
+  Set<String> get holidayKeys => holidays.map((h) => h.dayKey).toSet();
+
+  /// الحالاتُ المقروءةُ في النافذة الزمنية المشتركة — راجع [watchStatuses].
+  List<DailyStatus> dailyStatuses = const [];
+
+  /// وهل يطّلع على حالات غيره؟ — **ونصُّه نصُّ `canViewStatusDoc`**.
+  ///
+  /// ولا يكفي `hasPermission(viewDailyStatuses)`: المنحةُ مُنطاقةٌ، وعلَمٌ
+  /// بلا نطاقٍ لا يمنح شيئاً. فمن ضُبط له العلَمُ ونُسي نطاقُه يرى في
+  /// الشاشة مدخلاً ويردّه الخادمُ عند الفتح — وهو العطلُ الذي تكرّر في هذه
+  /// المنصة مرّتين.
+  bool get canViewOthersStatuses =>
+      isAdmin ||
+      canViewAllDepartments ||
+      headedSectionIds.isNotEmpty ||
+      isManager ||
+      !scopeFor(RolePermission.viewDailyStatuses).isEmpty;
+
+  /// الأقسامُ التي يرأسها المستخدمُ الحالي — تُقرأ من مستندات الأقسام.
+  ///
+  /// ونظيرُها في البطاقة هو المفتاح `hs`، وهو ما تحتكم إليه القواعد. وهذه
+  /// **مرآةٌ للواجهة لا حراسة**: تقرّر ما يُعرض من مداخل، والخادمُ يقرّر ما
+  /// يُقرأ.
+  List<String> get headedSectionIds {
+    final uid = currentUser?.id;
+    if (uid == null) return const [];
+    return sections.where((s) => s.headUid == uid).map((s) => s.id).toList();
+  }
 
   /// ما رفعه المستخدم الحالي — يراه دائماً ولو لم يعد يملك صلاحية الرفع.
   List<FeedbackItem> get myFeedback =>
@@ -2004,6 +2060,223 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  // ــــــــــــــ حالاتُ الموظفين اليومية ــــــــــــــ
+
+  /// أوّلُ يومٍ في النافذة المشتركة الآن.
+  final DateTime _statusWindowStart = WorkWeek.dayOnly(
+    DateTime.now().subtract(const Duration(days: 62)),
+  );
+
+  /// يشترك في حالات النافذة الحالية — **بنطاق القارئ لا بالمجموعة كلِّها**.
+  ///
+  /// ــ ولماذا استعلامان لا واحد ــ
+  ///
+  /// قاعدةُ القراءة تقبل صاحبَ السجلّ **أو** من يراه بموقعه. واستعلامٌ
+  /// واحدٌ لا يعبّر عن «أو»، فيُردّ كلُّه. فيُشترَك ما يخصّه هو دائماً، ثمّ
+  /// ما يخصّ نطاقَه إن كان له نطاق — وتُدمج القائمتان بالمعرّف.
+  void _watchStatusWindow() {
+    final uid = currentUser?.id;
+    if (uid == null) return;
+    final from = _statusWindowStart;
+    final fromKey = WorkWeek.keyOf(from);
+
+    _listen('dailyStatuses/حالتي',
+        _db.collection('dailyStatuses')
+            .where('uid', isEqualTo: uid)
+            .where('dayKey', isGreaterThanOrEqualTo: fromKey)
+            .snapshots(), (snap) {
+      _myStatuses = _parseDocs('dailyStatuses/حالتي', snap.docs,
+          (d) => DailyStatus.fromMap(d.id, d.data()));
+      _publishStatuses();
+    });
+
+    if (!canViewOthersStatuses) return;
+
+    // ومن يرى الكلَّ يشترك بلا شرطِ إدارة؛ ومن دونه بإداراته أو بأقسامه.
+    if (isAdmin || canViewAllDepartments) {
+      _listen('dailyStatuses/الكل',
+          _db.collection('dailyStatuses')
+              .where('dayKey', isGreaterThanOrEqualTo: fromKey)
+              .snapshots(), (snap) {
+        _scopedStatuses = _parseDocs('dailyStatuses/الكل', snap.docs,
+            (d) => DailyStatus.fromMap(d.id, d.data()));
+        _publishStatuses();
+      });
+      return;
+    }
+
+    final scope = scopeFor(RolePermission.viewDailyStatuses);
+    final deptIds = {
+      ...myDepartmentIds,
+      if (!scope.allDepartments) ...scope.departmentIds,
+    }.where((d) => d.isNotEmpty).take(10).toList();
+
+    if (deptIds.isNotEmpty) {
+      _listen('dailyStatuses/إدارتي',
+          _db.collection('dailyStatuses')
+              .where('departmentId', whereIn: deptIds)
+              .where('dayKey', isGreaterThanOrEqualTo: fromKey)
+              .snapshots(), (snap) {
+        _scopedStatuses = _parseDocs('dailyStatuses/إدارتي', snap.docs,
+            (d) => DailyStatus.fromMap(d.id, d.data()));
+        _publishStatuses();
+      });
+    }
+
+    final sectionIds = headedSectionIds.take(10).toList();
+    if (sectionIds.isNotEmpty) {
+      _listen('dailyStatuses/قسمي',
+          _db.collection('dailyStatuses')
+              .where('sectionId', whereIn: sectionIds)
+              .where('dayKey', isGreaterThanOrEqualTo: fromKey)
+              .snapshots(), (snap) {
+        _sectionStatuses = _parseDocs('dailyStatuses/قسمي', snap.docs,
+            (d) => DailyStatus.fromMap(d.id, d.data()));
+        _publishStatuses();
+      });
+    }
+  }
+
+  List<DailyStatus> _myStatuses = const [];
+  List<DailyStatus> _scopedStatuses = const [];
+  List<DailyStatus> _sectionStatuses = const [];
+
+  void _publishStatuses() {
+    dailyStatuses = mergeById<DailyStatus>(
+      (s) => s.id,
+      [_myStatuses, _scopedStatuses, _sectionStatuses],
+    );
+    notifyListeners();
+  }
+
+  /// حالاتُ موظّفٍ في يومٍ بعينه — حالةُ اليوم ثمّ خروجاتُه بترتيبها.
+  List<DailyStatus> statusesOf(String uid, String dayKey) {
+    final rows = dailyStatuses.where((s) => s.uid == uid && s.dayKey == dayKey).toList();
+    rows.sort((a, b) {
+      if (a.kind != b.kind) return a.kind == StatusKind.day ? -1 : 1;
+      return (a.fromMinutes ?? 0).compareTo(b.fromMinutes ?? 0);
+    });
+    return rows;
+  }
+
+  /// حالةُ اليوم للمستخدم الحالي — أو `null` إن لم يسجّل بعد.
+  DailyStatus? get myTodayStatus {
+    final uid = currentUser?.id;
+    if (uid == null) return null;
+    final today = WorkWeek.keyOf(DateTime.now());
+    for (final s in dailyStatuses) {
+      if (s.uid == uid && s.dayKey == today && s.kind == StatusKind.day) return s;
+    }
+    return null;
+  }
+
+  /// يحفظ قائمةَ أنواع الحالات — لمسؤول النظام وحده، كقاعدة `settings`.
+  Future<String?> saveStatusTypes(List<StatusType> items) async {
+    if (!isAdmin) return 'إدارة أنواع الحالات لمسؤول النظام وحده';
+    try {
+      await _db.collection('settings').doc('statusTypes').set({
+        'items': items.map((t) => t.toMap()).toList(),
+      });
+      await _log('أنواع الحالات اليومية', 'حُدّثت قائمة الأنواع (${items.length} نوعاً)');
+      return null;
+    } catch (e) {
+      return 'تعذّر حفظ الأنواع: $e';
+    }
+  }
+
+  /// يحفظ العطلَ الرسميّة.
+  Future<String?> saveHolidays(List<Holiday> items) async {
+    if (!isAdmin) return 'تسجيل العطل الرسميّة لمسؤول النظام وحده';
+    try {
+      // مرتّبةً بتاريخها: القائمةُ تُقرأ بالعين في الشاشة، وعطلةٌ تُضاف في
+      // آخر السطر تُقرأ خطأً في الجدول.
+      final sorted = [...items]..sort((a, b) => a.dayKey.compareTo(b.dayKey));
+      await _db.collection('settings').doc('holidays').set({
+        'items': sorted.map((h) => h.toMap()).toList(),
+      });
+      await _log('العطل الرسميّة', 'حُدّثت قائمة العطل (${items.length} عطلة)');
+      return null;
+    } catch (e) {
+      return 'تعذّر حفظ العطل: $e';
+    }
+  }
+
+  /// يسجّل المستخدمُ حالتَه — **عبر الخادم لا بكتابةٍ مباشرة**.
+  ///
+  /// واليومُ يحسبه الخادمُ من ساعته: لو حُسب هنا لَكتب من شاء سجلَّ أيِّ
+  /// يومٍ بتغيير ساعة جهازه.
+  Future<String?> recordMyStatus({
+    required StatusType type,
+    required StatusKind kind,
+    int? fromMinutes,
+    int? toMinutes,
+    String place = '',
+    String note = '',
+  }) async {
+    try {
+      await _functions.httpsCallable('recordMyStatus').call({
+        'kind': kind.name,
+        'typeId': type.id,
+        'typeName': type.name,
+        'toneKey': type.toneKey,
+        'fromMinutes': ?fromMinutes,
+        'toMinutes': ?toMinutes,
+        'place': place,
+        'note': note,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر تسجيل الحالة';
+    } catch (e) {
+      return 'تعذّر تسجيل الحالة: $e';
+    }
+  }
+
+  /// يصحّح المسؤولُ سجلّاً محفوظاً — بأثرٍ يحمل اسمَه وما كان قبله.
+  Future<String?> correctStatus({
+    required String id,
+    required StatusType type,
+    int? fromMinutes,
+    int? toMinutes,
+    String place = '',
+    String note = '',
+    String correctionNote = '',
+  }) async {
+    try {
+      await _functions.httpsCallable('correctStatus').call({
+        'id': id,
+        'typeId': type.id,
+        'typeName': type.name,
+        'toneKey': type.toneKey,
+        'fromMinutes': ?fromMinutes,
+        'toMinutes': ?toMinutes,
+        'place': place,
+        'note': note,
+        'correctionNote': correctionNote,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر تصحيح الحالة';
+    } catch (e) {
+      return 'تعذّر تصحيح الحالة: $e';
+    }
+  }
+
+  /// يعيّن رئيسَ قسمٍ أو يعزله — والدالّةُ تعيد ختمَ البطاقتين.
+  Future<String?> setSectionHead({required String sectionId, String? uid}) async {
+    try {
+      await _functions.httpsCallable('setSectionHead').call({
+        'sectionId': sectionId,
+        'uid': uid ?? '',
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر تعيين رئيس القسم';
+    } catch (e) {
+      return 'تعذّر تعيين رئيس القسم: $e';
+    }
+  }
+
   /// يضبط تصنيفات مشروع. `categoryIds` ليس من الحقول المحميّة في قاعدة تحديث
   /// المشاريع، فيسِم مديرُ الإدارة مشاريعَ إدارته كما يعدّل تقدّمها.
   Future<void> setProjectCategories(Project project, List<String> ids) async {
@@ -2599,6 +2872,19 @@ class AppStore extends ChangeNotifier {
       _republishChildren();
       notifyListeners();
     });
+    // ــــ حالاتُ الموظفين: **مُنطاقةٌ ومُنافَذةٌ دائماً** ــــ
+    //
+    // ولا اشتراكَ مجموعةٍ كاملةٍ هنا بحال: مئتا موظّفٍ في مئتين وخمسين يومَ
+    // عملٍ نحو **خمسين ألفَ مستندٍ في السنة**. واشتراكُها كلِّها يُنزل
+    // تاريخَ الوزارة إلى متصفّح كلِّ من فتح الشاشة.
+    //
+    // فالنافذةُ شهران ابتداءً — يكفيان التقويمَ الشهريَّ وما قبله —
+    // ويوسّعها من يفتح تقريراً أطول عبر [watchStatuses].
+    //
+    // وحالتُه هو تُشترَك دائماً: شاشةُ «حالتي» تعمل لكلّ موظّف، وقاعدةُ
+    // القراءة تسمح بها لصاحبها بلا صلاحية.
+    _watchStatusWindow();
+
     // طلبات الاعتماد كانت تُطلب كاملةً بلا نطاق، وقاعدتها تعتمد على محتوى
     // المستند — فيُرفض الطلب كله لكل من ليس مسؤول نظام أو مستخدماً تنفيذياً،
     // فلا يرى الموظف حتى حالة طلباته هو. النطاق هنا يطابق القاعدة حرفياً.
@@ -2831,6 +3117,28 @@ class AppStore extends ChangeNotifier {
       categories = items == null
           ? const []
           : items.map(ProjectCategory.fromMap).whereType<ProjectCategory>().toList();
+      notifyListeners();
+    });
+    // ــ قائمتان يحرّرهما مسؤولُ النظام، لا مجموعتان ــ
+    //
+    // على نمط `settings/projectCategories` أعلاه: مستندٌ واحدٌ يحمل مصفوفةً
+    // قصيرة، ومستمعٌ واحد، وقاعدةُ `settings` تحكمه (يُقرأ عامّاً ويكتبه
+    // مسؤولُ النظام). ومجموعتان مستقلّتان كانتا تعنيان كتلتَي قواعدَ
+    // جديدتين وحارسَين يتبعانهما بلا حاجة.
+    _listen('settings/statusTypes', _db.collection('settings').doc('statusTypes').snapshots(), (doc) {
+      final items = doc.data()?['items'] as List?;
+      // والبذرةُ تبقى حين لا مستندَ ولا عناصر — لا قائمةٌ خالية.
+      final parsed = items == null
+          ? const <StatusType>[]
+          : items.map(StatusType.fromMap).whereType<StatusType>().toList();
+      statusTypes = parsed.isEmpty ? StatusType.seed() : parsed;
+      notifyListeners();
+    });
+    _listen('settings/holidays', _db.collection('settings').doc('holidays').snapshots(), (doc) {
+      final items = doc.data()?['items'] as List?;
+      holidays = items == null
+          ? const []
+          : items.map(Holiday.fromMap).whereType<Holiday>().toList();
       notifyListeners();
     });
 
@@ -3156,9 +3464,12 @@ class AppStore extends ChangeNotifier {
         // النظام. وهو ما قرّرتَه — يُفتح بمنحٍ لا بحكم الدور.
         case RolePermission.viewProcedures:
         case RolePermission.editProcedures:
-        // والمقيَّدتان بنطاق لا تُمنحان لدور إطلاقاً — لا أساسي ولا مخصص.
+        // والمقيَّداتُ بنطاق لا تُمنح لدورٍ إطلاقاً — لا أساسيٍّ ولا مخصص.
+        // و`vds` منها: حالاتُ الموظفين بياناتٌ شخصيّة، ونافذةٌ عليها لا
+        // تُورَّث بحكم دورٍ يحمله من يحمله.
         case RolePermission.manageProjects:
         case RolePermission.approveProjectRequests:
+        case RolePermission.viewDailyStatuses:
           // صلاحيات لا مقابل لها في مستند الدور المخصص؛ تُمنح لحامله
           // بالاستثناء الفردي أعلاه إن أراد مسؤول النظام.
           return false;

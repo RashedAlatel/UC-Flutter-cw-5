@@ -41,6 +41,8 @@ enum NavKey {
   roles('إدارة الأدوار'),
   rolePermissions('صلاحيات الأدوار'),
   registration('سياسة التسجيل'),
+  statusTypes('أنواع الحالات'),
+  holidays('العطل الرسميّة'),
   appearance('إعدادات المظهر');
 
   final String label;
@@ -156,6 +158,13 @@ List<NavKey> navKeysFor(AppStore store) {
   if (store.isAdmin) {
     keys
       ..add(NavKey.registration)
+      // ــ وضبطُ الحالات اليومية لمسؤول النظام وحده ــ
+      //
+      // هما قائمتان تُقرَآن في كلّ مكانٍ من المنصة: نوعُ الحالة يصبغ
+      // التقويمَ ويقرّر العدّ، والعطلةُ تقرّر أيَّ يومٍ يُحسب. فتحريرُهما
+      // قرارٌ يسري على الوزارة كلِّها لا على إدارةٍ بعينها.
+      ..add(NavKey.statusTypes)
+      ..add(NavKey.holidays)
       ..add(NavKey.appearance);
   }
   return keys;

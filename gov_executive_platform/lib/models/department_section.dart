@@ -26,6 +26,23 @@ class DepartmentSection {
   /// رئيس القسم. يُملأ عند تحويل إدارة إلى قسم فلا يضيع اسم مسؤولها.
   final String headName;
 
+  /// **حسابُ رئيس القسم** في المنصة — غيرُ [headName] وهو مجرّدُ نصّ.
+  ///
+  /// ــ ورئاسةٌ بلا دورٍ جديد ــ
+  ///
+  /// طُلب أن يُربط رئيسُ القسم بقسمه بلا استحداث دورٍ رابع في الهيكل. فهذا
+  /// الحقلُ هو الرابط، وأثرُه الوحيد أنّ صاحبَه **يقرأ حالات أهل قسمه
+  /// اليومية ويصحّحها**.
+  ///
+  /// ــ ولا يُكتب من الشاشة ــ
+  ///
+  /// القواعدُ تقرأ الرئاسةَ من **البطاقة** (المفتاح `hs`) لا من هنا. فكتابةٌ
+  /// مباشرةٌ تترك بطاقةَ الرئيس الجديد بلا المفتاح حتى ينتهي أجلُ رمزه —
+  /// وهو عينُ العطل الذي كلّف المنصةَ `mtd` و`bla`. فالبابُ
+  /// `setSectionHead` وحدها: تكتب ثمّ تختم، وقاعدةُ `sections` تمنع ما
+  /// عداها.
+  final String headUid;
+
   /// ترتيب العرض بين الإخوة.
   final int order;
 
@@ -41,6 +58,7 @@ class DepartmentSection {
     required this.departmentId,
     required this.name,
     this.headName = '',
+    this.headUid = '',
     this.parentId,
     this.order = 0,
     this.sourceDepartmentId,
@@ -71,6 +89,7 @@ class DepartmentSection {
         departmentId: departmentId,
         name: name ?? this.name,
         headName: headName ?? this.headName,
+        headUid: headUid,
         parentId: parentId ?? this.parentId,
         order: order ?? this.order,
         sourceDepartmentId: sourceDepartmentId,
@@ -81,6 +100,9 @@ class DepartmentSection {
         'parentId': parentId,
         'name': name,
         'headName': headName,
+        // و`headUid` **لا يُكتب من هنا**: قاعدةُ `sections` تردّ أيَّ تعديلٍ
+        // يمسّه، فإدراجُه في كلّ حفظٍ للقسم كان يجعل تسميةَ القسم نفسَها
+        // تُردّ من الخادم. وبابُه `setSectionHead` وحدها.
         'order': order,
         'sourceDepartmentId': sourceDepartmentId,
       };
@@ -94,6 +116,7 @@ class DepartmentSection {
       parentId: (parent == null || parent.isEmpty) ? null : parent,
       name: json['name'] as String? ?? '',
       headName: json['headName'] as String? ?? '',
+      headUid: json['headUid'] as String? ?? '',
       order: (json['order'] as num?)?.toInt() ?? 0,
       sourceDepartmentId: (json['sourceDepartmentId'] as String?)?.isEmpty ?? true
           ? null
@@ -113,6 +136,7 @@ class DepartmentSection {
       parentId: (parent == null || parent.isEmpty) ? null : parent,
       name: json['name'] as String? ?? '',
       headName: json['headName'] as String? ?? '',
+      headUid: json['headUid'] as String? ?? '',
       order: (json['order'] as num?)?.toInt() ?? 0,
       sourceDepartmentId: (source == null || source.isEmpty) ? null : source,
     );

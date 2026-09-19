@@ -34,6 +34,27 @@ service firebase.storage {
           || request.resource.contentType == 'application/vnd.ms-excel';
     }
 
+    // مرفقاتُ الحالات اليومية — شهادةُ إجازةٍ مرضيّة، أو كتابُ تكليفٍ
+    // بمهمّة.
+    //
+    // والمسارُ يحمل **معرّفَ صاحبه**، والكتابةُ محصورةٌ به: قواعدُ التخزين
+    // لا تقرأ Firestore، لكنّها تقرأ `request.auth.uid` — فهذا أوثقُ ما
+    // يمكن فرضُه هنا، ولا يحتاج إلى قراءة مستند.
+    //
+    // ومن يرى المرفق؟ محكومٌ بمن يقرأ **السجلّ** الذي يحمل رابطَه في
+    // Firestore — ولا يصل الرابطُ إلا من يقرأ ذلك المستند. وقراءةُ السجلّ
+    // أضيقُ ما في المنصة: صاحبُه ورئيسُ قسمه ومديرُ إدارته لا غير.
+    match /dailyStatuses/{uid}/{fileName} {
+      allow read: if isApproved();
+      allow create: if isApproved()
+                    && request.auth.uid == uid
+                    && withinSize()
+                    && allowedType();
+      // والمرفقُ سجلٌّ لا مسوّدة: لا يُستبدل ولا يُحذف. وشهادةٌ تُستبدل بعد
+      // رفعها تُبطل ما بُني عليها.
+      allow update, delete: if false;
+    }
+
     match /projects/{projectId}/dailyUpdates/{fileName} {
       allow read: if isApproved();
       allow create: if isApproved() && withinSize() && allowedType();

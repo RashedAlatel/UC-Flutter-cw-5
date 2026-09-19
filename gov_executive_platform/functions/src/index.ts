@@ -35,6 +35,14 @@ import {
   EditStage,
 } from "./approval_stage";
 import {
+  dayKeyOf,
+  dayDocId,
+  mayRecordOn,
+  mayCorrectStatus,
+  statusPatch,
+  outingProblem,
+} from "./status_scope";
+import {
   claimDepartments,
   mayConvertIn,
   projectToWork,
@@ -149,20 +157,25 @@ async function logAudit(
 // مُنحها صراحةً، و«bla» يمنحها العميلُ اليوم فعلاً — فالبطاقةُ تلحق
 // بالواقع لا تسبقه. ويحرس التطابقَ `tool/test/permission_parity_test.sh`.
 const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap", "sfb", "mfb",
-  "mpr", "apr", "dsh", "dpg", "mtd", "bla", "vpc", "epc"] as const;
+  "mpr", "apr", "dsh", "dpg", "mtd", "bla", "vpc", "epc", "vds"] as const;
 
 /**
- * صلاحيتان **لا تُمنحان لدور قط**، بل لفرد بعينه ومعهما نطاق إدارات.
+ * صلاحياتٌ **لا تُمنح لدورٍ قط**، بل لفردٍ بعينه ومعها نطاقُ إدارات.
  *
- * `apr` منهما تفتح بوابةً كانت محصورة بمسؤول النظام وحده (اعتماد إضافة
+ * `apr` منها تفتح بوابةً كانت محصورة بمسؤول النظام وحده (اعتماد إضافة
  * المشاريع)، بقرار صريح منه. فهي مغلقة افتراضياً، ولا يمنحها إلا هو،
  * ومقيَّدة بنطاق، وقابلة للسحب. أما تسجيل الأعضاء وتعديل المواعيد النهائية
  * فتبقيان محصورتين به وحده.
  *
+ * و`vds` (الاطّلاع على حالات الموظفين اليومية) منها **لسببٍ آخر**: ليست
+ * بوابةً تفتح فعلاً، بل نافذةٌ على **بياناتٍ شخصيّة** — متى استأذن فلانٌ،
+ * وكم مرّةً مرض. ومن يراها يراها عن أشخاصٍ بأعيانهم، فلا تقع على كل من
+ * حمل دوراً، بل تُمنح لفردٍ في إدارةٍ مسمّاة وتُسحب.
+ *
  * وتُستبعَد من صلاحيات الأدوار عند الختم مهما كُتب في settings/rolePermissions،
  * حتى لا يفتحها أحد بالخطأ من شاشة الأدوار.
  */
-const SCOPED_PERM_KEYS: readonly string[] = ["mpr", "apr"];
+const SCOPED_PERM_KEYS: readonly string[] = ["mpr", "apr", "vds"];
 
 /** نطاق صلاحية كما يُختم في البطاقة: `'*'` أو قائمة معرّفات إدارات. */
 type GrantScopeClaim = "*" | string[];
@@ -2055,6 +2068,44 @@ export const sendUserNotification = onCall({secrets: notificationSecrets}, async
 });
 
 /**
+ * أقصى ما يُختم من أقسامٍ يرأسها الواحد.
+ *
+ * وبطاقةُ الدخول محدودةٌ بألف بايت إجمالاً، وفيها الدورُ والإداراتُ
+ * والصلاحياتُ الثماني عشرة ونطاقاتُها. ومعرّفُ القسم نحو عشرين بايتاً،
+ * فعشرون قسماً أربعمئة بايت — وهو أقصى ما يسع بأمان.
+ *
+ * **ويُقتطع بصوت**: من رأس أكثر من ذلك يُكتب له تحذيرٌ في السجلّ. ولو
+ * قُطعت القائمةُ صامتةً لَرأى رئيسٌ بعضَ أقسامه ولم يرَ بعضَها، ولا شيء
+ * يقول له لماذا — وهو أسوأُ من رفضٍ صريح.
+ */
+const MAX_HEADED_SECTIONS = 20;
+
+/**
+ * الأقسامُ التي يرأسها هذا المستخدم — **من مستندات الأقسام لا من مستنده**.
+ *
+ * ورئاسةُ القسم مكتوبةٌ على القسم (`headUid`) لا على الشخص: القسمُ هو
+ * الثابت، والرئيسُ يتبدّل. ولو كُتبت على الشخص لَصار لقسمٍ واحدٍ رئيسان
+ * حين يُنسى محوُ القديم.
+ *
+ * @param {string} uid صاحبُ البطاقة.
+ * @return {Promise<string[]>} معرّفاتُ أقسامه.
+ */
+async function headedSectionIds(uid: string): Promise<string[]> {
+  const snap = await db().collection("sections")
+    .where("headUid", "==", uid)
+    .limit(MAX_HEADED_SECTIONS + 1)
+    .get();
+  const ids = snap.docs.map((d) => d.id);
+  if (ids.length > MAX_HEADED_SECTIONS) {
+    logger.warn(
+      `المستخدم ${uid} يرأس أكثر من ${MAX_HEADED_SECTIONS} قسماً — ` +
+      "اقتُطعت قائمتُه في البطاقة، فلن يرى حالات الأقسام الزائدة.",
+    );
+  }
+  return ids.slice(0, MAX_HEADED_SECTIONS);
+}
+
+/**
  * يعيد ختم بصمات الدخول (Custom Claims) من مستند المستخدم إلى بطاقته.
  *
  * لماذا تلزم؟ قواعد Firestore كلها تبدأ من `isApproved()`، وهي تقرأ
@@ -2086,6 +2137,16 @@ async function restampClaims(uid: string): Promise<Record<string, unknown>> {
       u.departmentIds :
       (role === "departmentManager" && u.departmentId ? [u.departmentId] : []),
     approved: u.status === "approved",
+    // ــ الأقسامُ التي يرأسها — رئاسةٌ بلا دورٍ جديد ــ
+    //
+    // طُلب أن يُربط رئيسُ القسم بقسمه بلا استحداث دورٍ رابع. فالرئاسةُ
+    // حقلٌ على القسم، وأثرُها الوحيد في الصلاحيات أنّه يقرأ حالات أهل
+    // قسمه اليومية — تقرؤه `isSectionHeadOf()` في القواعد.
+    //
+    // ومن البطاقة لا من مستندِ قسمٍ يُقرأ وقتَ التقييم: قاعدةٌ تقرأ مستنداً
+    // آخر تكلّف قراءةً في كل تقييم، والانضباطُ القائم في هذه المنصة أنّ
+    // القواعد تحتكم إلى البطاقة وحدها.
+    hs: await headedSectionIds(uid),
     ...claimPermissions(
       await loadCustomRolePerms(role, (u.customRoleId as string | null) ?? null),
       u,
@@ -2310,6 +2371,265 @@ export const syncMyClaims = onCall(async (request) => {
   const auth = requireAuth(request);
   const claims = await restampClaims(auth.uid);
   return {ok: true, claims};
+});
+
+// ــــــــــــــ حالاتُ الموظفين اليومية ــــــــــــــ
+
+/**
+ * يسجّل الموظّفُ حالتَه — **لليوم وحدَه وباسمه وحدَه**.
+ *
+ * ــــ ولماذا دالّةٌ والقاعدةُ تقبل الكتابة ــــ
+ *
+ * القاعدةُ تفحص ما تستطيع فحصَه: أنّ الكاتبَ هو صاحبُ السجلّ، وأنّ السجلَّ
+ * يحمل يوماً، وأنّه لا يدّعي تصحيحاً. **ولا تستطيع أن تعرف أيُّ يومٍ هو
+ * اليومُ** — فلا ساعةَ في قواعد Firestore يُوثق بها، وختمُ العميل يكتبه
+ * العميل.
+ *
+ * فاليومُ يُحسب هنا من ساعة الخادم بتوقيت الكويت، **ويُهمَل ما أرسله
+ * العميل**. ولو صُدِّق العميلُ لَكتب من شاء سجلَّ أيِّ يومٍ بتغيير ساعة
+ * جهازه — ويسقط قرارُ «لا سجلَّ بأثرٍ رجعيّ» كلُّه.
+ *
+ * ــــ وحالةُ اليوم واحدةٌ لا تتعدّد ــــ
+ *
+ * معرّفُها محسوبٌ `{uid}_{yyyy-mm-dd}`، فكتابةٌ ثانيةٌ تحلّ محلّ الأولى.
+ * أمّا **الخروج** فمعرّفُه تلقائيّ: من خرج مرّتين في يومٍ يقول ذلك.
+ */
+export const recordMyStatus = onCall(async (request) => {
+  const auth = requireAuth(request);
+  const data = (request.data ?? {}) as Record<string, unknown>;
+
+  if (auth.token.role === "executiveViewer") {
+    throw new HttpsError(
+      "permission-denied",
+      "المستخدمُ التنفيذيُّ يطّلع ولا يسجّل.",
+    );
+  }
+
+  const kind = data.kind === "outing" ? "outing" : "day";
+  const patch = statusPatch(data);
+  if (typeof patch.typeId !== "string" || typeof patch.typeName !== "string") {
+    throw new HttpsError("invalid-argument", "الرجاء اختيار نوع الحالة");
+  }
+  if (kind === "outing") {
+    const problem = outingProblem(patch);
+    if (problem !== "") throw new HttpsError("invalid-argument", problem);
+  }
+
+  // ــ واليومُ من ساعة الخادم لا من الحمولة ــ
+  const today = dayKeyOf(new Date());
+  const asked = typeof data.dayKey === "string" ? data.dayKey : today;
+  if (!mayRecordOn(asked, new Date())) {
+    throw new HttpsError(
+      "failed-precondition",
+      "تُسجَّل حالةُ اليوم في يومها. وما مضى يصحّحه مسؤولُك.",
+    );
+  }
+
+  const userSnap = await db().collection("users").doc(auth.uid).get();
+  if (!userSnap.exists) throw new HttpsError("not-found", "لا يوجد سجل لحسابك");
+  const u = userSnap.data()!;
+
+  // والإدارةُ والقسمُ **يُنسخان وقتَ الكتابة**: من نُقل إلى إدارةٍ أخرى بعد
+  // شهرٍ يبقى سجلُّ ذلك اليوم منسوباً إلى إدارته يومَها — وإلا تبدّل تاريخُ
+  // الوزارة كلَّما نُقل موظّف.
+  const doc: Record<string, unknown> = {
+    ...patch,
+    uid: auth.uid,
+    userName: (u.name as string | undefined) ?? "موظّف",
+    departmentId: (u.departmentId as string | null) ?? null,
+    sectionId: (u.sectionId as string | null) ?? null,
+    dayKey: today,
+    day: admin.firestore.Timestamp.fromDate(new Date(`${today}T00:00:00Z`)),
+    kind,
+    createdAt: now(),
+    createdByUid: auth.uid,
+    createdByName: (u.name as string | undefined) ?? "موظّف",
+    correctedByUid: "",
+  };
+
+  const col = db().collection("dailyStatuses");
+  if (kind === "day") {
+    await col.doc(dayDocId(auth.uid, today)).set(doc);
+    return {ok: true, id: dayDocId(auth.uid, today)};
+  }
+  const ref = await col.add(doc);
+  return {ok: true, id: ref.id};
+});
+
+/**
+ * يصحّح المسؤولُ سجلّاً محفوظاً — **وأثرُه يُكتب في المعاملة نفسِها**.
+ *
+ * ــــ ولماذا لا تُفتح القاعدةُ بدلها ــــ
+ *
+ * طُلب أن يكون التصحيحُ للمسؤول وحدَه **وبأثرٍ مُسجَّل**. والأثرُ يُكتب في
+ * `auditLog`، وقاعدتُها لا تقبل كتابةً من العميل. فلو فُتح التعديلُ في
+ * القاعدة لَصار أيسرُ الطريقين هو الذي لا يترك أثراً — ويصير الفرقُ بين
+ * «صحّحه مسؤولُه» و«غيّره صاحبُه» غيرَ قابلٍ للقراءة بعد شهر.
+ *
+ * ــــ وما كان يُكتب كما كان ــــ
+ *
+ * الأثرُ يحمل **القيمةَ قبل التصحيح والقيمةَ بعده**. فسطرٌ يقول «صُحِّح
+ * سجلُّ فلان» لا يُجيب عن السؤال الذي يُفتح السجلُّ لأجله: مِمَّ إلى مَ؟
+ */
+export const correctStatus = onCall(async (request) => {
+  const auth = requireAuth(request);
+  const data = (request.data ?? {}) as Record<string, unknown>;
+  const id = typeof data.id === "string" ? data.id.trim() : "";
+  if (id === "") throw new HttpsError("invalid-argument", "الرجاء تحديد السجل");
+
+  const ref = db().collection("dailyStatuses").doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "السجل غير موجود");
+  const current = snap.data()!;
+
+  const allowed = mayCorrectStatus(
+    {
+      uid: auth.uid,
+      isAdmin: auth.token.role === "systemAdmin",
+      role: auth.token.role as string | undefined,
+      departmentIds: Array.isArray(auth.token.departmentIds) ?
+        (auth.token.departmentIds as unknown[]).map(String) :
+        [],
+      headedSectionIds: Array.isArray(auth.token.hs) ?
+        (auth.token.hs as unknown[]).map(String) :
+        [],
+    },
+    {
+      uid: current.uid as string | undefined,
+      departmentId: (current.departmentId as string | null) ?? null,
+      sectionId: (current.sectionId as string | null) ?? null,
+    },
+  );
+  if (!allowed) {
+    throw new HttpsError(
+      "permission-denied",
+      "تصحيحُ الحالة لرئيس القسم أو مدير الإدارة أو مسؤول النظام.",
+    );
+  }
+
+  const patch = statusPatch(data);
+  if (Object.keys(patch).length === 0) {
+    throw new HttpsError("invalid-argument", "لا تغييرَ في الطلب");
+  }
+  if (current.kind === "outing") {
+    const merged = {
+      fromMinutes: patch.fromMinutes ?? current.fromMinutes,
+      toMinutes: patch.toMinutes ?? current.toMinutes,
+    };
+    const problem = outingProblem(merged);
+    if (problem !== "") throw new HttpsError("invalid-argument", problem);
+  }
+
+  const actor = (auth.token.name as string | undefined) ?? "مسؤول";
+  const reason = typeof data.correctionNote === "string" ? data.correctionNote.trim() : "";
+
+  await ref.update({
+    ...patch,
+    correctedAt: now(),
+    correctedByUid: auth.uid,
+    correctedByName: actor,
+    correctionNote: reason,
+  });
+
+  // ــ وما كان قبله، حقلاً حقلاً ــ
+  const changes = Object.keys(patch)
+    .map((k) => `${k}: «${String(current[k] ?? "—")}» ← «${String(patch[k] ?? "—")}»`)
+    .join("، ");
+  await logAudit(
+    actor,
+    "تصحيح حالة يومية",
+    `سُجِّل تصحيحٌ على حالة "${current.userName ?? current.uid}" ` +
+    `ليوم ${current.dayKey ?? "—"}: ${changes}` +
+    (reason === "" ? "" : ` — السبب: ${reason}`),
+  );
+
+  return {ok: true};
+});
+
+/**
+ * يعيّن رئيسَ قسمٍ أو يعزله — **ويعيد ختمَ البطاقتين**.
+ *
+ * ــــ ولماذا دالّةٌ لا كتابةٌ من الشاشة ــــ
+ *
+ * لأنّ الرئاسة تُقرأ من **البطاقة** (`hs`) لا من مستند القسم. فلو كُتب
+ * `headUid` من العميل مباشرةً لَبقيت بطاقةُ الرئيس الجديد بلا المفتاح حتى
+ * ينتهي أجلُ رمزه — وقد يبلغ ساعة — فيرى شاشةً فارغةً ولا شيء يفسّر له.
+ *
+ * وهذا بعينه العطلُ الذي كلّف المنصةَ `mtd` و`bla`: صلاحيةٌ في القاعدة لا
+ * تبلغ البطاقةَ **لا تعمل أبداً**. ولذلك تمنع قاعدةُ `sections` كتابةَ
+ * `headUid` من العميل، فلا يبقى إلا هذا الباب.
+ *
+ * وتُختم بطاقتان لا واحدة: **المعزولُ كالمعيَّن**. ولو خُتمت بطاقةُ الجديد
+ * وحدها لَبقي القديمُ يقرأ حالات قسمٍ لم يعد يرأسه.
+ */
+export const setSectionHead = onCall(async (request) => {
+  const auth = requireAuth(request);
+  const {sectionId, uid} = (request.data ?? {}) as {sectionId?: string; uid?: string | null};
+  if (!sectionId) throw new HttpsError("invalid-argument", "الرجاء تحديد القسم");
+
+  const ref = db().collection("sections").doc(sectionId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "القسم غير موجود");
+  const section = snap.data()!;
+
+  // الصلاحيةُ من البطاقة: مسؤولُ النظام، أو مديرُ الإدارة صاحبةِ القسم.
+  const isAdmin = auth.token.role === "systemAdmin";
+  const myDepts = Array.isArray(auth.token.departmentIds) ?
+    (auth.token.departmentIds as unknown[]).map(String) :
+    [];
+  const sectionDept = String(section.departmentId ?? "");
+  if (!isAdmin && !myDepts.includes(sectionDept)) {
+    throw new HttpsError(
+      "permission-denied",
+      "تعيينُ رئيس القسم لمسؤول النظام أو مدير الإدارة صاحبةِ القسم.",
+    );
+  }
+
+  const previous = typeof section.headUid === "string" ? section.headUid : "";
+  const next = typeof uid === "string" && uid.trim() !== "" ? uid.trim() : "";
+
+  // ورئيسُ القسم من أهل إدارته: رئيسٌ من إدارةٍ أخرى يقرأ حالات أهل قسمٍ
+  // لا يديره أحدٌ يعرفه — وهو منحُ نافذةٍ على بياناتٍ شخصيّة من باب خلفيّ.
+  if (next !== "") {
+    const userSnap = await db().collection("users").doc(next).get();
+    if (!userSnap.exists) throw new HttpsError("not-found", "لا يوجد سجل لهذا المستخدم");
+    const target = userSnap.data()!;
+    const targetDepts = Array.isArray(target.departmentIds) ?
+      (target.departmentIds as unknown[]).map(String) :
+      [];
+    const targetDept = String(target.departmentId ?? "");
+    if (targetDept !== sectionDept && !targetDepts.includes(sectionDept)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "رئيسُ القسم يكون من موظّفي إدارته — انقل الموظّف إلى الإدارة أوّلاً.",
+      );
+    }
+  }
+
+  if (previous === next) return {ok: true, changed: false};
+
+  await ref.update({headUid: next});
+
+  // والختمُ **بعد الكتابة**: بطاقةٌ تقول «يرأس» وقسمٌ لا يقول ذلك تمنح
+  // قراءةً لا سند لها في البيانات.
+  for (const affected of [previous, next]) {
+    if (affected === "") continue;
+    try {
+      await restampClaims(affected);
+    } catch (err) {
+      logger.warn(`تعذّر ختمُ بطاقة ${affected} بعد تغيير رئاسة القسم ${sectionId}`, err);
+    }
+  }
+
+  await logAudit(
+    auth.token.name ?? "مستخدم",
+    next === "" ? "عزل رئيس قسم" : "تعيين رئيس قسم",
+    `القسم "${section.name ?? sectionId}": ` +
+    (next === "" ? `عُزل رئيسُه (${previous})` : `صار رئيسُه ${next}`) +
+    (previous !== "" && next !== "" ? ` بدلاً من ${previous}` : ""),
+  );
+
+  return {ok: true, changed: true};
 });
 
 /** يعيد ختم بطاقة مستخدم بعينه — لمسؤول النظام، دون تعديل دوره أو حالته. */

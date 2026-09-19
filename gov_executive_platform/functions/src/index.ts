@@ -157,7 +157,7 @@ async function logAudit(
 // مُنحها صراحةً، و«bla» يمنحها العميلُ اليوم فعلاً — فالبطاقةُ تلحق
 // بالواقع لا تسبقه. ويحرس التطابقَ `tool/test/permission_parity_test.sh`.
 const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap", "sfb", "mfb",
-  "mpr", "apr", "dsh", "dpg", "mtd", "bla", "vpc", "epc", "vds"] as const;
+  "mpr", "apr", "dsh", "dpg", "mtd", "bla", "vpc", "epc", "vds", "vcc"] as const;
 
 /**
  * صلاحياتٌ **لا تُمنح لدورٍ قط**، بل لفردٍ بعينه ومعها نطاقُ إدارات.
@@ -236,9 +236,12 @@ const DEFAULT_ROLE_PERMS: Record<string, string[]> = {
   // تحملها في `RolePermissionsConfig.defaults()` بالعميل. وكان الجدولان
   // منحرفين: العميلُ يمنحها ويعمل بها، والخادمُ لا يعرفها. فهذا إلحاقُ
   // الخادم بالواقع لا منحٌ جديد.
-  executiveViewer: ["vad", "mr", "agd", "dsh", "dpg", "bla"],
-  departmentManager: ["mw", "dsh", "dpg", "bla"],
-  projectOfficer: ["dsh", "dpg", "bla"],
+  // و"vcc" (مركز قيادة القطاع) للأدوار الثلاثة نفسِها التي تحمل "dsh":
+  // هو مدخلٌ لا بوابة — يعرض ما يراه القارئُ أصلاً مجموعاً، ولا يفتح
+  // بياناً. ومغلقٌ لدور «موظف» كـ"dsh" تماماً: شاشتُه تبدأ من عمله.
+  executiveViewer: ["vad", "mr", "agd", "dsh", "dpg", "bla", "vcc"],
+  departmentManager: ["mw", "dsh", "dpg", "bla", "vcc"],
+  projectOfficer: ["dsh", "dpg", "bla", "vcc"],
   employee: [],
 };
 

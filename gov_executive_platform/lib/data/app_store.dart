@@ -47,6 +47,9 @@ import '../utils/file_picker.dart';
 import '../models/daily_status.dart';
 import '../models/holiday.dart';
 import '../models/sector.dart';
+import '../models/weekly_plan.dart';
+import '../reports/attention.dart';
+import '../reports/workload.dart';
 import '../models/status_type.dart';
 import '../models/work_week.dart';
 import '../utils/formatters.dart';
@@ -797,6 +800,84 @@ class AppStore extends ChangeNotifier {
   bool get canViewProcedures =>
       hasPermission(RolePermission.viewProcedures) || canEditProcedures;
 
+  // ــــــــــــــ خطط الأسبوع وحملُ الفريق ــــــــــــــ
+
+  /// خططُ الأسبوع المقروءةُ في النافذة — راجع [_watchWeeklyPlans].
+  List<WeeklyPlan> weeklyPlans = const [];
+
+  /// خطّةُ موظّفٍ في أسبوعٍ بعينه — أو `null` إن لم تُوضع بعد.
+  WeeklyPlan? planFor(String uid, String weekKey) {
+    for (final p in weeklyPlans) {
+      if (p.uid == uid && p.weekKey == weekKey) return p;
+    }
+    return null;
+  }
+
+  /// وهل يضع خططَ فريقه؟ — **ونصُّه نصُّ `canWritePlan` في القواعد**.
+  ///
+  /// والخطّةُ قرارُ توجيهٍ لا تسجيلُ نيّة: من يضعها لنفسه لم يُوجَّه.
+  bool get canWriteWeeklyPlans =>
+      isAdmin || (!isExecutive && (isManager || headedSectionIds.isNotEmpty));
+
+  /// يحفظ خطّةَ موظّفٍ لأسبوع — **والحدُّ ثلاثةٌ يفرضه الخادمُ كذلك**.
+  Future<String?> saveWeeklyPlan({
+    required AppUser person,
+    required String weekKey,
+    required List<PlanItem> items,
+  }) async {
+    if (!canWriteWeeklyPlans) return 'وضعُ خطّة الأسبوع لمدير الإدارة أو رئيس القسم';
+    if (items.length > WeeklyPlan.maxItems) {
+      return 'الخطّةُ ثلاثُ أولويّاتٍ على الأكثر — وهي الأداةُ لا القيد';
+    }
+    try {
+      final id = WeeklyPlan.docId(person.id, weekKey);
+      await _db.collection('weeklyPlans').doc(id).set({
+        'uid': person.id,
+        'userName': person.name,
+        'departmentId': person.departmentId ?? '',
+        'sectionId': person.sectionId ?? '',
+        'weekKey': weekKey,
+        'items': items.map((i) => i.toMap()).toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedByName': currentUser?.name ?? '',
+      }, SetOptions(merge: true));
+      await _log(
+        'خطط الأسبوع',
+        'حُدّثت خطّةُ "${person.name}" لأسبوع $weekKey (${items.length} أولويّة)',
+      );
+      return null;
+    } catch (e) {
+      return 'تعذّر حفظ الخطّة: $e';
+    }
+  }
+
+  /// أحمالُ الفريق المرئيّ — **محسوبةٌ من المرئيّ لا من الكلّ**.
+  ///
+  /// ولا تُحسب في `build` لكلّ إطار: تُنادى من الشاشة مرّةً وتُمرَّر.
+  List<Workload> teamWorkload() => WorkloadEngine.build(
+        people: [
+          for (final u in trackablePeople)
+            (uid: u.id, name: u.name, departmentId: u.departmentId ?? ''),
+        ],
+        projects: visibleProjects,
+        tasks: tasks,
+        works: visibleWorks,
+      );
+
+  /// ما يحتاج تدخّلاً في نطاق القارئ — **محرّكٌ واحدٌ تقرأ منه اللوحة**.
+  List<AttentionItem> attentionItems() => AttentionEngine.build(
+        projects: visibleProjects,
+        tasks: tasks,
+        works: visibleWorks,
+        lastUpdateByProject: lastUpdateByProject,
+        pendingDecisions: pendingApprovalsCount,
+        thresholds: AttentionThresholds(
+          // والعتباتُ من إعدادات مسؤول النظام لا من الشيفرة — وهي القائمةُ
+          // نفسُها التي يقرؤها التقريرُ التنفيذيُّ على الخادم.
+          staleUpdateDays: alertRules.staleUpdateDays,
+        ),
+      );
+
   // ــــــــــــــ القطاعات ــــــــــــــ
 
   /// القطاعاتُ كما يحرّرها مسؤولُ النظام — والبذرةُ حين لا مستندَ بعد.
@@ -886,6 +967,12 @@ class AppStore extends ChangeNotifier {
 
   /// الحالاتُ المقروءةُ في النافذة الزمنية المشتركة — راجع [watchStatuses].
   List<DailyStatus> dailyStatuses = const [];
+
+  /// وهل يرى مركزَ قيادة القطاع؟
+  ///
+  /// ومسؤولُ النظام دائماً: صلاحياتُه عبر `isAdmin()` لا عبر منحةٍ مكتوبة.
+  bool get canViewCommandCenter =>
+      isAdmin || hasPermission(RolePermission.viewCommandCenter);
 
   /// وهل يطّلع على حالات غيره؟ — **ونصُّه نصُّ `canViewStatusDoc`**.
   ///
@@ -2200,6 +2287,78 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  /// يشترك في خطط أسبوعٍ حولَ اليوم — **مُنطاقاً ومُنافَذاً**.
+  ///
+  /// والنافذةُ ثمانيةُ أسابيع: تكفي «ما وعد به فريقي الشهرَ الماضي» ولا
+  /// تُنزل تاريخَ الوزارة كلَّه إلى المتصفّح. ومن أراد أبعد فالتقريرُ بابُه.
+  void _watchWeeklyPlans() {
+    final uid = currentUser?.id;
+    if (uid == null) return;
+    final fromKey = WeeklyPlan.weekKeyOf(
+      DateTime.now().subtract(const Duration(days: 56)),
+    );
+
+    _listen('weeklyPlans/خطّتي',
+        _db.collection('weeklyPlans')
+            .where('uid', isEqualTo: uid)
+            .where('weekKey', isGreaterThanOrEqualTo: fromKey)
+            .snapshots(), (snap) {
+      _myPlans = _parseDocs('weeklyPlans/خطّتي', snap.docs,
+          (d) => WeeklyPlan.fromMap(d.id, d.data()));
+      _publishPlans();
+    });
+
+    if (isAdmin || canViewAllDepartments) {
+      _listen('weeklyPlans/الكل',
+          _db.collection('weeklyPlans')
+              .where('weekKey', isGreaterThanOrEqualTo: fromKey)
+              .snapshots(), (snap) {
+        _scopedPlans = _parseDocs('weeklyPlans/الكل', snap.docs,
+            (d) => WeeklyPlan.fromMap(d.id, d.data()));
+        _publishPlans();
+      });
+      return;
+    }
+
+    final deptIds = myDepartmentIds.where((d) => d.isNotEmpty).take(10).toList();
+    if (deptIds.isNotEmpty && isManager) {
+      _listen('weeklyPlans/إدارتي',
+          _db.collection('weeklyPlans')
+              .where('departmentId', whereIn: deptIds)
+              .where('weekKey', isGreaterThanOrEqualTo: fromKey)
+              .snapshots(), (snap) {
+        _scopedPlans = _parseDocs('weeklyPlans/إدارتي', snap.docs,
+            (d) => WeeklyPlan.fromMap(d.id, d.data()));
+        _publishPlans();
+      });
+    }
+
+    final sectionIds = headedSectionIds.take(10).toList();
+    if (sectionIds.isNotEmpty) {
+      _listen('weeklyPlans/قسمي',
+          _db.collection('weeklyPlans')
+              .where('sectionId', whereIn: sectionIds)
+              .where('weekKey', isGreaterThanOrEqualTo: fromKey)
+              .snapshots(), (snap) {
+        _sectionPlans = _parseDocs('weeklyPlans/قسمي', snap.docs,
+            (d) => WeeklyPlan.fromMap(d.id, d.data()));
+        _publishPlans();
+      });
+    }
+  }
+
+  List<WeeklyPlan> _myPlans = const [];
+  List<WeeklyPlan> _scopedPlans = const [];
+  List<WeeklyPlan> _sectionPlans = const [];
+
+  void _publishPlans() {
+    weeklyPlans = mergeById<WeeklyPlan>(
+      (p) => p.id,
+      [_myPlans, _scopedPlans, _sectionPlans],
+    );
+    notifyListeners();
+  }
+
   List<DailyStatus> _myStatuses = const [];
   List<DailyStatus> _scopedStatuses = const [];
   List<DailyStatus> _sectionStatuses = const [];
@@ -2947,6 +3106,7 @@ class AppStore extends ChangeNotifier {
     // وحالتُه هو تُشترَك دائماً: شاشةُ «حالتي» تعمل لكلّ موظّف، وقاعدةُ
     // القراءة تسمح بها لصاحبها بلا صلاحية.
     _watchStatusWindow();
+    _watchWeeklyPlans();
 
     // طلبات الاعتماد كانت تُطلب كاملةً بلا نطاق، وقاعدتها تعتمد على محتوى
     // المستند — فيُرفض الطلب كله لكل من ليس مسؤول نظام أو مستخدماً تنفيذياً،
@@ -3518,6 +3678,9 @@ class AppStore extends ChangeNotifier {
         // يطلبه أحد. ومسؤول النظام يسحبهما من فرد بعينه بالاستثناء الفردي.
         case RolePermission.viewDashboard:
         case RolePermission.viewDepartmentPage:
+        // ومركزُ القيادة معهما: الأدوارُ المخصّصة تُصنع لمن يتابع المنصة،
+        // وهو مدخلٌ يعرض ما يراه أصلاً مجموعاً لا بياناً جديداً.
+        case RolePermission.viewCommandCenter:
           return true;
         case RolePermission.manageWorks:
         case RolePermission.deleteRecords:

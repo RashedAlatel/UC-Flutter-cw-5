@@ -23,9 +23,12 @@ import '../screens/roles_management_screen.dart';
 import '../screens/user_management_screen.dart';
 import '../screens/work_detail_screen.dart';
 import '../screens/my_department_users_screen.dart';
+import '../screens/command_center_screen.dart';
 import '../screens/holidays_screen.dart';
+import '../screens/master_calendar_screen.dart';
 import '../screens/procedures_screen.dart';
 import '../screens/status_types_screen.dart';
+import '../screens/team_workload_screen.dart';
 import '../screens/search_screen.dart';
 import '../screens/works_list_screen.dart';
 import '../theme/app_theme.dart';
@@ -63,6 +66,9 @@ const Map<NavKey, IconData> _navIcons = {
   NavKey.statusTypes: Icons.category_outlined,
   NavKey.holidays: Icons.event_busy_outlined,
   NavKey.myAssignments: Icons.assignment_ind_outlined,
+  NavKey.commandCenter: Icons.radar_rounded,
+  NavKey.teamWorkload: Icons.balance_rounded,
+  NavKey.masterCalendar: Icons.calendar_month_rounded,
   NavKey.decisions: Icons.gavel_rounded,
   NavKey.dailyReport: Icons.wb_twilight_rounded,
   NavKey.reports: Icons.assessment_rounded,
@@ -200,6 +206,12 @@ class _AppShellState extends State<AppShell> {
         return const ArchivedItemsScreen();
       case NavKey.departmentUsers:
         return const MyDepartmentUsersScreen();
+      case NavKey.commandCenter:
+        return const CommandCenterScreen();
+      case NavKey.teamWorkload:
+        return const TeamWorkloadScreen();
+      case NavKey.masterCalendar:
+        return const MasterCalendarScreen();
       case NavKey.procedures:
         return const ProceduresScreen();
       case NavKey.statusTypes:

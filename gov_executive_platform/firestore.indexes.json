@@ -101,6 +101,51 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "_comment": "خطّةُ الموظّف نفسِه في نافذةِ ثمانية أسابيع. راجع AppStore._watchWeeklyPlans",
+      "collectionGroup": "weeklyPlans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "weekKey",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "_comment": "خططُ إداراتٍ في النافذة — نطاقُ مدير الإدارة",
+      "collectionGroup": "weeklyPlans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "departmentId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "weekKey",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "_comment": "خططُ أقسامٍ في النافذة — نطاقُ رئيس القسم",
+      "collectionGroup": "weeklyPlans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "sectionId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "weekKey",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

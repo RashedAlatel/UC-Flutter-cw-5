@@ -27,6 +27,9 @@ enum NavKey {
   works('الأعمال'),
   search('البحث'),
   myAssignments('المُسنَد إليّ'),
+  commandCenter('مركز قيادة القطاع'),
+  teamWorkload('حمل الفريق'),
+  masterCalendar('تقويم القطاع'),
   decisions('مركز القرارات'),
   dailyReport('التقرير اليومي'),
   reports('التقارير'),
@@ -148,6 +151,16 @@ List<NavKey> navKeysFor(AppStore store) {
   // ومغلقٌ يوم النشر حتى يمنحه مسؤولُ النظام لدورٍ أو لفرد. ومن مُنح
   // التحريرَ وحدَه يراه كذلك — `canViewProcedures` تقول `vpc || epc`،
   // وهو نصُّ قاعدة `procedures` نفسُه.
+  // ــ مركزُ القيادة وما يتبعه ــ
+  //
+  // ثلاثتُها **مداخلُ لا بوابات**: تعرض ما يراه القارئُ أصلاً مجموعاً.
+  // ومركزُ القيادة بصلاحيته، وحملُ الفريق لمن يدير فريقاً، والتقويمُ لمن
+  // يرى مشاريع.
+  if (store.canViewCommandCenter) keys.add(NavKey.commandCenter);
+  if (store.canViewCommandCenter || store.canWriteWeeklyPlans) {
+    keys.add(NavKey.teamWorkload);
+  }
+  if (store.canViewCommandCenter) keys.add(NavKey.masterCalendar);
   if (store.canViewProcedures) keys.add(NavKey.procedures);
   if (store.canManageUsers) {
     keys

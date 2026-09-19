@@ -667,6 +667,63 @@ service cloud.firestore {
                         && resource.data.get('authorUid', '') == request.auth.uid);
     }
 
+    // ------------------------- خطط الأسبوع -------------------------
+    //
+    // ــــ من يكتب، ومن يقرأ ــــ
+    //
+    // **الخطّةُ يضعها المسؤول لا الموظّف**: هي قرارُ توجيهٍ — «هذا ما أريد
+    // أن تقضي فيه أسبوعك» — ومن يضعها لنفسه لم يُوجَّه. فالكتابةُ لمدير
+    // الإدارة ورئيس القسم ومسؤول النظام.
+    //
+    // **والموظّفُ يقرأ خطّتَه** ولا يكتبها: لا معنى لخطّةٍ لا يراها صاحبُها.
+    // ويحدّث حالةَ بنودها — وذلك بابٌ أضيقُ يُفتح لاحقاً عبر دالّة، لا من
+    // هنا: تعديلُ الحالة وتعديلُ البنود في قاعدةٍ واحدةٍ يعني أنّ من يملك
+    // الأولى يملك الثانية.
+    function canWritePlan(uid, deptId, sectionId) {
+      return isApproved()
+             && !isExecutive()
+             && (isAdmin()
+                 || isSectionHeadOf(sectionId)
+                 || isMyDeptOfManager(deptId));
+    }
+
+    match /weeklyPlans/{id} {
+      // والقراءةُ كقراءة الحالة اليومية حرفاً: صاحبُها، ورئيسُ قسمه، ومديرُ
+      // إدارته، ومن يرى الكلّ. **ولا زميلُه** — خطّةُ الأسبوع تقول ما يُتوقَّع
+      // من الشخص، وهي بيانٌ عنه.
+      allow read: if isApproved()
+                  && (resource.data.get('uid', '') == request.auth.uid
+                      || canViewAll()
+                      || isSectionHeadOf(resource.data.get('sectionId', ''))
+                      || isMyDeptOfManager(resource.data.get('departmentId', null)));
+
+      allow create: if canWritePlan(request.resource.data.get('uid', ''),
+                                    request.resource.data.get('departmentId', null),
+                                    request.resource.data.get('sectionId', ''))
+                    && request.resource.data.get('uid', '') != ''
+                    && request.resource.data.get('weekKey', '') != ''
+                    // **وثلاثةُ بنودٍ حدٌّ مفروضٌ على الخادم لا في الشاشة**:
+                    // الحدُّ هو الأداة — يُجبر المديرَ على أن يقرّر ما الذي
+                    // يهمّ فعلاً. وحدٌّ يُفرض في الواجهة وحدَها ليس حدّاً.
+                    && request.resource.data.get('items', []).size() <= 3;
+
+      // وصاحبُ الخطّة لا يُغيَّر بالتعديل: تغييرُه اختلاقُ خطّةٍ أخرى،
+      // ومعرّفُ المستند محسوبٌ منه أصلاً.
+      allow update: if canWritePlan(resource.data.get('uid', ''),
+                                    resource.data.get('departmentId', null),
+                                    resource.data.get('sectionId', ''))
+                    && request.resource.data.get('uid', '') == resource.data.get('uid', '')
+                    && request.resource.data.get('weekKey', '') == resource.data.get('weekKey', '')
+                    && request.resource.data.get('items', []).size() <= 3;
+
+      // ــ ولا تُحذف خطّةُ أسبوعٍ مضى ــ
+      //
+      // **التاريخُ يُحفظ**: من أراد أن يعرف ما وعد به فريقُه قبل شهرٍ وما
+      // أُنجز منه يجده. وخطّةٌ تُمحى تجعل المراجعةَ مستحيلة — ومسؤولُ النظام
+      // وحدَه يمحو ما كُتب بالخطأ.
+      allow delete: if isAdmin();
+    }
+
     // ------------------------- حالات الموظفين اليومية -------------------------
     //
     // ــــ ما تحرسه هذه الكتلة ــــ

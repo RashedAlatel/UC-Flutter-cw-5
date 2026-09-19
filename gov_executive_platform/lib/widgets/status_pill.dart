@@ -69,9 +69,25 @@ class MetaBit extends StatelessWidget {
       children: [
         Icon(icon, size: 13, color: c),
         const SizedBox(width: 4),
-        Text(text,
+        // ــ والنصُّ يُقتطع ولا يخرج ــ
+        //
+        // كانت الودجةُ تُخرج نصَّها عن الشاشة حين يطول: «متأخّر ١٢ يوماً عن
+        // موعده» على عرض الهاتف تجاوزت خمسةً وثلاثين بكسلاً. وقبضه اختبارُ
+        // مقاس الهاتف في مركز القيادة — **وهي ودجةٌ تقرؤها عشرُ شاشات**،
+        // فالعطلُ كان فيها كلِّها.
+        //
+        // و`Flexible` لا `Expanded`: الصفُّ `mainAxisSize.min`، فالمرونةُ
+        // تأخذ ما تحتاجه ولا تمدّه إلى آخر السطر — ولو مُدّ لَتباعدت
+        // البنودُ المتجاورةُ في `Wrap` بفراغٍ لا معنى له.
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: AppType.micro.copyWith(
-                fontSize: 11, color: c, fontWeight: FontWeight.w700)),
+                fontSize: 11, color: c, fontWeight: FontWeight.w700),
+          ),
+        ),
       ],
     );
   }

@@ -18,6 +18,7 @@
 /// مدفونٌ في الشيفرة يُجبر الوزارةَ على تعريفٍ لم تختره.
 library;
 
+import '../models/calendar_event.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
@@ -283,5 +284,130 @@ class AttentionEngine {
       counts[i.kind] = (counts[i.kind] ?? 0) + 1;
     }
     return counts;
+  }
+}
+
+/// أحداثُ التقويم — **مُشتقّةٌ من بيانات المنصّة لا مخزَّنة**.
+///
+/// راجع `CalendarEvent`: مجموعةٌ ثانيةٌ تحمل نسخةً من هذه التواريخ كانت
+/// ستنحرف عنها بأوّل تأجيلِ موعد.
+class CalendarBuilder {
+  /// يبني أحداثَ مدىً زمنيّ من المشاريع والمهامّ والأعمال والعطل.
+  ///
+  /// والمدخلاتُ مصفّاةٌ بالنطاق قبل الدخول، كما في `AttentionEngine`.
+  static List<CalendarEvent> build({
+    required List<Project> projects,
+    required List<ProjectTask> tasks,
+    required List<WorkItem> works,
+    required Map<String, String> holidayNames,
+    DateTime? now,
+  }) {
+    final today = now ?? DateTime.now();
+    final events = <CalendarEvent>[];
+
+    for (final p in projects) {
+      final done = p.effectiveStatus == ProjectStatus.completed;
+      events.add(CalendarEvent(
+        day: p.startDate,
+        kind: EventKind.projectStart,
+        title: p.name,
+        departmentId: p.departmentId,
+        recordId: p.id,
+      ));
+      events.add(CalendarEvent(
+        day: p.dueDate,
+        kind: EventKind.projectDue,
+        title: p.name,
+        departmentId: p.departmentId,
+        recordId: p.id,
+        isOverdue: !done && _lateDays(p.dueDate, today) > 0,
+      ));
+      final end = p.contractEndDate;
+      if (end != null) {
+        events.add(CalendarEvent(
+          day: end,
+          kind: EventKind.contractEnd,
+          title: p.contractorName.isEmpty ? p.name : '${p.name} — ${p.contractorName}',
+          departmentId: p.departmentId,
+          recordId: p.id,
+          isOverdue: _lateDays(end, today) > 0,
+        ));
+      }
+      final invoice = p.invoiceDueDate;
+      if (invoice != null) {
+        events.add(CalendarEvent(
+          day: invoice,
+          kind: EventKind.invoiceDue,
+          title: p.name,
+          departmentId: p.departmentId,
+          recordId: p.id,
+          isOverdue: _lateDays(invoice, today) > 0,
+        ));
+      }
+      final next = p.nextActionDate;
+      if (next != null && p.nextAction.trim().isNotEmpty) {
+        events.add(CalendarEvent(
+          day: next,
+          kind: EventKind.nextAction,
+          title: '${p.name}: ${p.nextAction}',
+          departmentId: p.departmentId,
+          recordId: p.id,
+          isOverdue: !done && _lateDays(next, today) > 0,
+        ));
+      }
+    }
+
+    for (final t in tasks) {
+      if (t.isDone) continue;
+      events.add(CalendarEvent(
+        day: t.dueDate,
+        kind: EventKind.taskDue,
+        title: t.title,
+        departmentId: t.departmentId,
+        recordId: t.id,
+        isOverdue: _lateDays(t.dueDate, today) > 0,
+      ));
+    }
+
+    for (final w in works) {
+      if (w.isDone) continue;
+      events.add(CalendarEvent(
+        day: w.dueDate,
+        kind: EventKind.workDue,
+        title: w.title,
+        departmentId: w.departmentId,
+        recordId: w.id,
+        isOverdue: _lateDays(w.dueDate, today) > 0,
+      ));
+    }
+
+    // والعطلُ للوزارة كلِّها: بلا إدارةٍ تُصفّى بها.
+    for (final entry in holidayNames.entries) {
+      final day = DateTime.tryParse(entry.key);
+      if (day == null) continue;
+      events.add(CalendarEvent(
+        day: day,
+        kind: EventKind.holiday,
+        title: entry.value,
+      ));
+    }
+
+    events.sort((a, b) => a.day.compareTo(b.day));
+    return events;
+  }
+
+  /// أحداثُ يومٍ بعينه.
+  static List<CalendarEvent> onDay(List<CalendarEvent> events, DateTime day) {
+    final key = DateTime(day.year, day.month, day.day);
+    return events.where((e) => e.dayOnly == key).toList();
+  }
+
+  /// أحداثُ شهرٍ مجموعةً بأيامها — لصبغ مربّعات التقويم.
+  static Map<DateTime, List<CalendarEvent>> byDay(List<CalendarEvent> events) {
+    final map = <DateTime, List<CalendarEvent>>{};
+    for (final e in events) {
+      map.putIfAbsent(e.dayOnly, () => []).add(e);
+    }
+    return map;
   }
 }

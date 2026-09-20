@@ -39,7 +39,9 @@ import '../models/report.dart';
 import '../models/role_permissions.dart';
 import '../models/user_deletion_report.dart';
 import '../models/risk.dart';
+import '../models/ticket.dart';
 import '../models/work_item.dart';
+import '../itsm/sla.dart';
 import '../models/work_update.dart';
 import '../reports/periodic_report.dart';
 import '../theme/app_theme.dart';
@@ -853,6 +855,222 @@ class AppStore extends ChangeNotifier {
   /// الخادمُ عند الفتح، وهو العطلُ الذي تكرّر في هذه المنصة مرّتين.
   bool get canViewProcedures =>
       hasPermission(RolePermission.viewProcedures) || canEditProcedures;
+
+  // ــــــــــــــ البلاغاتُ وطلباتُ الخدمة ــــــــــــــ
+
+  /// بلاغاتُ صاحب الحساب — يقرؤها بمِلكيّته إيّاها لا بمفتاح صلاحية.
+  List<Ticket> myTickets = const [];
+
+  /// الطابورُ كلُّه — **وفارغٌ لمن لا يحمل `htk`**، إذ لا يُشترك به أصلاً.
+  List<Ticket> allTickets = const [];
+
+  /// سياسةُ المدد — والمبدئيّةُ حتّى يصل مستندُ الإعدادات، فلا تبقى
+  /// المنصّةُ بلا مدد لحظةَ الإقلاع.
+  SlaPolicy slaPolicy = SlaPolicy.standard;
+
+  /// هل يعالج هذا المستخدمُ البلاغات؟
+  ///
+  /// **ونصُّه نصُّ `canHandleTickets()` في القواعد** — حرفاً بحرف. ولو
+  /// افترقا لَرأى من لا يحملها زرّاً يردُّه الخادم، أو رأى من يحملها شاشةً
+  /// فارغةً يظنّها عطلاً. وهو العطلُ الذي تكرّر في هذه المنصّة مرّتين.
+  bool get canHandleTickets => isAdmin || hasPermission(RolePermission.handleTickets);
+
+  /// البلاغاتُ التي يراها هذا المستخدم — **موضعٌ واحدٌ يقرّر**.
+  ///
+  /// ولا تُجمع القائمتان بالإلحاق: بلاغُ المعالِج الذي فتحه بنفسه يقع في
+  /// الاثنتين، فيُعدّ مرّتين في كلّ رقمٍ على الشاشة.
+  List<Ticket> get visibleTickets {
+    final merged = mergeById<Ticket>((t) => t.id, [myTickets, allTickets]);
+    return merged.where((t) => !t.isDeleted).toList();
+  }
+
+  /// حالةُ ساعةِ الحلّ لبلاغ — ويُمرَّر [now] ولا يُقرأ هنا.
+  SlaClock resolveClock(Ticket t, {DateTime? now}) =>
+      SlaEngine.resolve(t, slaPolicy, now ?? DateTime.now());
+
+  SlaClock respondClock(Ticket t, {DateTime? now}) =>
+      SlaEngine.respond(t, slaPolicy, now ?? DateTime.now());
+
+  void _publishTickets() {
+    notifyListeners();
+  }
+
+  void _watchTickets() {
+    final uid = currentUser?.id;
+    if (uid == null) return;
+
+    // ــ بحقلٍ واحدٍ بلا مدى: **مفهرسٌ تلقائيّاً** ــ
+    //
+    // ودرسُ `ee46cf7` وراء هذا: مستمعٌ يعمل **لكلّ مستخدم** لا يُعلَّق على
+    // فهرسٍ مركَّبٍ قد تُنسى خطوةُ نشره، فتظهر لافتةٌ حمراء للجميع.
+    _listen('tickets/بلاغاتي',
+        _db.collection('tickets').where('reporterUid', isEqualTo: uid).snapshots(), (snap) {
+      myTickets = _parseDocs('tickets/بلاغاتي', snap.docs,
+          (d) => Ticket.fromMap(d.id, d.data()));
+      _publishTickets();
+    });
+
+    // ــ والطابورُ كلُّه لا يُشترَك به إلا لمن يقرؤه ــ
+    //
+    // يفرضه حارسُ `listener_scope`: اشتراكٌ بلا نطاقٍ ولا شرطٍ يُردّ من
+    // الخادم، فتظهر لافتةُ «رُفضت قراءة» لكلّ موظّفٍ في الوزارة.
+    //
+    // ــ وبلا نافذةٍ زمنيّةٍ بقصدٍ مكتوب ــ
+    //
+    // فبلاغٌ فُتح قبل سنةٍ ولم يُغلق يجب أن يبقى في الطابور — وهو بالضبط
+    // البلاغُ الذي يُراد ألّا يُنسى. ونافذةٌ على `createdAt` تُخفيه.
+    //
+    // والكلفةُ مقبولةٌ ومقيسة: مكتبُ خدمةٍ بخمسين بلاغاً في الأسبوع يبلغ
+    // ألفين وستّمئة في السنة — مستنداتٌ صغيرةٌ تُقرأ مرّةً عند الفتح. فإن
+    // بلغت عشراتِ الآلاف فالعلاجُ أرشفةُ المغلق لا إخفاءُ المفتوح.
+    if (canHandleTickets) {
+      _listen('tickets/الطابور', _db.collection('tickets').snapshots(), (snap) {
+        allTickets = _parseDocs('tickets/الطابور', snap.docs,
+            (d) => Ticket.fromMap(d.id, d.data()));
+        _publishTickets();
+      });
+    }
+  }
+
+  /// يفتح بلاغاً — **ووقتُ الفتح ختمُ الخادم لا ساعةُ المتصفّح**.
+  ///
+  /// والقاعدةُ تشترط `createdAt == request.time`، فلو كُتب هنا
+  /// `DateTime.now()` لَرُدَّ كلُّ بلاغٍ يُفتح. وهذا ليس احتياطاً: ساعةُ
+  /// المدّة كلُّها تُحسب من هذا الحقل، فلو كتبه الفاتحُ لَاختار متى يبدأ
+  /// عدُّ تأخّره.
+  Future<String?> openTicket({
+    required TicketKind kind,
+    required String title,
+    required String description,
+    required PriorityLevel priority,
+    String category = '',
+  }) async {
+    final me = currentUser;
+    if (me == null) return 'لا جلسةَ مفتوحة';
+    if (title.trim().isEmpty) return 'العنوانُ مطلوب';
+    try {
+      final ref = await _db.collection('tickets').add({
+        'kind': kind.name,
+        'title': title.trim(),
+        'description': description.trim(),
+        'category': category.trim(),
+        'priority': priority.name,
+        'status': TicketStatus.open.name,
+        'reporterUid': me.id,
+        'reporterName': me.name,
+        'reporterDepartmentId': me.departmentId ?? '',
+        'assigneeUid': '',
+        'assigneeName': '',
+        'createdAt': FieldValue.serverTimestamp(),
+        'firstResponseAt': null,
+        'resolvedAt': null,
+        'closedAt': null,
+        'resolutionNote': '',
+        'reporterReply': '',
+        'waitingMs': 0,
+        'waitingSince': null,
+        'deletedAt': null,
+        'deletedBy': null,
+        'deletedReason': null,
+      });
+      await _log('فتح بلاغ', 'فتح ${me.name} ${kind.label}: $title',
+          targetType: 'ticket', targetId: ref.id);
+      return null;
+    } catch (e) {
+      return 'تعذّر فتحُ البلاغ: $e';
+    }
+  }
+
+  /// يُسنِد بلاغاً ويختم أوّلَ ردٍّ إن لم يكن مختوماً.
+  ///
+  /// و**أوّلُ ردٍّ يُختم مرّةً واحدة**: إعادةُ ختمه عند كلّ إسنادٍ تجعل
+  /// بلاغاً ظلّ مهملاً ثلاثةَ أيّامٍ يبدو مردوداً عليه في دقيقة.
+  Future<String?> assignTicket(Ticket t, AppUser tech) async {
+    if (!canHandleTickets) return 'لا تملك معالجةَ البلاغات';
+    try {
+      await _db.collection('tickets').doc(t.id).update({
+        'assigneeUid': tech.id,
+        'assigneeName': tech.name,
+        if (t.status == TicketStatus.open) 'status': TicketStatus.inProgress.name,
+        if (t.firstResponseAt == null) 'firstResponseAt': FieldValue.serverTimestamp(),
+      });
+      await _log('إسناد بلاغ', 'أسند ${currentUser?.name} «${t.title}» إلى ${tech.name}',
+          targetType: 'ticket', targetId: t.id);
+      return null;
+    } catch (e) {
+      return 'تعذّر الإسناد: $e';
+    }
+  }
+
+  /// ينقل البلاغَ إلى حالةٍ أخرى — **ويُغلق ساعةَ الانتظار عند الخروج منها**.
+  ///
+  /// ومدّةُ الانتظار تُجمع ولا تُستبدل: بلاغٌ انتظر مرّتين انتظر مجموعَهما.
+  Future<String?> setTicketStatus(Ticket t, TicketStatus next, {String note = ''}) async {
+    if (!canHandleTickets) return 'لا تملك معالجةَ البلاغات';
+    if (next == t.status) return null;
+    final now = DateTime.now();
+    final patch = <String, dynamic>{'status': next.name};
+
+    if (next == TicketStatus.waitingOnReporter) {
+      patch['waitingSince'] = FieldValue.serverTimestamp();
+    } else if (t.waitingSince != null) {
+      // الخروجُ من الانتظار: تُطوى المدّةُ الجاريةُ في المجموع.
+      patch['waitingMs'] = t.waitingUpTo(now).inMilliseconds;
+      patch['waitingSince'] = null;
+    }
+
+    if (t.firstResponseAt == null && next != TicketStatus.open) {
+      patch['firstResponseAt'] = FieldValue.serverTimestamp();
+    }
+    if (next == TicketStatus.resolved && t.resolvedAt == null) {
+      patch['resolvedAt'] = FieldValue.serverTimestamp();
+      if (note.trim().isNotEmpty) patch['resolutionNote'] = note.trim();
+    }
+    if (next == TicketStatus.closed && t.closedAt == null) {
+      patch['closedAt'] = FieldValue.serverTimestamp();
+    }
+
+    try {
+      await _db.collection('tickets').doc(t.id).update(patch);
+      await _log('تغيير حالة بلاغ',
+          'نقل ${currentUser?.name} «${t.title}» إلى «${next.label}»',
+          targetType: 'ticket', targetId: t.id);
+      return null;
+    } catch (e) {
+      return 'تعذّر تغييرُ الحالة: $e';
+    }
+  }
+
+  /// جوابُ المستفيد — البابُ الوحيد لغير المعالِج، ويُغلق ساعةَ الانتظار.
+  Future<String?> replyToTicket(Ticket t, String reply) async {
+    final me = currentUser;
+    if (me == null || t.reporterUid != me.id) return 'ليس بلاغَك';
+    if (t.status != TicketStatus.waitingOnReporter) return 'لا سؤالَ ينتظر جوابَك';
+    if (reply.trim().isEmpty) return 'الجوابُ مطلوب';
+    try {
+      await _db.collection('tickets').doc(t.id).update({
+        'reporterReply': reply.trim(),
+        'status': TicketStatus.inProgress.name,
+        'waitingMs': t.waitingUpTo(DateTime.now()).inMilliseconds,
+        'waitingSince': null,
+      });
+      // ــ ويُسجَّل كما يُسجَّل كلُّ ما يحرّك بلاغاً ــ
+      //
+      // فجوابُ المستفيد ينقل الحالةَ **ويُغلق ساعةَ الانتظار**، أي يغيّر
+      // الرقمَ الذي يُقاس به الفريق. وما يغيّر مقياساً يُكتب في السجلّ.
+      await _log('جواب على بلاغ', 'أجاب ${me.name} على «${t.title}»',
+          targetType: 'ticket', targetId: t.id);
+      return null;
+    } catch (e) {
+      return 'تعذّر إرسالُ الجواب: $e';
+    }
+  }
+
+  Future<void> saveSlaPolicy(SlaPolicy policy) async {
+    await _db.collection('settings').doc('slaPolicy').set(policy.toMap());
+    await _log('تحديث مدد الخدمة',
+        'حدّث ${currentUser?.name} مهلَ الاستجابة والحلّ للبلاغات');
+  }
 
   // ــــــــــــــ خطط الأسبوع وحملُ الفريق ــــــــــــــ
 
@@ -3175,6 +3393,7 @@ class AppStore extends ChangeNotifier {
     // القراءة تسمح بها لصاحبها بلا صلاحية.
     _watchStatusWindow();
     _watchWeeklyPlans();
+    _watchTickets();
 
     // طلبات الاعتماد كانت تُطلب كاملةً بلا نطاق، وقاعدتها تعتمد على محتوى
     // المستند — فيُرفض الطلب كله لكل من ليس مسؤول نظام أو مستخدماً تنفيذياً،
@@ -3279,6 +3498,10 @@ class AppStore extends ChangeNotifier {
     });
     _listen('settings/registration', _db.collection('settings').doc('registration').snapshots(), (doc) {
       registrationPolicy = RegistrationPolicy.fromMap(doc.data());
+      notifyListeners();
+    });
+    _listen('settings/slaPolicy', _db.collection('settings').doc('slaPolicy').snapshots(), (doc) {
+      slaPolicy = SlaPolicy.fromMap(doc.data());
       notifyListeners();
     });
     // الأعمال كانت تُطلب كاملةً بلا نطاق، وقاعدتها تعتمد على محتوى المستند
@@ -3772,6 +3995,10 @@ class AppStore extends ChangeNotifier {
         case RolePermission.manageProjects:
         case RolePermission.approveProjectRequests:
         case RolePermission.viewDailyStatuses:
+        // و`htk` معها ولسببها: بلاغُ الموظّف فيه ما لا يقال للزميل، ونافذةٌ
+        // على بلاغات الوزارة كلِّها لا تُورَّث بحكم دورٍ يحمله من يحمله —
+        // بل تُمنح لأفراد مكتب الخدمة بالاسم وتُسحب.
+        case RolePermission.handleTickets:
           // صلاحيات لا مقابل لها في مستند الدور المخصص؛ تُمنح لحامله
           // بالاستثناء الفردي أعلاه إن أراد مسؤول النظام.
           return false;

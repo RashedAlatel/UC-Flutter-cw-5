@@ -39,6 +39,7 @@ enum NavKey {
   auditLog('سجل التدقيق'),
   archived('المحذوفات'),
   departmentUsers('موظّفو إدارتي'),
+  tickets('البلاغات'),
   procedures('دليل الإجراءات'),
   users('المستخدمون'),
   roles('إدارة الأدوار'),
@@ -46,6 +47,7 @@ enum NavKey {
   registration('سياسة التسجيل'),
   statusTypes('أنواع الحالات'),
   holidays('العطل الرسميّة'),
+  slaPolicy('مهل الخدمة'),
   appearance('إعدادات المظهر');
 
   final String label;
@@ -98,6 +100,13 @@ List<NavKey> navKeysFor(AppStore store) {
   // ولا تُشترط عضويةٌ لعرض المدخل: من لا عضوية له يرى حالاً فارغةً تقول
   // ذلك — لا مدخلاً يظهر ويختفي بتبدّل بياناته فيظنّه عطلاً.
   keys.add(NavKey.myAssignments);
+
+  // ــ والبلاغاتُ لكلّ مستخدمٍ بلا استثناء ــ
+  //
+  // فالمدخلُ نفسُه بابان: من يحمل `htk` يرى الطابورَ كلَّه، ومن لا يحمله
+  // يرى بلاغاتِه ويفتح جديداً. وحجبُه عمّن لا يعالج يترك الموظّفَ بلا طريقٍ
+  // يبلّغ منه — وهو نقضُ القرار الذي بُنيت عليه هذه الشاشة.
+  keys.add(NavKey.tickets);
 
   // مركز القرارات لمن يعتمد فعلاً قراراً فيه.
   //
@@ -178,6 +187,9 @@ List<NavKey> navKeysFor(AppStore store) {
       // قرارٌ يسري على الوزارة كلِّها لا على إدارةٍ بعينها.
       ..add(NavKey.statusTypes)
       ..add(NavKey.holidays)
+      // ومهلُ الخدمة معهما ولسببهما: رقمٌ يُقاس به الفريقُ كلُّه، فتعديلُه
+      // قرارٌ يسري على الوزارة لا على إدارة.
+      ..add(NavKey.slaPolicy)
       ..add(NavKey.appearance);
   }
   return keys;

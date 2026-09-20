@@ -142,6 +142,16 @@ service cloud.firestore {
     // سبب مفهوم. والقراءة داخل الإدارة لا تحتاج هذا التعليق أصلاً.
     function canBrowseDeptProjects(deptId) { return perm('sap') && isMyDeptAny(deptId); }
 
+    // ــــ مكتبُ الخدمة ــــ
+    //
+    // و**فتحُ البلاغ ليس منها**: كلُّ معتمدٍ يفتح بلاغَه ويقرؤه بمِلكيّته
+    // إيّاه. وهذه للطرف الآخر: من يرى الطابورَ كلَّه ويُسنِد ويُغلق.
+    //
+    // وبلا نطاقٍ إداريّ بقصد: مكتبُ الخدمة يستقبل من الوزارة كلِّها، فقصرُه
+    // على إدارة حاملِه يجعله لا يرى ما جاء إليه. وثمنُ السعة مدفوعٌ من جهةٍ
+    // أخرى — `htk` مغلقةٌ لكلّ دورٍ افتراضاً، تُمنح بالاسم وتُسحب.
+    function canHandleTickets() { return isAdmin() || perm('htk'); }
+
     // ــــ الحذف المنطقي: ثلاث ثوابت ــــ
     //
     // السجل لا يُمحى بل يُعلَّم محذوفاً، فيختفي من كل قائمة ويبقى قابلاً
@@ -926,6 +936,102 @@ service cloud.firestore {
       // وكانت `perm('del')` هنا **بلا نطاق**: حاملُها يمحو أعمال أي إدارة
       // في الوزارة محواً لا رجعة فيه. وصارت تعني الحذف المنطقي داخل
       // إداراته — راجع `mayDeleteIn`.
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- البلاغات وطلبات الخدمة -------------------------
+    //
+    // ــــ ولماذا تفترق قاعدتُها عن قاعدة الأعمال ــــ
+    //
+    // العملُ يُسنَد من فوق: مديرٌ يوزّع على إدارته. والبلاغُ يأتي من تحت:
+    // موظّفٌ في أيّ إدارةٍ يطرق بابَ مكتب الخدمة. فالنطاقُ الإداريُّ الذي
+    // يحكم الأعمال لا يحكم هذه.
+    //
+    // ــــ ولا يقرؤه زميلُه في الإدارة ــــ
+    //
+    // وهذا **خروجٌ مقصودٌ عن `isMyDeptAny`** — الاصطلاح الغالب في هذه
+    // المنصّة. فقد وقع ذلك بعينه في `dailyStatuses`: كُتبت القاعدةُ
+    // بالاصطلاح الغالب، فصار كلُّ موظّفٍ يقرأ سجلّاتِ زملائه. والبلاغُ مثلُها
+    // وأشدّ: فيه ما لا يقال للزميل («حاسوبي فيه ملفٌّ لا يُفتح»، «كلمةُ
+    // مروري ضاعت»).
+    //
+    // فالقارئُ ثلاثة لا غير: صاحبُه، ومن أُسنِد إليه، ومكتبُ الخدمة.
+    match /tickets/{id} {
+      function isReporter() { return resource.data.get('reporterUid', '') == request.auth.uid; }
+      function isAssignee() { return resource.data.get('assigneeUid', '') == request.auth.uid; }
+      function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+      // ــ والأصلُ لا يُمسّ بعد الفتح ــ
+      //
+      // `reporterUid` هو **مفتاحُ القراءة**: من بدّله نقل بلاغَ غيره إلى
+      // نفسه أو أخفاه عن صاحبه. و`createdAt` هو **مبدأُ ساعة المدّة**: من
+      // أخّره جعل بلاغاً متجاوزاً يبدو ضمن المهلة.
+      function originUntouched() {
+        return !changed().hasAny(['reporterUid', 'reporterName',
+                                  'reporterDepartmentId', 'createdAt']);
+      }
+
+      // ــ ومدّةُ الانتظار تزيد ولا تنقص ــ
+      //
+      // إنقاصُها يُظهر بلاغاً متجاوزاً كأنّه ضمن المهلة — وهو الاتجاهُ
+      // الوحيد الذي يُخفي تقصيراً. وزيادتُها لا يربح بها أحدٌ إلا الفنّيّ
+      // الذي انتظر فعلاً، وأثرُها في سجلّ التدقيق.
+      function waitingGrows() {
+        return request.resource.data.get('waitingMs', 0) >= resource.data.get('waitingMs', 0);
+      }
+
+      function deletionUntouchedHere() {
+        return !changed().hasAny(['deletedAt', 'deletedBy', 'deletedReason']);
+      }
+
+      // ــ وجوابُ المستفيد: البابُ الوحيد لغير المعالِج ــ
+      //
+      // ولا يُفتح إلا حين يكون الدورُ عليه فعلاً، وعلى حقولٍ أربعةٍ لا
+      // خامسَ لها، وإلى حالةٍ واحدةٍ بعينها. فصاحبُ البلاغ لا يرفع أولويّتَه
+      // ولا يُسنِده لمن يشاء ولا يُعلنه محلولاً.
+      function isReporterAnswering() {
+        return isReporter()
+            && resource.data.get('status', '') == 'waitingOnReporter'
+            && request.resource.data.get('status', '') == 'inProgress'
+            && changed().hasOnly(['reporterReply', 'status', 'waitingMs', 'waitingSince']);
+      }
+
+      allow read: if isApproved() && (canHandleTickets() || isReporter() || isAssignee());
+
+      // ــ والفاتحُ لا يفتح بلاغاً نصفَ معالَج ــ
+      //
+      // فلو تُرك له أن يكتب `assigneeUid` لَأسند البلاغَ إلى فنّيٍّ بعينه
+      // من عنده، ولو تُرك `firstResponseAt` لَبدا بلاغٌ مهملٌ كأنّه رُدّ
+      // عليه في دقيقة. وهذه الحقولُ أفعالُ مكتب الخدمة، تُختم حين تقع.
+      //
+      // و`createdAt == request.time` هو ما يجعل ساعةَ المدّة لا تُزوَّر:
+      // لا تُحسب من وقتٍ يكتبه الفاتح، بل من وقتِ الخادم.
+      allow create: if isApproved()
+                    && request.resource.data.reporterUid == request.auth.uid
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.status == 'open'
+                    && request.resource.data.get('assigneeUid', '') == ''
+                    && request.resource.data.get('firstResponseAt', null) == null
+                    && request.resource.data.get('resolvedAt', null) == null
+                    && request.resource.data.get('closedAt', null) == null
+                    && request.resource.data.get('deletedAt', null) == null
+                    && request.resource.data.get('waitingMs', 0) == 0
+                    && request.resource.data.get('waitingSince', null) == null;
+
+      // ــ الحذفُ منطقيٌّ ومن يَد مكتب الخدمة، والاستعادةُ لمسؤول النظام ــ
+      //
+      // ولا `mayDeleteIn` هنا: هي بنطاقٍ إداريّ، والبلاغُ لا إدارةَ له
+      // تملكه — جاء من إدارةٍ إلى مكتبٍ يخدم الوزارة كلَّها.
+      allow update: if (!wasDeleted() && isDeleted()
+                        && canHandleTickets()
+                        && request.resource.data.get('deletedBy', null) == request.auth.uid)
+                    || (wasDeleted() && !isDeleted() && isAdmin())
+                    || (frozenWhileDeleted()
+                        && deletionUntouchedHere()
+                        && originUntouched()
+                        && waitingGrows()
+                        && (canHandleTickets() || isReporterAnswering()));
+
       allow delete: if isAdmin();
     }
 

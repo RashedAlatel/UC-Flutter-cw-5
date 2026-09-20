@@ -37,7 +37,16 @@ const claims = (uid, { role = 'employee', dept = DEPT, perms = {} } = {}) => ({
 
 before(async () => {
   env = await initializeTestEnvironment({
-    projectId: 'rules-test',
+    // ــ ومعرّفُ مشروعٍ خاصٌّ بهذا الملفّ ــ
+    //
+    // `node --test` يشغّل الملفّات **في عمليّاتٍ متوازية**، و
+    // `clearFirestore()` يمحو قاعدةَ المشروع كلَّها. فملفّان يتقاسمان
+    // معرّفاً واحداً يمحو أحدُهما بذورَ الآخر في منتصف تشغيله، فتسقط
+    // اختباراتٌ سليمةٌ بلا سببٍ يُرى — ويُتَّهم ما لا عيبَ فيه.
+    //
+    // وقد وقع: خمسةُ ملفّاتٍ بقيت على `rules-test`، فلمّا أُضيف سادسٌ
+    // سقطت ثلاثةٌ منها. وأربعةٌ وعشرون ملفّاً كانت تفعل هذا أصلاً.
+    projectId: 'rules-test-task-reschedule',
     firestore: { rules: readFileSync('../firestore.rules', 'utf8') },
   });
 });

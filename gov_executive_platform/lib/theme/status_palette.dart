@@ -216,6 +216,36 @@ class StatusPalette {
 
   static Color priority(String priority) => priorityTone(priority).fill;
 
+  // ــــــــــــــ البلاغاتُ ومدَدُها ــــــــــــــ
+
+  /// نغمةُ حالةِ بلاغ.
+  ///
+  /// و«بانتظار المستفيد» بلونٍ مميَّزٍ لا بالمحايد: هي الحالةُ التي **توقف
+  /// ساعةَ الحلّ**، ومن يقرأ الطابورَ يحتاج أن يميّزها بنظرةٍ ليعرف أين
+  /// يقف العملُ ولماذا.
+  static StatusTone ticketTone(String status) => switch (status) {
+        'open' => warning,
+        'inProgress' => info,
+        'waitingOnReporter' => category,
+        'resolved' => success,
+        'closed' => neutral,
+        _ => neutral,
+      };
+
+  /// نغمةُ ساعةِ المدّة — **والمعنى واحدٌ أينما وقع**.
+  ///
+  /// «تجاوز» خطرٌ كالمشروع المتأخّر، و«يوشك» تحذيرٌ كالعقد الذي يقارب
+  /// انتهاءه. ولو أُعطيت ألواناً خاصّةً بها لَقُرئ اللونُ تصنيفاً للنوع لا
+  /// للخطورة — وهو ما يُفقد اللونَ معناه في المنصّة كلّها.
+  static StatusTone slaTone(String outcome) => switch (outcome) {
+        'breached' => danger,
+        'missed' => danger,
+        'atRisk' => warning,
+        'onTrack' => success,
+        'met' => success,
+        _ => neutral,
+      };
+
   // ــــــــــــــ حالاتُ القرار ــــــــــــــ
 
   static StatusTone decisionTone(String status) => switch (status) {

@@ -157,7 +157,10 @@ async function logAudit(
 // مُنحها صراحةً، و«bla» يمنحها العميلُ اليوم فعلاً — فالبطاقةُ تلحق
 // بالواقع لا تسبقه. ويحرس التطابقَ `tool/test/permission_parity_test.sh`.
 const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sap", "sfb", "mfb",
-  "mpr", "apr", "dsh", "dpg", "mtd", "bla", "vpc", "epc", "vds", "vcc"] as const;
+  "mpr", "apr", "dsh", "dpg", "mtd", "bla", "vpc", "epc", "vds", "vcc",
+  // `htk` — معالجة البلاغات. مغلقة لكل دور افتراضاً، تُمنح بالاسم وتُسحب.
+  // وفتحُ البلاغ لا يحتاجها: صاحبُه يقرؤه بمِلكيّته إيّاه.
+  "htk"] as const;
 
 /**
  * صلاحياتٌ **لا تُمنح لدورٍ قط**، بل لفردٍ بعينه ومعها نطاقُ إدارات.

@@ -1,0 +1,127 @@
+{
+  "_why": "جدولٌ واحدٌ يقرؤه الطرفان: lib/itsm/sla.dart و functions/src/sla.ts. فاتّفاقُهما على هذا الجدول اتّفاقٌ بينهما — ولو حُسب كلٌّ منهما بجدوله لَاتّفق كلٌّ مع نفسه وافترقا عن بعضهما، وهو العطل الذي يُراد منعه: المتصفّحُ يعرض رقماً والتقريرُ يعدّ غيرَه لشيءٍ واحد.",
+  "openedMs": 1778745600000,
+  "cases": [
+    {
+      "name": "ردٌّ سريعٌ ضمن المدّة",
+      "priority": "high",
+      "firstResponseOffsetMin": 20,
+      "resolvedOffsetMin": null,
+      "waitingMs": 0,
+      "waitingSinceOffsetMin": null,
+      "nowOffsetMin": 540,
+      "respond": "met",
+      "resolve": "breached"
+    },
+    {
+      "name": "ردٌّ متأخّرٌ عن مهلةِ الساعة",
+      "priority": "high",
+      "firstResponseOffsetMin": 180,
+      "resolvedOffsetMin": null,
+      "waitingMs": 0,
+      "waitingSinceOffsetMin": null,
+      "nowOffsetMin": 300,
+      "respond": "missed",
+      "resolve": "onTrack"
+    },
+    {
+      "name": "ردٌّ في اللحظة الأخيرة بالضبط داخلَ المهلة",
+      "priority": "high",
+      "firstResponseOffsetMin": 60,
+      "resolvedOffsetMin": null,
+      "waitingMs": 0,
+      "waitingSinceOffsetMin": null,
+      "nowOffsetMin": 60,
+      "respond": "met",
+      "resolve": "onTrack"
+    },
+    {
+      "name": "بلا ردٍّ وقد بقي ربعُ المهلة",
+      "priority": "high",
+      "firstResponseOffsetMin": null,
+      "resolvedOffsetMin": null,
+      "waitingMs": 0,
+      "waitingSinceOffsetMin": null,
+      "nowOffsetMin": 50,
+      "respond": "atRisk",
+      "resolve": "onTrack"
+    },
+    {
+      "name": "بلا ردٍّ وفي الوقت متّسع",
+      "priority": "critical",
+      "firstResponseOffsetMin": null,
+      "resolvedOffsetMin": null,
+      "waitingMs": 0,
+      "waitingSinceOffsetMin": null,
+      "nowOffsetMin": 5,
+      "respond": "onTrack",
+      "resolve": "onTrack"
+    },
+    {
+      "name": "انتظارٌ مسجَّلٌ يُزيح موعدَ الحلّ",
+      "priority": "high",
+      "firstResponseOffsetMin": 10,
+      "resolvedOffsetMin": null,
+      "waitingMs": 72000000,
+      "waitingSinceOffsetMin": null,
+      "nowOffsetMin": 1440,
+      "respond": "met",
+      "resolve": "onTrack"
+    },
+    {
+      "name": "والضابطُ: بلا انتظارٍ يكون متجاوزاً",
+      "priority": "high",
+      "firstResponseOffsetMin": 10,
+      "resolvedOffsetMin": null,
+      "waitingMs": 0,
+      "waitingSinceOffsetMin": null,
+      "nowOffsetMin": 1440,
+      "respond": "met",
+      "resolve": "breached"
+    },
+    {
+      "name": "وانتظارٌ جارٍ يُحسب كما يُحسب المسجَّل",
+      "priority": "high",
+      "firstResponseOffsetMin": 10,
+      "resolvedOffsetMin": null,
+      "waitingMs": 0,
+      "waitingSinceOffsetMin": 240,
+      "nowOffsetMin": 1440,
+      "respond": "met",
+      "resolve": "onTrack"
+    },
+    {
+      "name": "وبدءُ انتظارٍ في المستقبل لا يُقصّر المهلة",
+      "priority": "high",
+      "firstResponseOffsetMin": 10,
+      "resolvedOffsetMin": null,
+      "waitingMs": 0,
+      "waitingSinceOffsetMin": 300,
+      "nowOffsetMin": 120,
+      "respond": "met",
+      "resolve": "onTrack"
+    },
+    {
+      "name": "وحُلَّ بعد المهلة فلا يُصلحه انتظارٌ بعده",
+      "priority": "high",
+      "firstResponseOffsetMin": 10,
+      "resolvedOffsetMin": 540,
+      "waitingMs": 0,
+      "waitingSinceOffsetMin": 1200,
+      "nowOffsetMin": 1800,
+      "respond": "met",
+      "resolve": "missed"
+    },
+    {
+      "name": "ومنخفضةٌ مهلتُها ثلاثةُ أيّام",
+      "priority": "low",
+      "firstResponseOffsetMin": 400,
+      "resolvedOffsetMin": 4000,
+      "waitingMs": 0,
+      "waitingSinceOffsetMin": null,
+      "nowOffsetMin": 4100,
+      "respond": "met",
+      "resolve": "met"
+    }
+  ]
+}

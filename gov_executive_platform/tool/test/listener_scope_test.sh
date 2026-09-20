@@ -58,6 +58,7 @@ feedback:canManageFeedback
 works:canViewAllDepartments
 workUpdates:canViewAllDepartments
 approvalRequests:isAdmin
+tickets:canHandleTickets
 "
 
 # ــ ومجموعاتٌ تبدو محصورةً وليست كذلك، بسببٍ مكتوب ــ

@@ -27,6 +27,8 @@ import '../screens/command_center_screen.dart';
 import '../screens/holidays_screen.dart';
 import '../screens/master_calendar_screen.dart';
 import '../screens/procedures_screen.dart';
+import '../screens/tickets_screen.dart';
+import '../screens/sla_policy_screen.dart';
 import '../screens/status_types_screen.dart';
 import '../screens/team_workload_screen.dart';
 import '../screens/search_screen.dart';
@@ -63,6 +65,8 @@ const Map<NavKey, IconData> _navIcons = {
   NavKey.search: Icons.search_rounded,
   NavKey.departmentUsers: Icons.groups_2_rounded,
   NavKey.procedures: Icons.list_alt_rounded,
+  NavKey.tickets: Icons.support_agent_rounded,
+  NavKey.slaPolicy: Icons.timer_outlined,
   NavKey.statusTypes: Icons.category_outlined,
   NavKey.holidays: Icons.event_busy_outlined,
   NavKey.myAssignments: Icons.assignment_ind_outlined,
@@ -214,6 +218,10 @@ class _AppShellState extends State<AppShell> {
         return const MasterCalendarScreen();
       case NavKey.procedures:
         return const ProceduresScreen();
+      case NavKey.tickets:
+        return const TicketsScreen();
+      case NavKey.slaPolicy:
+        return const SlaPolicyScreen();
       case NavKey.statusTypes:
         return const StatusTypesScreen();
       case NavKey.holidays:

@@ -22,7 +22,9 @@ import '../models/calendar_event.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
+import '../models/ticket.dart';
 import '../models/work_item.dart';
+import '../itsm/sla.dart';
 
 /// شدّةُ ما يحتاج تدخّلاً — وهي نفسُها في التقرير اليوميّ على الخادم.
 enum AttentionSeverity {
@@ -48,7 +50,9 @@ enum AttentionKind {
   workOverdue('عمل متأخّر'),
   decisionPending('قرار ينتظر'),
   contractExpiring('عقد يوشك على الانتهاء'),
-  awaitingApproval('بانتظار الاعتماد');
+  awaitingApproval('بانتظار الاعتماد'),
+  ticketBreached('بلاغٌ تجاوز مدّته'),
+  ticketAtRisk('بلاغٌ يوشك على تجاوز مدّته');
 
   final String label;
   const AttentionKind(this.label);
@@ -138,6 +142,13 @@ class AttentionEngine {
     required List<WorkItem> works,
     required Map<String, DateTime> lastUpdateByProject,
     required int pendingDecisions,
+    // ــ والبلاغاتُ بقيمةٍ مبدئيّةٍ لا مطلوبة ــ
+    //
+    // فالمحرّكُ يُنادى من لوحة القيادة ومن التقرير ومن اثني عشر اختباراً.
+    // ووسيطٌ مطلوبٌ يكسرها كلَّها في سطرٍ واحد — وهو ما نُهي عنه صراحةً:
+    // «أي تعديل يجب ألا يكسر الميزات الحالية».
+    List<Ticket> tickets = const [],
+    SlaPolicy slaPolicy = SlaPolicy.standard,
     DateTime? now,
     AttentionThresholds thresholds = const AttentionThresholds(),
   }) {
@@ -268,6 +279,34 @@ class AttentionEngine {
 
     // الأشدُّ أوّلاً، ثمّ الأطولُ تأخُّراً: من يفتح اللوحةَ لدقيقةٍ يقرأ
     // أعلاها ويكفيه.
+    // ــ البلاغاتُ تدخل من البابِ الذي تدخل منه المشاريعُ المتأخّرة ــ
+    //
+    // ولا شاشةَ ثالثةٌ لها حسابُها الخاصّ: مسؤولٌ يقرأ «ما يحتاج تدخّلاً»
+    // يجب أن يرى فيه البلاغَ المتجاوزَ إلى جانب المشروع المتأخّر، لا أن
+    // يفتح موضعين ليجمع بينهما بنفسه.
+    for (final t in tickets) {
+      // والمحلولُ والمغلقُ خارجَه: تجاوزُه خبرٌ للتقرير لا نداءٌ للتصرّف —
+      // كما أنّ المشروعَ المكتملَ لا يُنبَّه على تأخّره.
+      if (t.isDeleted || !t.status.isActive) continue;
+      final clock = SlaEngine.resolve(t, slaPolicy, today);
+      if (clock.outcome != SlaOutcome.breached && clock.outcome != SlaOutcome.atRisk) continue;
+      final breached = clock.outcome == SlaOutcome.breached;
+      // والأيّامُ هي ما يقع به الترتيب، فتُقاس من الموعد لا من الفتح.
+      final lateDays = breached ? (-clock.remaining.inHours / 24).ceil() : 0;
+      items.add(AttentionItem(
+        kind: breached ? AttentionKind.ticketBreached : AttentionKind.ticketAtRisk,
+        // و«يوشك» ليس حرجاً: الحرجُ ما وقع، وهذا ما يُتّقى قبل أن يقع.
+        severity: breached ? AttentionSeverity.critical : AttentionSeverity.needsAttention,
+        title: t.title,
+        reason: breached
+            ? 'تجاوز مهلةَ الحلّ — ${t.priority.label}'
+            : 'يوشك على تجاوز مهلةِ الحلّ — ${t.priority.label}',
+        departmentId: t.reporterDepartmentId,
+        recordId: t.id,
+        days: lateDays,
+      ));
+    }
+
     items.sort((a, b) {
       if (a.severity != b.severity) {
         return a.severity == AttentionSeverity.critical ? -1 : 1;

@@ -116,12 +116,21 @@ flutterfire configure --project=<project-id>
 
 ```bash
 cd functions
-firebase functions:secrets:set GMAIL_USER
-firebase functions:secrets:set GMAIL_APP_PASSWORD
-firebase functions:secrets:set TWILIO_ACCOUNT_SID
-firebase functions:secrets:set TWILIO_AUTH_TOKEN
-firebase functions:secrets:set TWILIO_WHATSAPP_FROM   # مثال: +14155238886
+firebase functions:secrets:set GMAIL_USER --project <معرّف-مشروعك>
+firebase functions:secrets:set GMAIL_APP_PASSWORD --project <معرّف-مشروعك>
+firebase functions:secrets:set TWILIO_ACCOUNT_SID --project <معرّف-مشروعك>
+firebase functions:secrets:set TWILIO_AUTH_TOKEN --project <معرّف-مشروعك>
+firebase functions:secrets:set TWILIO_WHATSAPP_FROM --project <معرّف-مشروعك>   # مثال: +14155238886
 ```
+
+> **ولماذا `--project` في كل أمر؟**
+>
+> أداة Firebase تحفظ «المشروع النشط» في إعداداتها **خارج المستودع**، فلا يمسّها `git pull` ولا
+> تصحيحُ `.firebaserc`. وقد حُفظ فيها مرّةً اسمٌ خاطئ، فبقي محفوظاً بعد تصحيح الملف — وصار كل
+> أمرٍ مجرّد يسقط بـ`403 ... project dafault`، وهي رسالةٌ لا تذكر أين المشكلة ولا أن ملفّك سليم.
+>
+> وتمريرُ `--project` صراحةً يُبطل تلك الحالة المحفوظة. ولهذا يقرأ `./tool/deploy.sh` المعرّف من
+> `.firebaserc` ويمرّره في كل أمر ينفّذه.
 
 ### 7) تثبيت اعتماديات الدوال الخلفية
 
@@ -178,9 +187,9 @@ cd ..
 
 - عدّل شاشات Flutter داخل `lib/` كالمعتاد، وشغّل `flutter run -d chrome` للمعاينة الفورية (بعد
   ربط Firebase في الخطوة 3، حتى في وضع التطوير).
-- عدّل منطق الدوال الخلفية داخل `functions/src/`، وشغّل `npm run build` ثم `firebase deploy --only functions`
+- عدّل منطق الدوال الخلفية داخل `functions/src/`، وشغّل `npm run build` ثم `firebase deploy --project <معرّف-مشروعك> --only functions`
   لنشر التعديلات فقط دون إعادة نشر كل شيء.
-- عدّل صلاحيات قاعدة البيانات في `firestore.rules` ثم `firebase deploy --only firestore:rules`.
+- عدّل صلاحيات قاعدة البيانات في `firestore.rules` ثم `firebase deploy --project <معرّف-مشروعك> --only firestore:rules`.
 - والنشر الكامل دائماً بـ`./tool/deploy.sh` — فنسيان أي جزء لا يُنتج رسالة خطأ، بل منصةً
   تبدو سليمة وتتصرّف تصرّفاً قديماً. وقد ضاعت جولات تشخيص على هذا بالضبط.
 

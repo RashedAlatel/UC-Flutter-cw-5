@@ -65,6 +65,57 @@ else
   guard ./tool/test/claims_loop_test.sh
   guard ./tool/test/model_cast_test.sh
   guard ./tool/test/single_banner_test.sh
+  guard ./tool/test/permission_parity_test.sh
+  guard ./tool/test/shared_widgets_test.sh
+  guard ./tool/test/live_check_test.sh
+  guard ./tool/test/firebase_command_test.sh
+
+  # ــ وأربعةٌ تحتاج python3 ــ
+  #
+  # ــــ العطل الذي أوجد هذه الكتلة ــــ
+  #
+  # كان في `tool/test/` ستّةَ عشرَ حارساً، ويشغّل هذا السكربت **تسعة**.
+  # والسبعةُ الباقية موصولةٌ بلا شيء: تعمل عندي بيدي في كلّ دفعة، ولا تعمل
+  # على جهاز مَن ينشر ولا مرّة.
+  #
+  # ومنها `query_index_test.sh` — المبنيُّ **لصنفٍ من العطل بعينه**: استعلامٌ
+  # يحتاج فهرساً مركَّباً لم يُنشر. ثمّ وقع ذلك العطلُ في الإنتاج، ولافتةٌ
+  # حمراء على شاشة المسؤول. والحارسُ الذي يمسكه كان موجوداً وصامتاً.
+  #
+  # **فحارسٌ لا يُستدعى ليس حارساً، بل ملفٌّ يطمئن قارئَه.**
+  #
+  # ــــ ولماذا لا تُوصل كالبواقي ــــ
+  #
+  # `tool/deploy.sh` يقول في تعليقه (وهو محقّ): «لا يجوز أن يتوقّف النشرُ
+  # على مفسّرٍ قد لا يكون مثبَّتاً على جهاز من ينشر». فلو نُودي `python3`
+  # مباشرةً لَمات الحارسُ على جهازٍ بلا python3 وأوقف نشراً سليماً.
+  #
+  # فالغيابُ يُتخطّى **ويُقال**. والفرقُ بين هذا وبين ما كان: الصمتُ صار
+  # سطراً يُقرأ، ووجودُ python3 صار يعني فحصاً كاملاً.
+  PY_MISSING=""
+  command -v python3 >/dev/null 2>&1 || PY_MISSING="yes"
+  PY_SKIPPED=""
+  guard_py() {
+    if [ -n "${PY_MISSING}" ]; then
+      PY_SKIPPED="${PY_SKIPPED} $1"
+      return 0
+    fi
+    guard "$1"
+  }
+
+  guard_py ./tool/test/query_index_test.sh
+  guard_py ./tool/test/audit_coverage_test.sh
+  guard_py ./tool/test/color_meaning_test.sh
+  guard_py ./tool/test/listener_scope_test.sh
+
+  if [ -n "${PY_SKIPPED}" ]; then
+    echo ""
+    echo "⚠ تُخطّي أربعةُ حرّاسٍ: python3 غير مثبَّت على هذا الجهاز."
+    echo "   المتخطَّى:${PY_SKIPPED}"
+    echo "   ومنها حارسُ الفهارس — وهو الذي يمسك «استعلامٌ يحتاج فهرساً»."
+    echo "   البناءُ والنشرُ يكملان. ولتفعيلها: ثبّت python3 ثم أعد الأمر."
+    echo ""
+  fi
 fi
 
 # استضافة حزم Firebase محلياً حتى لا تُجلب من www.gstatic.com عند كل فتح.

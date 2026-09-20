@@ -332,9 +332,9 @@ class AppStore extends ChangeNotifier {
         kind: DataTrouble.missingIndex,
         title: 'استعلامٌ يحتاج فهرساً لم يصل قاعدةَ البيانات بعد',
         body: 'الخادمُ لم يمنع شيئاً، والصلاحياتُ سليمة. '
-            'يُصلَح بأمرٍ واحدٍ من مجلّد المنصة:\n'
-            'firebase deploy --only firestore:indexes\n'
-            'وفهرسٌ جديدٌ يستغرق دقائقَ ليُبنى قبل أن يعمل.\n\n$lines',
+            'يُصلَح بأمرِ النشر المعتاد من مجلّد المنصة:\n'
+            './tool/deploy.sh\n'
+            'وفهرسٌ جديدٌ يستغرق دقائقَ ليُبنى بعده قبل أن يعمل.\n\n$lines',
       );
     }
 

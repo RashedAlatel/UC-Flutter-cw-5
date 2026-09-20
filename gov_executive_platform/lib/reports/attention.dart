@@ -22,6 +22,7 @@ import '../models/calendar_event.dart';
 import '../models/enums.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
+import '../models/change_request.dart';
 import '../models/ticket.dart';
 import '../models/work_item.dart';
 import '../itsm/sla.dart';
@@ -52,7 +53,9 @@ enum AttentionKind {
   contractExpiring('عقد يوشك على الانتهاء'),
   awaitingApproval('بانتظار الاعتماد'),
   ticketBreached('بلاغٌ تجاوز مدّته'),
-  ticketAtRisk('بلاغٌ يوشك على تجاوز مدّته');
+  ticketAtRisk('بلاغٌ يوشك على تجاوز مدّته'),
+  changeUnreviewed('تغييرٌ طارئٌ لم يُراجَع'),
+  changeOverdue('تغييرٌ فات موعدُه ولم يُعتمد');
 
   final String label;
   const AttentionKind(this.label);
@@ -156,6 +159,7 @@ class AttentionEngine {
     // ووسيطٌ مطلوبٌ يكسرها كلَّها في سطرٍ واحد — وهو ما نُهي عنه صراحةً:
     // «أي تعديل يجب ألا يكسر الميزات الحالية».
     List<Ticket> tickets = const [],
+    List<ChangeRequest> changes = const [],
     SlaPolicy slaPolicy = SlaPolicy.standard,
     DateTime? now,
     AttentionThresholds thresholds = const AttentionThresholds(),
@@ -313,6 +317,42 @@ class AttentionEngine {
         recordId: t.id,
         days: lateDays,
       ));
+    }
+
+    // ــ التغييراتُ: تغييرٌ في الإنتاج بلا اعتمادٍ لا يُنسى ــ
+    for (final c in changes) {
+      if (c.isDeleted) continue;
+      // **وهذا هو ما يمنع أن يصير الطارئُ باباً خلفيّاً**: «يُنفَّذ ثمّ
+      // يُراجَع» رخصةٌ للسرعة لا للإفلات. فما نُفِّذ ولم يُراجَع يبقى
+      // ظاهراً حتّى يبتّ فيه أحد.
+      if (c.awaitingReview) {
+        final age = _lateDays(c.implementedAt ?? c.createdAt, today);
+        items.add(AttentionItem(
+          kind: AttentionKind.changeUnreviewed,
+          severity: AttentionSeverity.critical,
+          title: c.title,
+          reason: age > 0 ? 'نُفِّذ طارئاً منذ $age يوماً ولم يُراجَع' : 'نُفِّذ طارئاً ولم يُراجَع',
+          recordId: c.id,
+          days: age,
+        ));
+        continue;
+      }
+      // وتغييرٌ فات موعدُ تنفيذه وما زال ينتظر البتّ: لا هو نُفِّذ ولا
+      // هو سقط — وهذا أسوأُ من الرفض، إذ لا يعرف أحدٌ ما يفعل.
+      final start = c.plannedStart;
+      if (c.status == ChangeStatus.awaitingApproval && start != null) {
+        final late = _lateDays(start, today);
+        if (late > 0) {
+          items.add(AttentionItem(
+            kind: AttentionKind.changeOverdue,
+            severity: AttentionSeverity.needsAttention,
+            title: c.title,
+            reason: 'فات موعدُ تنفيذه بـ$late يوماً وما زال ينتظر الاعتماد',
+            recordId: c.id,
+            days: late,
+          ));
+        }
+      }
     }
 
     items.sort((a, b) {

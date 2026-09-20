@@ -39,6 +39,8 @@ import '../models/report.dart';
 import '../models/role_permissions.dart';
 import '../models/user_deletion_report.dart';
 import '../models/risk.dart';
+import '../models/problem.dart';
+import '../models/change_request.dart';
 import '../models/ticket.dart';
 import '../models/work_item.dart';
 import '../itsm/sla.dart';
@@ -1066,6 +1068,161 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  // ــــــــــــــ المشاكلُ والتغييرات ــــــــــــــ
+
+  List<Problem> problems = const [];
+  List<ChangeRequest> changes = const [];
+
+  /// هل يبتّ هذا المستخدمُ في التغييرات؟ — **ونصُّه نصُّ الخادم**.
+  bool get canApproveChanges => isAdmin || hasPermission(RolePermission.approveChanges);
+
+  List<Problem> get visibleProblems => problems.where((p) => !p.isDeleted).toList();
+  List<ChangeRequest> get visibleChanges => changes.where((c) => !c.isDeleted).toList();
+
+  /// بلاغاتُ مشكلةٍ بعينها — **تُحسب ولا تُخزَّن**.
+  ///
+  /// فقائمةٌ مخزَّنةٌ في مستند المشكلة تتناقض مع الحقل على البلاغ عند أوّل
+  /// كتابةٍ تخفق. وعدُّها من البلاغات نفسِها لا يكذب.
+  List<Ticket> ticketsOfProblem(String problemId) =>
+      visibleTickets.where((t) => t.problemId == problemId).toList();
+
+  void _watchItsm() {
+    // ــ ولا يُشترَك بهما إلا لمن يقرؤهما ــ
+    //
+    // يفرضه حارسُ `listener_scope`: اشتراكٌ يردُّه الخادمُ يُظهر لافتةَ
+    // «رُفضت قراءة» لكلّ موظّفٍ في الوزارة.
+    if (!canHandleTickets) return;
+    _listen('problems', _db.collection('problems').snapshots(), (snap) {
+      problems = _parseDocs('problems', snap.docs, (d) => Problem.fromMap(d.id, d.data()));
+      notifyListeners();
+    });
+    _listen('changes', _db.collection('changes').snapshots(), (snap) {
+      changes = _parseDocs('changes', snap.docs, (d) => ChangeRequest.fromMap(d.id, d.data()));
+      notifyListeners();
+    });
+  }
+
+  Future<String?> saveProblem(Problem problem, {bool isNew = false}) async {
+    if (!canHandleTickets) return 'لا تملك معالجةَ البلاغات';
+    final me = currentUser;
+    if (me == null) return 'لا جلسةَ مفتوحة';
+    if (problem.title.trim().isEmpty) return 'العنوانُ مطلوب';
+    try {
+      if (isNew) {
+        final ref = await _db.collection('problems').add({
+          ...problem.toMap(),
+          'createdByUid': me.id,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        await _log('فتح مشكلة', 'فتح ${me.name} مشكلة: ${problem.title}',
+            targetType: 'problem', targetId: ref.id);
+      } else {
+        final map = problem.toMap()
+          ..remove('createdAt')
+          ..remove('createdByUid');
+        await _db.collection('problems').doc(problem.id).update(map);
+        await _log('تعديل مشكلة', 'حدّث ${me.name} المشكلة: ${problem.title}',
+            targetType: 'problem', targetId: problem.id);
+      }
+      return null;
+    } catch (e) {
+      return 'تعذّر الحفظ: $e';
+    }
+  }
+
+  /// يربط بلاغاً بمشكلة — أو يفكّ الربط بمعرّفٍ فارغ.
+  Future<String?> linkTicketToProblem(Ticket t, String problemId) async {
+    if (!canHandleTickets) return 'لا تملك معالجةَ البلاغات';
+    try {
+      await _db.collection('tickets').doc(t.id).update({'problemId': problemId});
+      await _log('ربط بلاغ بمشكلة',
+          problemId.isEmpty
+              ? 'فكّ ${currentUser?.name} ربطَ «${t.title}»'
+              : 'ربط ${currentUser?.name} «${t.title}» بمشكلة',
+          targetType: 'ticket', targetId: t.id);
+      return null;
+    } catch (e) {
+      return 'تعذّر الربط: $e';
+    }
+  }
+
+  /// ــ يرفع تغييراً ــ
+  ///
+  /// **والطارئُ يُولد منفَّذاً** بقرارٍ صريح: «يُنفَّذ ثمّ يُراجَع». ويُنشأ
+  /// معه طلبُ اعتمادٍ **بأثرٍ رجعيّ** يظهر في مركز القرارات موسوماً — فلا
+  /// يُعطَّل إصلاحٌ عاجلٌ بانتظار توقيع، ولا يضيع الأثر.
+  Future<String?> submitChange(ChangeRequest c) async {
+    if (!canHandleTickets) return 'لا تملك رفعَ التغييرات';
+    final me = currentUser;
+    if (me == null) return 'لا جلسةَ مفتوحة';
+    if (c.title.trim().isEmpty) return 'العنوانُ مطلوب';
+    // ــ وخطّةُ التراجع تُكتب قبل التنفيذ لا بعده ــ
+    //
+    // من يكتبها وهو يرى الشاشةَ حمراء يكتب أوّلَ ما يخطر له.
+    if (c.risk != ChangeRisk.low && c.backoutPlan.trim().isEmpty) {
+      return 'خطّةُ التراجع مطلوبةٌ لما كان خطرُه فوق المنخفض';
+    }
+    final emergency = c.kind == ChangeKind.emergency;
+    try {
+      final ref = await _db.collection('changes').add({
+        ...c.toMap(),
+        'status': emergency ? ChangeStatus.implemented.name : ChangeStatus.awaitingApproval.name,
+        'awaitingReview': emergency,
+        'implementedAt': emergency ? FieldValue.serverTimestamp() : null,
+        'createdByUid': me.id,
+        'createdByName': me.name,
+        'createdAt': FieldValue.serverTimestamp(),
+        'approvedByUid': '',
+        'approvedByName': '',
+        'approvedAt': null,
+        'decisionNote': '',
+      });
+      await _db.collection('approvalRequests').add({
+        'type': ApprovalType.changeApproval.name,
+        'status': DecisionStatus.pending.name,
+        'title': emergency ? 'مراجعةُ تغييرٍ طارئ: ${c.title}' : 'اعتمادُ تغيير: ${c.title}',
+        'description': c.description,
+        'priority': PriorityLevel.high.name,
+        'delayImpactDays': 0,
+        'departmentId': me.departmentId,
+        'requestedByUid': me.id,
+        'requestedByName': me.name,
+        'requestedDate': FieldValue.serverTimestamp(),
+        'payload': {'changeId': ref.id, 'emergency': emergency},
+      });
+      await _log(emergency ? 'تنفيذ تغيير طارئ' : 'رفع تغيير',
+          '${emergency ? "نفّذ" : "رفع"} ${me.name} التغيير: ${c.title}',
+          targetType: 'change', targetId: ref.id);
+      return null;
+    } catch (e) {
+      return 'تعذّر الرفع: $e';
+    }
+  }
+
+  /// يسجّل تنفيذَ تغييرٍ مُعتمَد، أو إرجاعَه.
+  ///
+  /// **ولا يمسّ حقولَ القرار**: القاعدةُ تردّها، والدالّةُ الخلفيّةُ وحدَها
+  /// تكتبها.
+  Future<String?> markChange(ChangeRequest c, ChangeStatus next) async {
+    if (!canHandleTickets) return 'لا تملك تعديلَ التغييرات';
+    if (next == ChangeStatus.approved || next == ChangeStatus.rejected) {
+      return 'الاعتمادُ والرفضُ يقعان من مركز القرارات لا من هنا';
+    }
+    try {
+      await _db.collection('changes').doc(c.id).update({
+        'status': next.name,
+        if (next == ChangeStatus.implemented && c.implementedAt == null)
+          'implementedAt': FieldValue.serverTimestamp(),
+      });
+      await _log('تغييرُ حالة تغيير',
+          'نقل ${currentUser?.name} «${c.title}» إلى «${next.label}»',
+          targetType: 'change', targetId: c.id);
+      return null;
+    } catch (e) {
+      return 'تعذّر التحديث: $e';
+    }
+  }
+
   Future<void> saveSlaPolicy(SlaPolicy policy) async {
     await _db.collection('settings').doc('slaPolicy').set(policy.toMap());
     await _log('تحديث مدد الخدمة',
@@ -1144,6 +1301,7 @@ class AppStore extends ChangeNotifier {
         lastUpdateByProject: lastUpdateByProject,
         pendingDecisions: pendingApprovalsCount,
         tickets: visibleTickets,
+        changes: visibleChanges,
         slaPolicy: slaPolicy,
         thresholds: attentionThresholds,
       );
@@ -3403,6 +3561,7 @@ class AppStore extends ChangeNotifier {
     _watchStatusWindow();
     _watchWeeklyPlans();
     _watchTickets();
+    _watchItsm();
 
     // طلبات الاعتماد كانت تُطلب كاملةً بلا نطاق، وقاعدتها تعتمد على محتوى
     // المستند — فيُرفض الطلب كله لكل من ليس مسؤول نظام أو مستخدماً تنفيذياً،
@@ -4008,6 +4167,9 @@ class AppStore extends ChangeNotifier {
         // على بلاغات الوزارة كلِّها لا تُورَّث بحكم دورٍ يحمله من يحمله —
         // بل تُمنح لأفراد مكتب الخدمة بالاسم وتُسحب.
         case RolePermission.handleTickets:
+        // و`cab` معها: البتُّ في تغييرٍ يمسّ البنيةَ التقنيّة لا يُورَّث
+        // بحكم دورٍ يحمله من يحمله، بل يُمنح لفردٍ بالاسم ويُسحب.
+        case RolePermission.approveChanges:
           // صلاحيات لا مقابل لها في مستند الدور المخصص؛ تُمنح لحامله
           // بالاستثناء الفردي أعلاه إن أراد مسؤول النظام.
           return false;
@@ -4487,6 +4649,15 @@ class AppStore extends ChangeNotifier {
       // يد — والثانية بقيت لمسؤول النظام وحده كما قرّر.
       case ApprovalType.projectManagerAppointment:
         return isManager && myDepartmentIds.contains(r.departmentId);
+      // ــ اعتمادُ التغيير التقنيّ: حاملُ `cab` وحدَه ــ
+      //
+      // **ونصُّه نصُّ `assertCanApprove` على الخادم** — حرفاً بحرف. ولو
+      // افترقا لَظهر زرُّ «موافقة» لمن يردُّه الخادم، ويُقرأ ذلك عطلاً في
+      // المنصّة لا حدّاً مقصوداً. وقد وقع مرّتين.
+      //
+      // ومسؤولُ النظام مرَّ في `isAdmin` أعلاه.
+      case ApprovalType.changeApproval:
+        return hasPermission(RolePermission.approveChanges);
       // ــ تعديلُ بيانات المشروع: **المرحلةُ هي الحَكَم لا الدور** ــ
       //
       // ومسؤولُ النظام مرّ في `isAdmin` أعلاه، فيصل هنا غيرُه وحده. ومديرُ

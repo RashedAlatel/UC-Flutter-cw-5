@@ -234,6 +234,10 @@ class _KindGrid extends StatelessWidget {
         // قُرئ اللونُ تصنيفاً للنوع لا للخطورة.
         AttentionKind.ticketBreached => StatusPalette.danger,
         AttentionKind.ticketAtRisk => StatusPalette.warning,
+        // وتغييرٌ في الإنتاج بلا اعتمادٍ خطرٌ كالمشروع المتأخّر — المعنى
+        // واحد: التزامٌ مُعلَنٌ لم يُوفَّ به.
+        AttentionKind.changeUnreviewed => StatusPalette.danger,
+        AttentionKind.changeOverdue => StatusPalette.warning,
       };
 
   static IconData _icon(AttentionKind kind) => switch (kind) {
@@ -247,6 +251,8 @@ class _KindGrid extends StatelessWidget {
         AttentionKind.awaitingApproval => Icons.how_to_reg_outlined,
         AttentionKind.ticketBreached => Icons.report_gmailerrorred_rounded,
         AttentionKind.ticketAtRisk => Icons.timer_outlined,
+        AttentionKind.changeUnreviewed => Icons.published_with_changes_rounded,
+        AttentionKind.changeOverdue => Icons.pending_actions_rounded,
       };
 
   @override

@@ -93,6 +93,12 @@ class Ticket {
   /// جوابُ المستفيد حين يُسأل — الحقلُ الوحيد الذي يكتبه غيرُ المعالِج.
   final String reporterReply;
 
+  /// المشكلةُ التي يندرج تحتها هذا البلاغ — أو فارغٌ.
+  ///
+  /// والربطُ هنا لا في مستند المشكلة: حقلٌ واحدٌ يحتاج كتابةً واحدةً عند
+  /// الربط والفكّ، وقائمةٌ هناك تحتاج كتابتين متّسقتين — راجع `problem.dart`.
+  final String problemId;
+
   /// ــ كم انتظر البلاغُ جوابَ صاحبه، مجموعاً بالمللي ثانية ــ
   ///
   /// يُزاد عند الخروج من [TicketStatus.waitingOnReporter]، وتقرؤه ساعةُ
@@ -144,6 +150,7 @@ class Ticket {
     this.closedAt,
     this.resolutionNote = '',
     this.reporterReply = '',
+    this.problemId = '',
     this.waitingMs = 0,
     this.waitingSince,
     this.deletedAt,
@@ -174,6 +181,7 @@ class Ticket {
     DateTime? closedAt,
     String? resolutionNote,
     String? reporterReply,
+    String? problemId,
     int? waitingMs,
     DateTime? waitingSince,
     DateTime? deletedAt,
@@ -199,6 +207,7 @@ class Ticket {
         closedAt: closedAt ?? this.closedAt,
         resolutionNote: resolutionNote ?? this.resolutionNote,
         reporterReply: reporterReply ?? this.reporterReply,
+        problemId: problemId ?? this.problemId,
         waitingMs: waitingMs ?? this.waitingMs,
         waitingSince: waitingSince ?? this.waitingSince,
         deletedAt: deletedAt ?? this.deletedAt,
@@ -224,6 +233,7 @@ class Ticket {
         'closedAt': closedAt,
         'resolutionNote': resolutionNote,
         'reporterReply': reporterReply,
+        'problemId': problemId,
         'waitingMs': waitingMs,
         'waitingSince': waitingSince,
         'deletedAt': deletedAt,
@@ -258,6 +268,7 @@ class Ticket {
         closedAt: readDate(j['closedAt']),
         resolutionNote: readText(j['resolutionNote']),
         reporterReply: readText(j['reporterReply']),
+        problemId: readText(j['problemId']),
         waitingMs: (readNum(j['waitingMs']) ?? 0).round(),
         waitingSince: readDate(j['waitingSince']),
         deletedAt: readDate(j['deletedAt']),

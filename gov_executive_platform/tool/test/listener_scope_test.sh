@@ -59,6 +59,8 @@ works:canViewAllDepartments
 workUpdates:canViewAllDepartments
 approvalRequests:isAdmin
 tickets:canHandleTickets
+problems:canHandleTickets
+changes:canHandleTickets
 "
 
 # ــ ومجموعاتٌ تبدو محصورةً وليست كذلك، بسببٍ مكتوب ــ

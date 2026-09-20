@@ -160,7 +160,10 @@ const CUSTOM_ROLE_PERM_KEYS = ["vad", "mr", "md", "agd", "mw", "del", "ntf", "sa
   "mpr", "apr", "dsh", "dpg", "mtd", "bla", "vpc", "epc", "vds", "vcc",
   // `htk` — معالجة البلاغات. مغلقة لكل دور افتراضاً، تُمنح بالاسم وتُسحب.
   // وفتحُ البلاغ لا يحتاجها: صاحبُه يقرؤه بمِلكيّته إيّاه.
-  "htk"] as const;
+  "htk",
+  // `cab` — اعتماد التغييرات التقنية. ورفعُ التغيير بـ`htk` لا بها،
+  // فلا يعتمد أحدٌ تغييرَ نفسِه.
+  "cab"] as const;
 
 /**
  * صلاحياتٌ **لا تُمنح لدورٍ قط**، بل لفردٍ بعينه ومعها نطاقُ إدارات.
@@ -716,6 +719,18 @@ function checkApprovalPermission(
     // **من يرى** لا من يقود وحسب. و`notifySend` أُلحقت بهنّ بقرار صريح منه: كل بريد يخرج باسم
     // المنصة يمرّ بموافقته. ولا يفتحها مفتاح مفوَّض — لا `ntf` ولا غيرها —
     // وإلا لعاد الإرسال بلا رقابة من باب آخر.
+    // ــ اعتمادُ التغيير التقنيّ: حاملُ `cab` أو مسؤولُ النظام ــ
+    //
+    // ومفتاحُ **الرفع** غيرُه (`htk`): مكتبُ الخدمة يرفع التغيير، وحاملُ
+    // `cab` يبتّ فيه. فلا يعتمد أحدٌ تغييرَ نفسِه — والفصلُ هنا على الخادم
+    // لا في الشاشة.
+    //
+    // **وهذه الذراعُ لا تمسّ البوّابات الثلاث**: `registration` و
+    // `deadlineChange` و`projectCreate` لا تبلغها — لكلٍّ ذراعُها أو الفرعُ
+    // الافتراضيّ أدناه. و`cab` لا يفتح واحدةً منهنّ.
+    case "changeApproval":
+      allowed = isAdmin || perms?.cab === true;
+      break;
     default:
       allowed = isAdmin;
   }
@@ -1414,6 +1429,42 @@ export const approveRequest = onCall({secrets: notificationSecrets}, async (requ
       );
       break;
     }
+    // ــ اعتمادُ تغييرٍ تقنيّ ــ
+    //
+    // **والحالةُ تُكتب هنا لا في المتصفّح**: قاعدةُ `changes` تمنع العميلَ
+    // من كتابة `approved` و`rejected` و`approvedByUid` مهما كان صاحبُه.
+    // ولولا ذلك لاعتمد كلُّ طالبٍ تغييرَ نفسِه بضغطة، ولصارت اللجنةُ اسماً.
+    //
+    // ويُرفع `awaitingReview` عن الطارئ هنا: هو نُفِّذ قبل أن يُراجَع،
+    // والمراجعةُ وقعت الآن. **ولا تُمسّ حالتُه** — `implemented` واقعٌ لا
+    // يُلغى بتوقيع.
+    case "changeApproval": {
+      const changeId = typeof payload.changeId === "string" ? payload.changeId : "";
+      if (!changeId) {
+        throw new HttpsError("failed-precondition", "الطلب لا يحمل معرّف التغيير");
+      }
+      const ref = db().collection("changes").doc(changeId);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        throw new HttpsError("not-found", "التغيير المطلوب اعتماده لم يعد موجوداً");
+      }
+      const wasEmergency = snap.data()?.kind === "emergency";
+      await ref.update({
+        ...(wasEmergency ? {} : {status: "approved"}),
+        awaitingReview: false,
+        approvedByUid: auth.uid,
+        approvedByName: auth.token.name ?? "مسؤول النظام",
+        approvedAt: now(),
+        decisionNote: typeof data.resolutionNote === "string" ? data.resolutionNote : "",
+      });
+      await logAudit(
+        auth.token.name ?? "مسؤول النظام",
+        wasEmergency ? "مراجعة تغيير طارئ" : "اعتماد تغيير",
+        `${wasEmergency ? "روجِع" : "اعتُمد"} التغيير «${snap.data()?.title ?? changeId}»`,
+        {targetType: "change", targetId: changeId},
+      );
+      break;
+    }
     case "decision":
       // لا حاجة لأي تعديل إضافي على البيانات، القرار توثيقي بحت.
       break;
@@ -1527,6 +1578,30 @@ export const rejectRequest = onCall({secrets: notificationSecrets}, async (reque
   if (data.type === "registration") {
     const uid = (data.payload as Record<string, unknown>)?.uid as string;
     if (uid) await db().collection("users").doc(uid).update({status: "rejected"});
+  }
+
+  // ــ ورفضُ التغيير يُكتب على مستنده كما يُكتب اعتمادُه ــ
+  //
+  // فطلبٌ مرفوضٌ وتغييرٌ باقٍ على «بانتظار الاعتماد» حالتان متناقضتان في
+  // شاشتين. والطارئُ يُرفع عنه `awaitingReview` كذلك: روجِع وقيل فيه رأي،
+  // **ولا تُمسّ حالتُه `implemented`** — نُفِّذ فعلاً، والرفضُ حكمٌ عليه لا
+  // إلغاءٌ له. ومن أراد إرجاعَه يسجّل `rolledBack` صراحةً.
+  if (data.type === "changeApproval") {
+    const changeId = (data.payload as Record<string, unknown>)?.changeId as string | undefined;
+    if (changeId) {
+      const ref2 = db().collection("changes").doc(changeId);
+      const snap2 = await ref2.get();
+      if (snap2.exists) {
+        await ref2.update({
+          ...(snap2.data()?.kind === "emergency" ? {} : {status: "rejected"}),
+          awaitingReview: false,
+          approvedByUid: auth.uid,
+          approvedByName: auth.token.name ?? "مسؤول النظام",
+          approvedAt: now(),
+          decisionNote: note ?? "",
+        });
+      }
+    }
   }
 
   await ref.update({status: "rejected", resolutionNote: note ?? null, resolvedDate: now()});

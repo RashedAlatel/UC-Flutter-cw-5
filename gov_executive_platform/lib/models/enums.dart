@@ -301,12 +301,22 @@ enum ApprovalType {
   // النقلُ يغيّر بطاقةَ دخول الموظّف وما يراه من مشاريع الوزارة كلِّها،
   // فلا مشورةَ تُغني فيه ولا مرحلتين.
   userTransfer,
+  // ــــ اعتمادُ تغييرٍ تقنيّ (لجنة CAB) ــــ
+  //
+  // يرفعُه مكتبُ الخدمة بـ`htk`، ويبتّ فيه حاملُ `cab` — **ولا يبتّ أحدٌ
+  // في تغييرٍ رفعه بنفسه**، فالمفتاحان منفصلان بقصد.
+  //
+  // وليس من البوّابات الثلاث: تسجيلُ الأعضاء وتعديلُ المواعيد وإضافةُ
+  // المشاريع تبقى في الفرع الافتراضيّ لمسؤول النظام، لا يفتحها `cab`.
+  changeApproval,
   decision; // قرار تنفيذي عام مطلوب من القيادة
 
   String get label {
     switch (this) {
       case ApprovalType.userTransfer:
         return 'نقل موظّف بين الإدارات';
+      case ApprovalType.changeApproval:
+        return 'اعتماد تغيير تقني';
       case ApprovalType.registration:
         return 'تسجيل عضو جديد';
       case ApprovalType.projectCreate:

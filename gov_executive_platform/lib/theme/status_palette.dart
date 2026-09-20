@@ -232,6 +232,34 @@ class StatusPalette {
         _ => neutral,
       };
 
+  /// نغمةُ حالةِ مشكلة.
+  ///
+  /// و«حلٌّ مؤقّت» بلونٍ مميَّزٍ لا بلون النجاح: المستفيدُ يعمل والسببُ
+  /// باقٍ، فهو دَينٌ لا إنجاز. ولونُ النجاح عليه يجعله يبدو منتهياً.
+  static StatusTone problemTone(String status) => switch (status) {
+        'investigating' => warning,
+        'workaroundFound' => category,
+        'rootCauseFound' => info,
+        'resolved' => success,
+        'closed' => neutral,
+        _ => neutral,
+      };
+
+  /// نغمةُ حالةِ تغيير.
+  ///
+  /// و«نُفِّذ» ليست نجاحاً بذاتها: قد يكون طارئاً لم يُراجَع بعد. والنجاحُ
+  /// للمعتمَد وحدَه — ووسمُ المراجعة يُعرض إلى جانبها لا مكانَها.
+  static StatusTone changeTone(String status) => switch (status) {
+        'draft' => neutral,
+        'awaitingApproval' => warning,
+        'approved' => success,
+        'rejected' => danger,
+        'implemented' => info,
+        'rolledBack' => blocker,
+        'closed' => neutral,
+        _ => neutral,
+      };
+
   /// نغمةُ ساعةِ المدّة — **والمعنى واحدٌ أينما وقع**.
   ///
   /// «تجاوز» خطرٌ كالمشروع المتأخّر، و«يوشك» تحذيرٌ كالعقد الذي يقارب

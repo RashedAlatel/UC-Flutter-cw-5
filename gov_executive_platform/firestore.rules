@@ -1059,6 +1059,67 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ------------------------- المشاكل والتغييرات -------------------------
+    //
+    // بابا إدارة الخدمات بعد البلاغات. والقارئُ فيهما **مكتبُ الخدمة وحدَه**
+    // (وليس صاحبُ البلاغ كما في `tickets`): المشكلةُ تحليلٌ داخليّ تسمّي
+    // سبباً جذريّاً («جهازُ المورِّد معطوب»)، والتغييرُ يحمل خطّةَ تراجعٍ
+    // وتفاصيلَ بنيةٍ تقنيّة. وليس فيهما ما يخصّ موظّفاً بعينه حتّى يُفتح له.
+    match /problems/{id} {
+      allow read: if canHandleTickets();
+      allow create: if canHandleTickets()
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.createdByUid == request.auth.uid
+                    && request.resource.data.get('deletedAt', null) == null;
+      allow update: if canHandleTickets()
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['createdAt', 'createdByUid']);
+      allow delete: if isAdmin();
+    }
+
+    match /changes/{id} {
+      function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+      // ــ حقولُ القرار لا يكتبها عميلٌ أبداً ــ
+      //
+      // وهذا **هو** ما يجعل اللجنةَ لجنة. فلو تُركت `status` مفتوحةً لكتب
+      // رافعُ التغيير `approved` على تغييرِ نفسِه بضغطة، ولصار الاعتمادُ
+      // اسماً في شاشةٍ لا حكماً على الخادم.
+      //
+      // فالبتُّ يقع في `approveRequest`/`rejectRequest` وحدَهما — وهما
+      // تكتبان بصلاحية المدير فتتجاوزان هذه القاعدة.
+      function decisionFieldsUntouched() {
+        return !changed().hasAny(['approvedByUid', 'approvedByName',
+                                  'approvedAt', 'decisionNote', 'awaitingReview']);
+      }
+      function decidedStatus(v) { return v == 'approved' || v == 'rejected'; }
+
+      allow read: if canHandleTickets();
+
+      // ــ والطارئُ وحدَه يُولد منفَّذاً ــ
+      //
+      // «يُنفَّذ ثمّ يُراجَع» قرارٌ صريح، وهو للطارئ لا لغيره. ولولا هذا
+      // الشرطُ لَوُلد كلُّ تغييرٍ `implemented` فلم يمرّ باعتمادٍ قطّ —
+      // فيصير الاستثناءُ هو القاعدة.
+      allow create: if canHandleTickets()
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.createdByUid == request.auth.uid
+                    && !decidedStatus(request.resource.data.status)
+                    && (request.resource.data.kind == 'emergency'
+                        || (request.resource.data.status != 'implemented'
+                            && request.resource.data.get('awaitingReview', false) == false))
+                    && request.resource.data.get('approvedByUid', '') == ''
+                    && request.resource.data.get('approvedAt', null) == null
+                    && request.resource.data.get('deletedAt', null) == null;
+
+      allow update: if canHandleTickets()
+                    && decisionFieldsUntouched()
+                    && !decidedStatus(request.resource.data.status)
+                    && !changed().hasAny(['createdAt', 'createdByUid', 'kind']);
+
+      allow delete: if isAdmin();
+    }
+
     // ------------------------- الشكاوى والاقتراحات -------------------------
     // ما يرفعه الموظف إلى مسؤول النظام. صلاحيتان منفصلتان:
     //   sfb — الرفع، ومتابعة ما رفعه هو.

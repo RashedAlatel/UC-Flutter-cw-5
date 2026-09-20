@@ -105,6 +105,33 @@ describe('من يكتب التحديث اليومي', () => {
     await assertFails(addDoc(collection(db, 'dailyUpdates'), update({ authorUid: STRANGER })));
   });
 
+  // ــ والمستخدمُ التنفيذيُّ لا يكتب، ولو كان عضواً في المشروع ــ
+  //
+  // «يرى كلَّ شيءٍ ولا يغيّر شيئاً» قاعدةٌ قائمةٌ في المنصّة، وقاعدةُ
+  // **الحذف** تفرضها صراحةً بـ`!isExecutive()` على فرع الكاتب. وقاعدةُ
+  // الإنشاء لم تكن تفرضها.
+  //
+  // فكان الناظرُ العضوُ **يكتب** تحديثاً ولا يملك **حذفَ** ما كتب —
+  // والتحديثُ لا يُعدَّل أصلاً (`update: if false`). أي أنّ ما يكتبه بالخطأ
+  // يبقى في السجلّ ولا سبيلَ له إليه.
+  //
+  // والأسوأ أنّ الفرعين كانا يقولان شيئين عن الدور نفسِه في الكتلة نفسِها.
+  test('والمستخدمُ التنفيذيُّ العضوُ لا يكتب تحديثاً', async () => {
+    const db = env
+      .authenticatedContext(SECOND, claims(SECOND, { role: 'executiveViewer' }))
+      .firestore();
+    await assertFails(addDoc(collection(db, 'dailyUpdates'), update({ authorUid: SECOND })));
+  });
+
+  // ــ والضابط: الدورُ نفسُه يكتب حين لا يكون تنفيذيّاً ــ
+  //
+  // فلولاه لَمرّ الاختبارُ أعلاه حتّى لو رُدَّت الكتابةُ لسببٍ آخر — كأن
+  // تكون البذرةُ ناقصةً أو العضويّةُ غيرَ مسجّلة.
+  test('والضابط: العضوُ نفسُه يكتب حين لا يكون تنفيذيّاً', async () => {
+    const db = env.authenticatedContext(SECOND, claims(SECOND)).firestore();
+    await assertSucceeds(addDoc(collection(db, 'dailyUpdates'), update({ authorUid: SECOND })));
+  });
+
   // الحقول المنسوخة تبقى مفحوصة: لا ينتحل أحد مشروعاً ليس فيه.
   test('وعضوٌ ينسخ إدارةً غير إدارة المشروع — يُرفض', async () => {
     const db = env.authenticatedContext(SECOND, claims(SECOND)).firestore();
@@ -137,6 +164,33 @@ describe('والعوائق والمخاطر والمهام كذلك', () => {
     const db = env.authenticatedContext(STRANGER, claims(STRANGER, { role: 'employee' })).firestore();
     await assertFails(addDoc(collection(db, 'blockers'), child()));
   });
+
+  // ــ والمستخدمُ التنفيذيُّ لا يكتب في هذه الثلاث كذلك ــ
+  //
+  // «يرى كلَّ شيءٍ ولا يغيّر شيئاً» قاعدةُ الدور. وكانت مفروضةً على حذف
+  // التحديث اليوميّ وحدَه، فكان الناظرُ العضوُ يكتب في أربعة مواضع.
+  //
+  // وقد ظهرت هذه الثلاثُ **بالصدفة**: طُبِّق إصلاحُ التحديثات في كتلة
+  // `tasks` خطأً لأنّ السطرَ نفسَه مكرّرٌ في الملفّ، فانكشف أنّ المواضعَ
+  // أربعةٌ لا واحد. وقرارُ إغلاقها كلِّها قرارُ صاحب المنصّة.
+  for (const [name, doc] of [
+    ['blockers', {}],
+    ['risks', { severity: 'medium' }],
+    ['tasks', { status: 'todo', dueDate: new Date('2026-08-25') }],
+  ]) {
+    test(`والمستخدمُ التنفيذيُّ العضوُ لا يكتب في «${name}»`, async () => {
+      const db = env
+        .authenticatedContext(SECOND, claims(SECOND, { role: 'executiveViewer' }))
+        .firestore();
+      await assertFails(addDoc(collection(db, name), child(doc)));
+    });
+
+    // والضابطُ في كلّ واحدةٍ منها: لولاه لمرّ الرفضُ لسببٍ آخر.
+    test(`والضابط: العضوُ نفسُه يكتب في «${name}» حين لا يكون تنفيذيّاً`, async () => {
+      const db = env.authenticatedContext(SECOND, claims(SECOND)).firestore();
+      await assertSucceeds(addDoc(collection(db, name), child(doc)));
+    });
+  }
 });
 
 // ــــــــــــــــــــ حذف التحديث اليومي ــــــــــــــــــــ

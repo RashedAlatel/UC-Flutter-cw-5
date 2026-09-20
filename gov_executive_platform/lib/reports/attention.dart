@@ -96,6 +96,13 @@ class AttentionThresholds {
   /// عمرُ آخر تحديثٍ بالأيام قبل أن يُعدّ المشروعُ مهمَلاً.
   final int staleUpdateDays;
 
+  /// ــ كم يوماً قبل الموعد يُقال «يستحقّ قريباً» ــ
+  ///
+  /// وهنا لا في `record_filter.dart`: «قريباً» في شريحة الحافظة يجب أن
+  /// تعني ما تعنيه في «ما يحتاج تدخّلاً»، وإلّا قال الموضعان شيئين عن
+  /// المشروع نفسِه — وهو العطلُ الذي تكرّر في هذه المنصّة.
+  final int dueSoonDays;
+
   /// كم يوماً قبل انتهاء العقد يُنبَّه عليه.
   final int contractWarningDays;
 
@@ -107,6 +114,7 @@ class AttentionThresholds {
 
   const AttentionThresholds({
     this.staleUpdateDays = 7,
+    this.dueSoonDays = 7,
     this.contractWarningDays = 90,
     this.criticalDelayDays = 14,
     this.decisionAgingDays = 7,

@@ -1143,11 +1143,20 @@ class AppStore extends ChangeNotifier {
         works: visibleWorks,
         lastUpdateByProject: lastUpdateByProject,
         pendingDecisions: pendingApprovalsCount,
-        thresholds: AttentionThresholds(
-          // والعتباتُ من إعدادات مسؤول النظام لا من الشيفرة — وهي القائمةُ
-          // نفسُها التي يقرؤها التقريرُ التنفيذيُّ على الخادم.
-          staleUpdateDays: alertRules.staleUpdateDays,
-        ),
+        tickets: visibleTickets,
+        slaPolicy: slaPolicy,
+        thresholds: attentionThresholds,
+      );
+
+  /// العتباتُ كما يضبطها مسؤولُ النظام — **موضعٌ واحدٌ يقرؤه الجميع**.
+  ///
+  /// تقرؤها `attentionItems()` وتقرؤها `recordFilterInput()`، فتعني
+  /// «قريباً» في شريحة الحافظة ما تعنيه في «ما يحتاج تدخّلاً». ولو بُنيت
+  /// في الموضعين لَانحرف أحدُهما عن الآخر في أوّل تعديل.
+  AttentionThresholds get attentionThresholds => AttentionThresholds(
+        // والعتباتُ من إعدادات مسؤول النظام لا من الشيفرة — وهي القائمةُ
+        // نفسُها التي يقرؤها التقريرُ التنفيذيُّ على الخادم.
+        staleUpdateDays: alertRules.staleUpdateDays,
       );
 
   // ــــــــــــــ القطاعات ــــــــــــــ
@@ -7158,6 +7167,13 @@ class AppStore extends ChangeNotifier {
           for (final b in blockers)
             if (b.status == ItemStatus.open) b.projectId,
         },
+        dueSoonDays: attentionThresholds.dueSoonDays,
+        // ــ ومعرّفاتُ «يحتاج تدخّلاً» من المحرّك لا من شرطٍ يُكتب هنا ــ
+        //
+        // فلو كُتب هنا شرطٌ يقاربه لَقالت الحافظةُ ومركزُ القيادة شيئين عن
+        // المشروع نفسِه بعد أوّل تعديل — وهو العطلُ الذي تكرّر في هذه
+        // المنصّة: موضعان يقرّران شيئاً واحداً.
+        attentionRecordIds: {for (final a in attentionItems()) a.recordId},
       );
 
   /// آخرُ تحديثٍ لكل عمل — نظيرُ [lastUpdateByProject].

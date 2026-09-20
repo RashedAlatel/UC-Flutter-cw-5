@@ -50,7 +50,22 @@ enum QuickState {
   needsFollowUp('يحتاج متابعة', 'مهدَّد بالخطر أو عليه عائق مفتوح'),
 
   /// مضى على آخر تحديثٍ له أكثرُ من حدّ الجمود — أو لا تحديثَ عليه إطلاقاً.
-  stale('بلا تحديث حديث', 'مضى على آخر تحديث أكثر من حدّ الجمود');
+  stale('بلا تحديث حديث', 'مضى على آخر تحديث أكثر من حدّ الجمود'),
+
+  /// موعدُه خلال الأيّام القادمة ولم يُنجَز بعد.
+  ///
+  /// و«قريباً» تعني ما تعنيه في محرّك الاهتمام: العتبةُ واحدةٌ تُقرأ من
+  /// [AttentionThresholds.dueSoonDays] ولا تُكتب هنا رقماً ثانياً.
+  dueSoon('يستحقّ قريباً', 'موعدُه خلال الأيّام القادمة ولم يُنجَز'),
+
+  /// له بندٌ في «ما يحتاج تدخّلاً».
+  ///
+  /// ــ ولا شرطَ يُكتب هنا ــ
+  ///
+  /// المنصّةُ تملك موضعاً واحداً يقرّر ما يحتاج تدخّلاً: `AttentionEngine`.
+  /// ولو كُتب هنا شرطٌ يقاربه لَقالت الحافظةُ ومركزُ القيادة شيئين عن
+  /// المشروع نفسِه بعد أوّل تعديل. فالشريحةُ تقرأ ناتجَ المحرّك.
+  needsIntervention('يحتاج تدخّلاً', 'له بندٌ في «ما يحتاج تدخّلاً»');
 
   final String label;
 
@@ -184,6 +199,16 @@ class RecordFilterInput {
   /// التقارير الدورية، لا رقمٌ ثانٍ يُخترع هنا.
   final int inactiveAfterDays;
 
+  /// حدُّ «قريباً» بالأيام — من [AttentionThresholds.dueSoonDays].
+  final int dueSoonDays;
+
+  /// معرّفاتُ ما له بندٌ في «ما يحتاج تدخّلاً» — مشاريعَ وأعمالاً معاً.
+  ///
+  /// تُحسب مرّةً من `AttentionEngine` ويُمرَّر ناتجُها، فلا يُنسخ منطقُه
+  /// هنا. وفارغةٌ تعني أنّ المحرّكَ لم يُستدعَ بعد — لا أنّ شيئاً لا يحتاج
+  /// تدخّلاً: والشريحةُ عندها تُعيد لا شيءَ لا كلَّ شيء.
+  final Set<String> attentionRecordIds;
+
   /// اليومُ — يُحقن ليكون الاختبارُ ثابتاً لا يتبدّل بمرور الوقت.
   final DateTime today;
 
@@ -192,9 +217,11 @@ class RecordFilterInput {
     required this.works,
     required this.today,
     required this.inactiveAfterDays,
+    this.dueSoonDays = 7,
     this.lastProjectUpdate = const {},
     this.lastWorkUpdate = const {},
     this.projectsWithOpenBlockers = const {},
+    this.attentionRecordIds = const {},
   });
 
   /// نسخةٌ بأعمالٍ أخرى — لشاشة الأعمال حين تبدّل مصدرَ قائمتها.
@@ -205,9 +232,11 @@ class RecordFilterInput {
         works: works,
         today: today,
         inactiveAfterDays: inactiveAfterDays,
+        dueSoonDays: dueSoonDays,
         lastProjectUpdate: lastProjectUpdate,
         lastWorkUpdate: lastWorkUpdate,
         projectsWithOpenBlockers: projectsWithOpenBlockers,
+        attentionRecordIds: attentionRecordIds,
       );
 }
 
@@ -298,6 +327,9 @@ bool _projectMatchesQuick(Project p, QuickState quick, RecordFilterInput input) 
       QuickState.stale =>
         _isStale(input.lastProjectUpdate[p.id], input) &&
             p.effectiveStatus != ProjectStatus.completed,
+      QuickState.dueSoon => p.effectiveStatus != ProjectStatus.completed &&
+          _isDueSoon(p.dueDate, input),
+      QuickState.needsIntervention => input.attentionRecordIds.contains(p.id),
     };
 
 bool _workMatchesQuick(WorkItem w, QuickState quick, RecordFilterInput input) =>
@@ -309,7 +341,20 @@ bool _workMatchesQuick(WorkItem w, QuickState quick, RecordFilterInput input) =>
       QuickState.needsFollowUp => w.status == TaskStatus.awaitingApproval,
       QuickState.stale =>
         _isStale(input.lastWorkUpdate[w.id], input) && w.status != TaskStatus.done,
+      QuickState.dueSoon => w.status != TaskStatus.done && _isDueSoon(w.dueDate, input),
+      QuickState.needsIntervention => input.attentionRecordIds.contains(w.id),
     };
+
+/// ــ يستحقّ قريباً: من اليوم إلى الحدّ، **والمتأخّرُ خارجُه** ــ
+///
+/// فالمتأخّرُ له شريحتُه، وجمعُه هنا يجعل «قريباً» تعني «قريباً أو فات» —
+/// وهما قراران مختلفان: أحدُهما يُتّقى والآخرُ يُعالَج.
+bool _isDueSoon(DateTime due, RecordFilterInput input) {
+  final today = _startOfDay(input.today);
+  final d = _startOfDay(due);
+  if (d.isBefore(today)) return false;
+  return d.difference(today).inDays <= input.dueSoonDays;
+}
 
 /// جامدٌ: مضى على آخر تحديثٍ أكثرُ من الحدّ — **أو لا تحديثَ عليه إطلاقاً**.
 ///

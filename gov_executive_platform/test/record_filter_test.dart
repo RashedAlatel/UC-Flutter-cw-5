@@ -79,7 +79,9 @@ RecordFilterInput _input({
   Map<String, DateTime> lastProject = const {},
   Map<String, DateTime> lastWork = const {},
   Set<String> blocked = const {},
+  Set<String> attention = const {},
   int inactive = 7,
+  int dueSoon = 7,
 }) =>
     RecordFilterInput(
       projects: projects,
@@ -89,6 +91,8 @@ RecordFilterInput _input({
       lastProjectUpdate: lastProject,
       lastWorkUpdate: lastWork,
       projectsWithOpenBlockers: blocked,
+      attentionRecordIds: attention,
+      dueSoonDays: dueSoon,
     );
 
 List<String> _ids(List<Project> ps) => ps.map((p) => p.id).toList();
@@ -573,6 +577,113 @@ void main() {
       final next = f.copyWith(clear: {'departmentId'});
       expect(next.departmentId, isNull);
       expect(next.query, 'رقمنة', reason: 'ولا تمسّ ما لم يُذكر');
+    });
+  });
+
+  // ــــ المنظوران اللذان كانا ناقصين من الحافظة ــــ
+  //
+  // ستّةٌ من مناظير الحافظة الثمانية كانت قائمةً أصلاً بطريقٍ آخر
+  // (`departmentId` و`managerUid` و`late$` و`needsFollowUp` و`stale`
+  // و«الكلّ»). وهذان وحدَهما لم يكن لهما نظير.
+  group('يستحقّ قريباً', () {
+    test('ما موعدُه داخل الحدّ يُعرض', () {
+      final out = applyRecordFilter(
+        const RecordFilter(quick: QuickState.dueSoon),
+        _input(projects: [
+          _p('soon', due: _today.add(const Duration(days: 3))),
+          _p('far', due: _today.add(const Duration(days: 30))),
+        ]),
+      );
+      expect(_ids(out.projects), ['soon']);
+    });
+
+    // ــ والمتأخّرُ خارجُها ــ
+    //
+    // فله شريحتُه. وجمعُه هنا يجعل «قريباً» تعني «قريباً أو فات» — وهما
+    // قراران مختلفان: أحدُهما يُتّقى والآخرُ يُعالَج.
+    test('والمتأخّرُ ليس «قريباً» — له شريحتُه', () {
+      final out = applyRecordFilter(
+        const RecordFilter(quick: QuickState.dueSoon),
+        _input(projects: [_p('late', due: _today.subtract(const Duration(days: 5)))]),
+      );
+      expect(out.projects, isEmpty);
+    });
+
+    test('واليومُ نفسُه داخلَ الحدّ', () {
+      final out = applyRecordFilter(
+        const RecordFilter(quick: QuickState.dueSoon),
+        _input(projects: [_p('today', due: _today)]),
+      );
+      expect(_ids(out.projects), ['today']);
+    });
+
+    // ــ والحدُّ يُقرأ ولا يُفترض ــ
+    test('والحدُّ يُغيَّر فيتغيّر الناتج', () {
+      final ps = [_p('d10', due: _today.add(const Duration(days: 10)))];
+      expect(
+        applyRecordFilter(const RecordFilter(quick: QuickState.dueSoon), _input(projects: ps))
+            .projects,
+        isEmpty,
+      );
+      expect(
+        _ids(applyRecordFilter(const RecordFilter(quick: QuickState.dueSoon),
+                _input(projects: ps, dueSoon: 14))
+            .projects),
+        ['d10'],
+      );
+    });
+
+    test('والمكتملُ لا يُعرض ولو قرُب موعدُه', () {
+      final out = applyRecordFilter(
+        const RecordFilter(quick: QuickState.dueSoon),
+        _input(projects: [
+          _p('done', due: _today.add(const Duration(days: 2)), status: ProjectStatus.completed,
+              progress: 100),
+        ]),
+      );
+      expect(out.projects, isEmpty);
+    });
+
+    test('والأعمالُ كذلك', () {
+      final out = applyRecordFilter(
+        const RecordFilter(quick: QuickState.dueSoon),
+        _input(works: [
+          _w('soon', due: _today.add(const Duration(days: 2))),
+          _w('far', due: _today.add(const Duration(days: 40))),
+        ]),
+      );
+      expect(out.works.map((w) => w.id).toList(), ['soon']);
+    });
+  });
+
+  group('يحتاج تدخّلاً — من محرّك الاهتمام لا من شرطٍ ثانٍ', () {
+    test('ما سمّاه المحرّكُ يُعرض وحدَه', () {
+      final out = applyRecordFilter(
+        const RecordFilter(quick: QuickState.needsIntervention),
+        _input(projects: [_p('a'), _p('b')], attention: {'a'}),
+      );
+      expect(_ids(out.projects), ['a']);
+    });
+
+    // ــ وفارغةٌ تعني «لم يُستدعَ المحرّك» لا «لا شيءَ يحتاج تدخّلاً» ــ
+    //
+    // فلو أعادت كلَّ شيءٍ عند الفراغ لَظهرت الحافظةُ كلُّها تحت شريحةِ
+    // «يحتاج تدخّلاً» في أوّل إقلاعٍ قبل أن يُحسب المحرّك — وهو أسوأ من
+    // قائمةٍ فارغة: يُقرأ إنذاراً عامّاً فيُهمَل اللون.
+    test('وقائمةٌ فارغةٌ تُعيد لا شيءَ لا كلَّ شيء', () {
+      final out = applyRecordFilter(
+        const RecordFilter(quick: QuickState.needsIntervention),
+        _input(projects: [_p('a'), _p('b')]),
+      );
+      expect(out.projects, isEmpty);
+    });
+
+    test('والأعمالُ تُصفَّى بالقائمة نفسِها', () {
+      final out = applyRecordFilter(
+        const RecordFilter(quick: QuickState.needsIntervention),
+        _input(works: [_w('w1'), _w('w2')], attention: {'w2'}),
+      );
+      expect(out.works.map((w) => w.id).toList(), ['w2']);
     });
   });
 }

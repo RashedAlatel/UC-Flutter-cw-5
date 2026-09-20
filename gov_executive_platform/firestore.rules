@@ -579,8 +579,13 @@ service cloud.firestore {
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
                                       || isMyDeptAny(deptOf(resource.data)));
+      // ــ و`!isExecutive()` كما في `dailyUpdates` ولسببها ــ
+      //
+      // «المستخدم التنفيذي يرى كل شيء ولا يغيّر شيئاً» قاعدةُ الدور. وكانت
+      // مفروضةً على حذف التحديث اليوميّ وحدَه، فكان الناظرُ العضوُ يكتب في
+      // أربعة مواضع. وقرارُ إغلاقها كلِّها قرارُ صاحب المنصّة.
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
-                        || isMemberOfRealProject(request.resource.data.projectId))
+                        || (!isExecutive() && isMemberOfRealProject(request.resource.data.projectId)))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       // ــ والمُسنَد إليه بحسابه يُحرّك مهمته ــ
       //
@@ -642,8 +647,17 @@ service cloud.firestore {
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
                                       || isMyDeptAny(deptOf(resource.data)));
+      // ــ و`!isExecutive()` هنا كما هي على فرع الحذف أدناه ــ
+      //
+      // «المستخدم التنفيذي يرى كل شيء ولا يغيّر شيئاً» قاعدةٌ قائمة في
+      // المنصة، وفرعُ الحذف يفرضها صراحةً. وهذا الفرعُ لم يكن يفرضها —
+      // فكان الناظرُ العضوُ **يكتب** تحديثاً ولا يملك **حذفَ** ما كتب،
+      // والتحديثُ لا يُعدَّل أصلاً (`update: if false`). فما كتبه بالخطأ
+      // يبقى في السجلّ ولا سبيلَ له إليه.
+      //
+      // وكان الفرعان يقولان شيئين عن الدور نفسِه في الكتلة نفسِها.
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
-                        || isMemberOfRealProject(request.resource.data.projectId))
+                        || (!isExecutive() && isMemberOfRealProject(request.resource.data.projectId)))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       // ــ السجل لا يُعدَّل، ويُحذف بشرط ــ
       //
@@ -819,8 +833,13 @@ service cloud.firestore {
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
                                       || isMyDeptAny(deptOf(resource.data)));
+      // ــ و`!isExecutive()` كما في `dailyUpdates` ولسببها ــ
+      //
+      // «المستخدم التنفيذي يرى كل شيء ولا يغيّر شيئاً» قاعدةُ الدور. وكانت
+      // مفروضةً على حذف التحديث اليوميّ وحدَه، فكان الناظرُ العضوُ يكتب في
+      // أربعة مواضع. وقرارُ إغلاقها كلِّها قرارُ صاحب المنصّة.
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
-                        || isMemberOfRealProject(request.resource.data.projectId))
+                        || (!isExecutive() && isMemberOfRealProject(request.resource.data.projectId)))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDocOrMember(resource.data)
                     && !request.resource.data.diff(resource.data).affectedKeys()
@@ -833,8 +852,13 @@ service cloud.firestore {
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
                                       || isMyDeptAny(deptOf(resource.data)));
+      // ــ و`!isExecutive()` كما في `dailyUpdates` ولسببها ــ
+      //
+      // «المستخدم التنفيذي يرى كل شيء ولا يغيّر شيئاً» قاعدةُ الدور. وكانت
+      // مفروضةً على حذف التحديث اليوميّ وحدَه، فكان الناظرُ العضوُ يكتب في
+      // أربعة مواضع. وقرارُ إغلاقها كلِّها قرارُ صاحب المنصّة.
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
-                        || isMemberOfRealProject(request.resource.data.projectId))
+                        || (!isExecutive() && isMemberOfRealProject(request.resource.data.projectId)))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDocOrMember(resource.data)
                     && !request.resource.data.diff(resource.data).affectedKeys()

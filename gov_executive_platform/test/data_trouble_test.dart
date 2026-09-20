@@ -46,6 +46,111 @@ void main() {
       expect(r.body, contains('لم يمنع'), reason: 'ويُقال إن الخادم ليس السبب');
     });
 
+    // ــ العطلُ الخامس: فهرسٌ لم يصل قاعدةَ البيانات ــ
+    //
+    // وقع على شاشة مسؤول النظام بعد نشر المرحلة الأولى: استعلامان بحقلين
+    // (`uid` مع مدىً على التاريخ) يحتاجان فهرساً مركَّباً، وقد كُتب في
+    // `firestore.indexes.json` ولم يبلغ المشروعَ الحيّ.
+    //
+    // **فقالت اللافتةُ «تأكد من اتصال الشبكة»** — نصيحةٌ لا تُصلح شيئاً،
+    // وابتلعت معها رسالةَ Firestore التي تحمل **رابطَ إنشاء الفهرس جاهزاً**.
+    // وهو بعينه ما تشكو منه هذه الدالّةُ في تعليقها: جملةٌ واحدةٌ لأعطالٍ
+    // علاجُها مختلف تُضيّع اليومَ الذي ضاع.
+    test('فهرسٌ ناقصٌ يُسمّى ولا يُقال «تحقّق من الشبكة»', () {
+      final r = AppStore.describeDataErrors(
+        {
+          'dailyStatuses/حالتي':
+              '[cloud_firestore/failed-precondition] The query requires an index. '
+                  'You can create it here: https://console.firebase.google.com/x',
+        },
+        const {},
+      );
+      expect(r.kind, DataTrouble.missingIndex);
+      expect(r.body, isNot(contains('الشبكة')),
+          reason: 'عطلٌ لا تُصلحه شبكةٌ لا يُقال فيه «تحقّق من الشبكة»');
+    });
+
+    // ــ والرابطُ أثمنُ ما في الرسالة ــ
+    //
+    // Firestore يعطي رابطاً يُنشئ الفهرسَ بضغطة. وابتلاعُه يحوّل عطلاً
+    // علاجُه دقيقةٌ إلى عطلٍ يحتاج تشخيصاً.
+    test('ورسالةُ الخادم تمرّ كما هي، وفيها الرابط', () {
+      final r = AppStore.describeDataErrors(
+        {
+          'weeklyPlans/خطّتي':
+              '[cloud_firestore/failed-precondition] The query requires an index. '
+                  'You can create it here: https://console.firebase.google.com/abc',
+        },
+        const {},
+      );
+      expect(r.body, contains('https://console.firebase.google.com/abc'));
+      expect(r.body, contains('weeklyPlans/خطّتي'), reason: 'ويُسمَّى المستمع');
+    });
+
+    // ــ والصيغةُ الثانية: «فهرسٌ مركَّب» ــ
+    test('وصيغةُ «composite index» تُصنَّف كذلك', () {
+      final r = AppStore.describeDataErrors(
+        {'works': 'The query requires a composite index.'},
+        const {},
+      );
+      expect(r.kind, DataTrouble.missingIndex);
+    });
+
+    // ــ والرمزُ مع الكلمة: صياغةٌ ثالثةٌ لم نرَها بعد تبقى مقروءة ــ
+    test('ورمزٌ مع كلمة index يُصنَّف ولو تغيّرت الصياغة', () {
+      final r = AppStore.describeDataErrors(
+        {'works': '[cloud_firestore/failed-precondition] missing index for this query'},
+        const {},
+      );
+      expect(r.kind, DataTrouble.missingIndex);
+    });
+
+    // ــ ولا يُكتفى بالرمز وحدَه ــ
+    //
+    // `failed-precondition` يخرج لأعطالٍ أخرى. ولو صُنِّفت فهرساً لَقيل
+    // لصاحبها «انشر الفهارس» — وهي نصيحةٌ خاطئةٌ بقدر «تحقّق من الشبكة»
+    // التي أوجبت هذا الفرع أصلاً.
+    test('وعطلُ failed-precondition لا يخصّ فهرساً يبقى خارج الفرع', () {
+      final r = AppStore.describeDataErrors(
+        {'works': '[cloud_firestore/failed-precondition] The Cloud Firestore API is not available'},
+        const {},
+      );
+      expect(r.kind, DataTrouble.network,
+          reason: 'نصيحةُ نشر الفهارس لا تُصلح عطلاً ليس فهرساً');
+    });
+
+    test('ونصُّ «requires an index» وحدَه يكفي للتصنيف', () {
+      // فبعضُ الإصدارات لا تُلحق الرمزَ بالنصّ.
+      final r = AppStore.describeDataErrors(
+        {'works': 'The query requires an index.'},
+        const {},
+      );
+      expect(r.kind, DataTrouble.missingIndex);
+    });
+
+    // ــ ولا يبتلع الفرعُ الجديدُ ما ليس له ــ
+    //
+    // وحارسٌ يشكو مما لا عيبَ فيه لا يُقرأ يومَ يشكو من عيب.
+    test('وانقطاعُ الشبكة يبقى انقطاعاً', () {
+      final r = AppStore.describeDataErrors(
+        {'works': 'unavailable: network error'},
+        const {},
+      );
+      expect(r.kind, DataTrouble.network);
+    });
+
+    // والرفضُ يبقى رفضاً: هو أعلى في الترتيب، وعلاجُه المزامنة لا النشر.
+    test('ورفضُ الصلاحية يبقى رفضاً ولو جاء معه فهرس', () {
+      final r = AppStore.describeDataErrors(
+        {
+          'works': 'permission-denied',
+          'weeklyPlans/خطّتي': 'The query requires an index.',
+        },
+        const {},
+      );
+      expect(r.kind, DataTrouble.permission);
+    });
+
     test('وما بقي: انقطاعٌ لا يُصنَّف', () {
       final r = AppStore.describeDataErrors(
         {'works': 'unavailable: network error'},

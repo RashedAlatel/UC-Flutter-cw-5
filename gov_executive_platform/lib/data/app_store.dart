@@ -136,6 +136,22 @@ enum DataTrouble {
   /// وصلت المستنداتُ ولم تُقرأ — عطلٌ في النموذج، يُصلحه المطوّر.
   parse,
 
+  /// استعلامٌ يحتاج فهرساً مركَّباً لم يصل قاعدةَ البيانات — يُصلَح بنشرة.
+  ///
+  /// ــ ولماذا صنفٌ خامسٌ لا يُجمع مع الشبكة ــ
+  ///
+  /// وقع هذا فعلاً بعد نشر المرحلة الأولى: استعلامان بحقلين احتاجا فهرساً
+  /// كُتب في `firestore.indexes.json` ولم يبلغ المشروعَ الحيّ. **فقالت
+  /// اللافتةُ «تأكد من اتصال الشبكة»** — نصيحةٌ لا تُصلح شيئاً، وابتلعت
+  /// معها رسالةَ Firestore التي تحمل رابطَ إنشاء الفهرس جاهزاً.
+  ///
+  /// وهو بعينه ما يشكو منه تعليقُ [AppStore.describeDataErrors]: جملةٌ
+  /// واحدةٌ لأعطالٍ علاجُها مختلف تُضيّع اليومَ الذي ضاع.
+  //
+  // والاسمُ `missingIndex` لا `index`: لكلِّ تعدادٍ في Dart عضوٌ
+  // مدمجٌ اسمُه `index` (ترتيبُ القيمة)، فتسميةُ قيمةٍ به لا تُترجم.
+  missingIndex,
+
   /// ما بقي: انقطاعٌ أو خطأٌ لا يُصنَّف.
   network,
 }
@@ -281,6 +297,44 @@ class AppStore extends ChangeNotifier {
         title: 'صلاحيات حسابك غير مكتملة — بعض بياناتك محجوبة عنك',
         body: 'ما تراه الآن ناقص، وليس فارغاً لعدم وجود بيانات. '
             'رُفضت قراءة: $names$more.',
+      );
+    }
+
+    // ــ فهرسٌ لم يصل قاعدةَ البيانات ــ
+    //
+    // ويُفحص **قبل** فرع الشبكة لا بعده: هو خطأٌ من الخادم لا انقطاعٌ في
+    // الطريق إليه، وعلاجُه أمرُ نشرٍ واحد. وقبل فرع القراءة كذلك: استعلامٌ
+    // مردودٌ لا يصل منه مستندٌ أصلاً، فلا عدَّ ولا مقارنة.
+    //
+    // ــ والكشفُ بثلاثة أوجهٍ لا بواحد، ولكلٍّ سببُه ــ
+    //
+    // • **«requires an index»** و**«requires a composite index»**: صيغتا
+    //   الرسالة كما يكتبهما Firestore. وتكفيان بلا رمز، فبعضُ الإصدارات
+    //   لا تُلحق الرمزَ بالنصّ فيسقط التصنيفُ في بئر الشبكة.
+    //
+    // • **والرمزُ مع كلمة `index`**: صياغةٌ ثالثةٌ لم نرَها بعد تبقى
+    //   مقروءة.
+    //
+    // **ولا يُكتفى بالرمز وحدَه**: `failed-precondition` يخرج من Firestore
+    // لأعطالٍ أخرى لا علاقةَ لها بالفهارس. ولو صُنِّفت هنا لَقيل لصاحبها
+    // «انشر الفهارس» — وهي نصيحةٌ خاطئةٌ بقدر «تحقّق من الشبكة» التي
+    // أوجبت هذا الفرع أصلاً.
+    bool isIndexFault(String text) =>
+        text.contains('requires an index') ||
+        text.contains('requires a composite index') ||
+        (text.contains('failed-precondition') && text.contains('index'));
+    final indexed = others.entries.where((e) => isIndexFault(e.value)).toList();
+    if (indexed.isNotEmpty) {
+      // **ورسالةُ الخادم تمرّ كما هي**: فيها رابطٌ يُنشئ الفهرسَ بضغطة،
+      // وابتلاعُه يحوّل عطلاً علاجُه دقيقةٌ إلى عطلٍ يحتاج تشخيصاً.
+      final lines = indexed.take(3).map((e) => '«${e.key}»: ${e.value}').join('\n');
+      return (
+        kind: DataTrouble.missingIndex,
+        title: 'استعلامٌ يحتاج فهرساً لم يصل قاعدةَ البيانات بعد',
+        body: 'الخادمُ لم يمنع شيئاً، والصلاحياتُ سليمة. '
+            'يُصلَح بأمرٍ واحدٍ من مجلّد المنصة:\n'
+            'firebase deploy --only firestore:indexes\n'
+            'وفهرسٌ جديدٌ يستغرق دقائقَ ليُبنى قبل أن يعمل.\n\n$lines',
       );
     }
 
@@ -2230,10 +2284,23 @@ class AppStore extends ChangeNotifier {
     final from = _statusWindowStart;
     final fromKey = WorkWeek.keyOf(from);
 
+    // ــ وسجلّاتُ صاحبها **بلا مدىً زمنيّ** ــ
+    //
+    // كان هنا `where('dayKey', >=)` مع `where('uid', ==)`، وهما حقلان
+    // يحتاجان **فهرساً مركَّباً**. وقد كُتب الفهرسُ في الملفّ ولم يبلغ
+    // المشروعَ الحيّ، فأخفق المستمعُ **لكلّ مستخدمٍ في الوزارة** وظهرت
+    // لافتةٌ حمراء على شاشة مسؤول النظام.
+    //
+    // والمدى هنا **تحسينٌ لا ضرورة**: سجلّاتُ موظّفٍ واحدٍ نحو ثلاثمئة في
+    // السنة — يومُ عملٍ وخروج. فحذفُه يجعل الاستعلامَ بحقلٍ واحدٍ **مفهرساً
+    // تلقائيّاً**، ولا يبقى ما يعمل لكلّ مستخدمٍ معلَّقاً على خطوةِ نشرٍ
+    // قد تُنسى.
+    //
+    // ويبقى المدى في استعلامات المسؤولين أسفلَه: إدارةٌ فيها ثلاثون موظّفاً
+    // تُنتج آلافَ المستندات، والمدى هناك ضرورةٌ لا تحسين.
     _listen('dailyStatuses/حالتي',
         _db.collection('dailyStatuses')
             .where('uid', isEqualTo: uid)
-            .where('dayKey', isGreaterThanOrEqualTo: fromKey)
             .snapshots(), (snap) {
       _myStatuses = _parseDocs('dailyStatuses/حالتي', snap.docs,
           (d) => DailyStatus.fromMap(d.id, d.data()));
@@ -2298,10 +2365,11 @@ class AppStore extends ChangeNotifier {
       DateTime.now().subtract(const Duration(days: 56)),
     );
 
+    // وخططُ صاحبها بلا مدىً كذلك — نحو اثنتين وخمسين في السنة. راجع
+    // `_watchStatusWindow` للسبب كاملاً.
     _listen('weeklyPlans/خطّتي',
         _db.collection('weeklyPlans')
             .where('uid', isEqualTo: uid)
-            .where('weekKey', isGreaterThanOrEqualTo: fromKey)
             .snapshots(), (snap) {
       _myPlans = _parseDocs('weeklyPlans/خطّتي', snap.docs,
           (d) => WeeklyPlan.fromMap(d.id, d.data()));

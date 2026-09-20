@@ -58,21 +58,6 @@
       ]
     },
     {
-      "_comment": "سجلُّ الموظّف نفسِه في نافذةٍ زمنيّة — شاشةُ «حالتي» وتقويمُه. راجع AppStore._watchStatusWindow",
-      "collectionGroup": "dailyStatuses",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "uid",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "dayKey",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
       "_comment": "حالاتُ إداراتٍ في نافذةٍ زمنيّة — نطاقُ مدير الإدارة والمراقب",
       "collectionGroup": "dailyStatuses",
       "queryScope": "COLLECTION",
@@ -98,21 +83,6 @@
         },
         {
           "fieldPath": "dayKey",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "_comment": "خطّةُ الموظّف نفسِه في نافذةِ ثمانية أسابيع. راجع AppStore._watchWeeklyPlans",
-      "collectionGroup": "weeklyPlans",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "uid",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "weekKey",
           "order": "ASCENDING"
         }
       ]

@@ -152,6 +152,13 @@ service cloud.firestore {
     // أخرى — `htk` مغلقةٌ لكلّ دورٍ افتراضاً، تُمنح بالاسم وتُسحب.
     function canHandleTickets() { return isAdmin() || perm('htk'); }
 
+    // ــــ سجلُّ الأنظمة والأصول ــــ
+    //
+    // **ولا يُجمع مع `htk`**: مكتبُ الخدمة يعالج البلاغات، وأمينُ الأصول
+    // يمسك السجلَّ بما فيه قيمُ العقود ومعلوماتُ المورّدين — وقد يكونان
+    // شخصين. والجمعُ يمنح كلَّ فنّيّ دعمٍ اليومَ ما لم يطلبه أحد.
+    function canManageItAssets() { return isAdmin() || perm('ita'); }
+
     // ــــ الحذف المنطقي: ثلاث ثوابت ــــ
     //
     // السجل لا يُمحى بل يُعلَّم محذوفاً، فيختفي من كل قائمة ويبقى قابلاً
@@ -1117,6 +1124,46 @@ service cloud.firestore {
                     && !decidedStatus(request.resource.data.status)
                     && !changed().hasAny(['createdAt', 'createdByUid', 'kind']);
 
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------- سجلُّ الأنظمة والأصول -------------------------
+    //
+    // ثلاثُ مجموعاتٍ بقاعدةٍ واحدة: مَن يمسك السجلَّ يقرؤه ويكتبه، ولا
+    // يقرؤه غيرُه. وقيمُ العقود ومعلوماتُ المورّدين ليست ممّا يُفتح للوزارة.
+    match /assets/{id} {
+      allow read: if canManageItAssets();
+      allow create: if canManageItAssets()
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.createdByUid == request.auth.uid
+                    && request.resource.data.get('deletedAt', null) == null;
+      allow update: if canManageItAssets()
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['createdAt', 'createdByUid']);
+      allow delete: if isAdmin();
+    }
+
+    match /vendors/{id} {
+      allow read: if canManageItAssets();
+      allow create: if canManageItAssets()
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.createdByUid == request.auth.uid
+                    && request.resource.data.get('deletedAt', null) == null;
+      allow update: if canManageItAssets()
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['createdAt', 'createdByUid']);
+      allow delete: if isAdmin();
+    }
+
+    match /contracts/{id} {
+      allow read: if canManageItAssets();
+      allow create: if canManageItAssets()
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.createdByUid == request.auth.uid
+                    && request.resource.data.get('deletedAt', null) == null;
+      allow update: if canManageItAssets()
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['createdAt', 'createdByUid']);
       allow delete: if isAdmin();
     }
 

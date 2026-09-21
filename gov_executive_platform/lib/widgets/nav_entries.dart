@@ -42,6 +42,7 @@ enum NavKey {
   tickets('البلاغات'),
   problems('المشاكل'),
   changes('التغييرات التقنية'),
+  itRegistry('سجلّ التقنية'),
   procedures('دليل الإجراءات'),
   users('المستخدمون'),
   roles('إدارة الأدوار'),
@@ -118,6 +119,12 @@ List<NavKey> navKeysFor(AppStore store) {
   if (store.canHandleTickets) {
     keys..add(NavKey.problems)..add(NavKey.changes);
   }
+
+  // ــ وسجلُّ التقنية بمفتاحه هو ــ
+  //
+  // ولا يُجمع مع `htk`: أمينُ الأصول قد يكون غيرَ فنّيّ الدعم. ومدخلٌ يظهر
+  // لمن تردُّ القاعدةُ قراءتَه يَعِدُ بما يرفضه الخادم.
+  if (store.canManageItAssets) keys.add(NavKey.itRegistry);
 
   // مركز القرارات لمن يعتمد فعلاً قراراً فيه.
   //

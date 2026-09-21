@@ -333,16 +333,37 @@ class _DayCell extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
         padding: const EdgeInsets.all(4),
+        // ــ والسطران يُقصَّان ولا يُخرجان الخليّة ــ
+        //
+        // ــــ العطل ــــ
+        //
+        // الخليّةُ مربَّعةٌ (`childAspectRatio: 1`) وسبعٌ في الصفّ. فعلى
+        // هاتفٍ عرضُه ٣٩٠ تصير نحوَ ٤٨ بكسلاً، ويبقى للمحتوى ٤٠ بعد الحشوة.
+        // وسطرا نصٍّ بارتفاع السطر المبدئيّ يبلغان ٤٠٫٧ — فتخرج الخليّةُ
+        // **بسبعِ أعشار البكسل**، ولا يقع ذلك إلا في يومٍ فيه أحداث.
+        //
+        // فارتفاعُ السطر يُنصّ عليه، والسطرُ يُلفّ في `Flexible` فينكمش
+        // بدل أن يفيض — وهو اصطلاحُ `MetaBit` نفسُه بعد عطلٍ مثلِه.
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text('${day.day}',
-                style: AppType.label.copyWith(
-                  color: tone?.text ?? (isHoliday ? AppColors.textSecondary : AppColors.textPrimary),
-                )),
+            Flexible(
+              child: Text('${day.day}',
+                  maxLines: 1,
+                  style: AppType.label.copyWith(
+                    height: 1.1,
+                    color:
+                        tone?.text ?? (isHoliday ? AppColors.textSecondary : AppColors.textPrimary),
+                  )),
+            ),
             if (events.isNotEmpty)
-              Text('${events.length}',
-                  style: AppType.micro.copyWith(color: tone?.text ?? AppColors.textSecondary)),
+              Flexible(
+                child: Text('${events.length}',
+                    maxLines: 1,
+                    style: AppType.micro
+                        .copyWith(height: 1.1, color: tone?.text ?? AppColors.textSecondary)),
+              ),
           ],
         ),
       ),

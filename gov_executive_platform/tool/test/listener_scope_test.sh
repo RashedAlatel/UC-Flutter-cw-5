@@ -61,6 +61,9 @@ approvalRequests:isAdmin
 tickets:canHandleTickets
 problems:canHandleTickets
 changes:canHandleTickets
+assets:canManageItAssets
+vendors:canManageItAssets
+contracts:canManageItAssets
 "
 
 # ــ ومجموعاتٌ تبدو محصورةً وليست كذلك، بسببٍ مكتوب ــ

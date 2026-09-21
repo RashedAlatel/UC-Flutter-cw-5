@@ -39,6 +39,9 @@ import '../models/report.dart';
 import '../models/role_permissions.dart';
 import '../models/user_deletion_report.dart';
 import '../models/risk.dart';
+import '../models/it_asset.dart';
+import '../models/vendor.dart';
+import '../models/contract.dart';
 import '../models/problem.dart';
 import '../models/change_request.dart';
 import '../models/ticket.dart';
@@ -1223,6 +1226,110 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  // ــــــــــــــ سجلُّ الأنظمة والأصول ــــــــــــــ
+
+  List<ITAsset> assets = const [];
+  List<Vendor> vendors = const [];
+  List<Contract> contracts = const [];
+
+  /// **ونصُّه نصُّ `canManageItAssets()` في القواعد** — حرفاً بحرف.
+  bool get canManageItAssets => isAdmin || hasPermission(RolePermission.manageItAssets);
+
+  List<ITAsset> get visibleAssets => assets.where((a) => !a.isDeleted).toList();
+  List<Vendor> get visibleVendors => vendors.where((v) => !v.isDeleted).toList();
+  List<Contract> get visibleContracts => contracts.where((c) => !c.isDeleted).toList();
+
+  // ــ ثلاثُ دوالٍّ لا واحدة، وكلٌّ بشرطها ــ
+  //
+  // كُتبت أوّلاً بشرطٍ واحدٍ في أوّل دالّةٍ جامعة، فسقط حارسُ
+  // `listener_scope`: يطلب الشرطَ في الأسطر الثمانية فوق كلّ اشتراك،
+  // والثالثُ كان تحته باثني عشر.
+  //
+  // **والحارسُ محقّ**: من يقرأ اشتراكاً يجب أن يرى ما يحرسه حيث يقرؤه، لا
+  // أن يصعد اثني عشر سطراً ليطمئنّ. وتوسيعُ نافذته كان سيُضعفه لكلّ
+  // المجموعات إرضاءً لهذه الثلاث.
+  //
+  // ولم تُجمع في دالّةٍ تأخذ اسمَ المجموعة وسيطاً — وهو أقصرُ — لأنّ
+  // الحارسَ يقرأ `_db.collection('X').snapshots()` نصّاً: بالوسيط يختفي
+  // الاشتراكُ من عينه فيمرّ صامتاً، وذلك أسوأُ من سقوطه.
+  void _watchItRegistry() {
+    _watchAssets();
+    _watchVendors();
+    _watchContracts();
+  }
+
+  void _watchAssets() {
+    if (!canManageItAssets) return;
+    _listen('assets', _db.collection('assets').snapshots(), (snap) {
+      assets = _parseDocs('assets', snap.docs, (d) => ITAsset.fromMap(d.id, d.data()));
+      notifyListeners();
+    });
+  }
+
+  void _watchVendors() {
+    if (!canManageItAssets) return;
+    _listen('vendors', _db.collection('vendors').snapshots(), (snap) {
+      vendors = _parseDocs('vendors', snap.docs, (d) => Vendor.fromMap(d.id, d.data()));
+      notifyListeners();
+    });
+  }
+
+  void _watchContracts() {
+    if (!canManageItAssets) return;
+    _listen('contracts', _db.collection('contracts').snapshots(), (snap) {
+      contracts = _parseDocs('contracts', snap.docs, (d) => Contract.fromMap(d.id, d.data()));
+      notifyListeners();
+    });
+  }
+
+  /// يحفظ سجلّاً من سجلّات المسجّل — والثلاثةُ بابٌ واحد.
+  ///
+  /// و`createdAt`/`createdByUid` **تُكتبان عند الإنشاء ولا تُمسّان بعده**:
+  /// القاعدةُ تردّ تغييرَهما، فتُنزع من خريطة التعديل هنا حتّى لا تُردَّ
+  /// كتابةٌ مشروعةٌ بسبب حقلٍ لم يتغيّر معناه.
+  Future<String?> _saveRegistryDoc(
+    String collection,
+    String id,
+    Map<String, dynamic> map,
+    String label,
+    String name,
+  ) async {
+    if (!canManageItAssets) return 'لا تملك سجلَّ الأنظمة والأصول';
+    final me = currentUser;
+    if (me == null) return 'لا جلسةَ مفتوحة';
+    if (name.trim().isEmpty) return 'الاسمُ مطلوب';
+    try {
+      if (id.isEmpty) {
+        final ref = await _db.collection(collection).add({
+          ...map,
+          'createdByUid': me.id,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        await _log('إضافة $label', 'أضاف ${me.name} $label: $name',
+            targetType: collection, targetId: ref.id);
+      } else {
+        final patch = Map<String, dynamic>.from(map)
+          ..remove('createdAt')
+          ..remove('createdByUid');
+        await _db.collection(collection).doc(id).update(patch);
+        await _log('تعديل $label', 'حدّث ${me.name} $label: $name',
+            targetType: collection, targetId: id);
+      }
+      return null;
+    } catch (e) {
+      return 'تعذّر الحفظ: $e';
+    }
+  }
+
+  Future<String?> saveAsset(ITAsset a) =>
+      _saveRegistryDoc('assets', a.id, a.toMap(), 'أصلاً تقنيّاً', a.name);
+
+  Future<String?> saveVendor(Vendor v) =>
+      _saveRegistryDoc('vendors', v.id, v.toMap(), 'مورّداً', v.name);
+
+  Future<String?> saveContract(Contract c) =>
+      _saveRegistryDoc('contracts', c.id, c.toMap(), 'عقداً', c.title);
+
   Future<void> saveSlaPolicy(SlaPolicy policy) async {
     await _db.collection('settings').doc('slaPolicy').set(policy.toMap());
     await _log('تحديث مدد الخدمة',
@@ -1302,6 +1409,8 @@ class AppStore extends ChangeNotifier {
         pendingDecisions: pendingApprovalsCount,
         tickets: visibleTickets,
         changes: visibleChanges,
+        assets: visibleAssets,
+        contracts: visibleContracts,
         slaPolicy: slaPolicy,
         thresholds: attentionThresholds,
       );
@@ -3562,6 +3671,7 @@ class AppStore extends ChangeNotifier {
     _watchWeeklyPlans();
     _watchTickets();
     _watchItsm();
+    _watchItRegistry();
 
     // طلبات الاعتماد كانت تُطلب كاملةً بلا نطاق، وقاعدتها تعتمد على محتوى
     // المستند — فيُرفض الطلب كله لكل من ليس مسؤول نظام أو مستخدماً تنفيذياً،
@@ -4170,6 +4280,9 @@ class AppStore extends ChangeNotifier {
         // و`cab` معها: البتُّ في تغييرٍ يمسّ البنيةَ التقنيّة لا يُورَّث
         // بحكم دورٍ يحمله من يحمله، بل يُمنح لفردٍ بالاسم ويُسحب.
         case RolePermission.approveChanges:
+        // و`ita` معها: سجلُّ الأصول يحمل قيمَ العقود ومعلوماتِ المورّدين،
+        // فلا يُورَّث بحكم دورٍ يحمله من يحمله.
+        case RolePermission.manageItAssets:
           // صلاحيات لا مقابل لها في مستند الدور المخصص؛ تُمنح لحامله
           // بالاستثناء الفردي أعلاه إن أراد مسؤول النظام.
           return false;

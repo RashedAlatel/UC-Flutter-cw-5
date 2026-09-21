@@ -180,6 +180,25 @@ else
 fi
 echo ""
 
+# ــ و`ita` مفتاحُ سجلٍّ لا مفتاحُ اعتماد ــ
+#
+# فلا تظهر في `checkApprovalPermission` إطلاقاً. وموضعُها الوحيد في هذا
+# الملفّ تعريفُها في قائمة المفاتيح.
+ITA_CODE="$(grep -n 'ita' functions/src/index.ts \
+  | grep -v '^[0-9]*:[[:space:]]*//' | grep -v '^[0-9]*:[[:space:]]*\*' \
+  | grep '"ita"')"
+ITA_USES="$(printf '%s\n' "${ITA_CODE}" | grep -c .)"
+echo "و«ita» مفتاحُ سجلٍّ لا يبلغ ذراعَ تخويل:"
+if [ "${ITA_USES}" -eq 1 ]; then
+  echo "  ✔ موضعٌ واحد: التعريفُ في قائمة المفاتيح"
+  PASS=$((PASS + 1))
+else
+  echo "  ✗ ${ITA_USES} مواضع — هل صارت مفتاحَ اعتماد؟"
+  printf '%s\n' "${ITA_CODE}" | sed 's/^/      /'
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
 echo "الإرسال المباشر للبريد لمسؤول النظام وحده:"
 want "sendUserNotification تشترط requireAdmin" 'const auth = requireAdmin(request);'
 want "ولا أثر لـrequireNotifyAccess" '^// كانت هنا `requireNotifyAccess`'

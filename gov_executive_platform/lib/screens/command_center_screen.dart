@@ -238,6 +238,9 @@ class _KindGrid extends StatelessWidget {
         // واحد: التزامٌ مُعلَنٌ لم يُوفَّ به.
         AttentionKind.changeUnreviewed => StatusPalette.danger,
         AttentionKind.changeOverdue => StatusPalette.warning,
+        // وتجاوزُ السعة تحذيرٌ لا خطر: الأصلُ يعمل، والمهلةُ قائمةٌ لتوسعته.
+        // وحَرِجيّتُه تُقال في شدّة البند لا في لون البابِ.
+        AttentionKind.assetOverCapacity => StatusPalette.warning,
       };
 
   static IconData _icon(AttentionKind kind) => switch (kind) {
@@ -253,6 +256,7 @@ class _KindGrid extends StatelessWidget {
         AttentionKind.ticketAtRisk => Icons.timer_outlined,
         AttentionKind.changeUnreviewed => Icons.published_with_changes_rounded,
         AttentionKind.changeOverdue => Icons.pending_actions_rounded,
+        AttentionKind.assetOverCapacity => Icons.storage_rounded,
       };
 
   @override

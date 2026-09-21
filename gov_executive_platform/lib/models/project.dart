@@ -111,8 +111,20 @@ class Project {
   final String sponsorUid;
   final String sponsorName;
 
-  /// المورّدُ المنفّذ — ويُربط لاحقاً بسجلّ المورّدين.
+  /// المورّدُ المنفّذ — **والاسمُ يبقى، والمعرّفُ يُضاف** ــ
+  ///
+  /// كان في هذا التعليق «ويُربط لاحقاً بسجلّ المورّدين»، وقد بُني السجلّ
+  /// (`lib/models/vendor.dart`). فأُضيف [vendorId] إلى جانبه **ولم يُستبدل
+  /// به**: مشاريعُ الوزارة المستوردة تحمل الاسمَ نصّاً بلا معرّفٍ يقابله،
+  /// ومحوُ الحقل يُفقد ما كُتب.
+  ///
+  /// وهو الاصطلاحُ نفسُه في `assigneeName` و`reporterName`: المعرّفُ
+  /// للربط، والاسمُ منسوخٌ للعرض بلا قراءةٍ ثانية.
   final String vendorName;
+
+  /// معرّفُ المورّد في السجلّ — وفارغٌ يعني اسماً بلا سجلّ، وهو حالُ ما
+  /// كُتب قبل هذه الدورة.
+  final String vendorId;
 
   /// **حَرِجيّةُ المشروع**: أثرُ تعثّره على الوزارة، لا استعجالُه.
   ///
@@ -184,6 +196,7 @@ class Project {
     this.sponsorUid = '',
     this.sponsorName = '',
     this.vendorName = '',
+    this.vendorId = '',
     this.criticality = '',
     this.currentPhase = '',
     this.nextPhase = '',
@@ -336,6 +349,7 @@ class Project {
     String? sponsorUid,
     String? sponsorName,
     String? vendorName,
+    String? vendorId,
     String? criticality,
     String? currentPhase,
     String? nextPhase,
@@ -390,6 +404,7 @@ class Project {
       sponsorUid: sponsorUid ?? this.sponsorUid,
       sponsorName: sponsorName ?? this.sponsorName,
       vendorName: vendorName ?? this.vendorName,
+      vendorId: vendorId ?? this.vendorId,
       criticality: criticality ?? this.criticality,
       currentPhase: currentPhase ?? this.currentPhase,
       nextPhase: nextPhase ?? this.nextPhase,
@@ -466,6 +481,7 @@ class Project {
         'sponsorUid': sponsorUid,
         'sponsorName': sponsorName,
         'vendorName': vendorName,
+        'vendorId': vendorId,
         'criticality': criticality,
         'currentPhase': currentPhase,
         'nextPhase': nextPhase,
@@ -548,6 +564,7 @@ class Project {
       sponsorUid: json['sponsorUid'] as String? ?? '',
       sponsorName: json['sponsorName'] as String? ?? '',
       vendorName: json['vendorName'] as String? ?? '',
+      vendorId: json['vendorId'] as String? ?? '',
       criticality: json['criticality'] as String? ?? '',
       currentPhase: json['currentPhase'] as String? ?? '',
       nextPhase: json['nextPhase'] as String? ?? '',

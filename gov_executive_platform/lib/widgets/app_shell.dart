@@ -30,6 +30,7 @@ import '../screens/procedures_screen.dart';
 import '../screens/tickets_screen.dart';
 import '../screens/problems_screen.dart';
 import '../screens/changes_screen.dart';
+import '../screens/it_registry_screen.dart';
 import '../screens/sla_policy_screen.dart';
 import '../screens/status_types_screen.dart';
 import '../screens/team_workload_screen.dart';
@@ -70,6 +71,7 @@ const Map<NavKey, IconData> _navIcons = {
   NavKey.tickets: Icons.support_agent_rounded,
   NavKey.problems: Icons.troubleshoot_rounded,
   NavKey.changes: Icons.published_with_changes_rounded,
+  NavKey.itRegistry: Icons.inventory_2_rounded,
   NavKey.slaPolicy: Icons.timer_outlined,
   NavKey.statusTypes: Icons.category_outlined,
   NavKey.holidays: Icons.event_busy_outlined,
@@ -228,6 +230,8 @@ class _AppShellState extends State<AppShell> {
         return const ProblemsScreen();
       case NavKey.changes:
         return const ChangesScreen();
+      case NavKey.itRegistry:
+        return const ItRegistryScreen();
       case NavKey.slaPolicy:
         return const SlaPolicyScreen();
       case NavKey.statusTypes:

@@ -23,6 +23,8 @@ import '../models/enums.dart';
 import '../models/project.dart';
 import '../models/project_task.dart';
 import '../models/change_request.dart';
+import '../models/contract.dart';
+import '../models/it_asset.dart';
 import '../models/ticket.dart';
 import '../models/work_item.dart';
 import '../itsm/sla.dart';
@@ -55,7 +57,8 @@ enum AttentionKind {
   ticketBreached('بلاغٌ تجاوز مدّته'),
   ticketAtRisk('بلاغٌ يوشك على تجاوز مدّته'),
   changeUnreviewed('تغييرٌ طارئٌ لم يُراجَع'),
-  changeOverdue('تغييرٌ فات موعدُه ولم يُعتمد');
+  changeOverdue('تغييرٌ فات موعدُه ولم يُعتمد'),
+  assetOverCapacity('أصلٌ تجاوز سعتَه');
 
   final String label;
   const AttentionKind(this.label);
@@ -160,6 +163,8 @@ class AttentionEngine {
     // «أي تعديل يجب ألا يكسر الميزات الحالية».
     List<Ticket> tickets = const [],
     List<ChangeRequest> changes = const [],
+    List<ITAsset> assets = const [],
+    List<Contract> contracts = const [],
     SlaPolicy slaPolicy = SlaPolicy.standard,
     DateTime? now,
     AttentionThresholds thresholds = const AttentionThresholds(),
@@ -353,6 +358,50 @@ class AttentionEngine {
           ));
         }
       }
+    }
+
+    // ــ العقودُ المستقلّة: مصدرٌ ثانٍ لخبرٍ **لا يُعدّ مرّتين** ــ
+    //
+    // `Project` يحمل عقدَه أصلاً، وقد نُبِّه عليه أعلاه من `contractEndDate`.
+    // فعقدٌ هنا يحمل `relatedProjectId` هو **الوثيقةُ نفسُها** مسجَّلةً
+    // للتصفّح — ولو نُبِّه عليه لظهر العقدُ الواحد مرّتين في «ما يحتاج
+    // تدخّلاً»، والرقمُ الذي يُعدّ مرّتين لا يُصدَّق مرّة.
+    for (final c in contracts) {
+      if (c.isDeleted || c.relatedProjectId.isNotEmpty) continue;
+      final end = c.endDate;
+      if (end == null) continue;
+      final left = end.difference(today).inDays;
+      // ومهلةُ التنبيه من العقد نفسِه: ترخيصٌ يُجدَّد في أسبوعٍ غيرُ عقدِ
+      // دعمٍ تستغرق مناقصتُه ثلاثة أشهر.
+      if (left < 0 || left > c.renewalNoticeDays) continue;
+      items.add(AttentionItem(
+        kind: AttentionKind.contractExpiring,
+        severity: left <= 30 ? AttentionSeverity.critical : AttentionSeverity.needsAttention,
+        title: c.title,
+        reason: 'ينتهي بعد $left يوماً — ${c.vendorName.isEmpty ? c.kind.label : c.vendorName}',
+        recordId: c.id,
+        days: left,
+      ));
+    }
+
+    // ــ والأصلُ الذي تجاوز سعتَه ــ
+    //
+    // و**غيرُ المقيس ليس متجاوزاً**: `capacityUsedPercent` الغائبةُ تُقرأ
+    // «لم تُقَس» لا صفراً — يفرضه `ITAsset.isOverCapacity`.
+    for (final a in assets) {
+      if (a.isDeleted || !a.isOverCapacity) continue;
+      items.add(AttentionItem(
+        kind: AttentionKind.assetOverCapacity,
+        // والحَرِجيّةُ من تصنيف الأصل لا من النسبة: خادمُ `tier1` عند ٩٠٪
+        // خطرٌ، وطابعةُ `tier3` عنده خبر.
+        severity: a.criticality == 'tier1'
+            ? AttentionSeverity.critical
+            : AttentionSeverity.needsAttention,
+        title: a.name,
+        reason: 'استهلك ${a.capacityUsedPercent}% من سعته (الحدّ ${a.capacityThreshold}%)',
+        departmentId: a.departmentServed,
+        recordId: a.id,
+      ));
     }
 
     items.sort((a, b) {

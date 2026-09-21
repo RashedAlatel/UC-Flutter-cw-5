@@ -1,0 +1,30 @@
+{
+  "name": "gov-exec-platform-functions",
+  "description": "الدوال الخلفية للمنصة التنفيذية الحكومية: اعتماد الطلبات، إرسال البريد وواتساب",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "test": "npm run build && node --test \"test/**/*.test.mjs\"",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.1.1",
+    "nodemailer": "^6.9.16",
+    "twilio": "^5.3.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/nodemailer": "^6.4.17",
+    "typescript": "^5.7.2"
+  }
+}

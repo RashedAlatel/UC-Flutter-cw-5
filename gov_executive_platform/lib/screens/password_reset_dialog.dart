@@ -89,6 +89,19 @@ class _PasswordResetDialogState extends State<PasswordResetDialog> {
                 'المرور الجديدة عُد إلى هذه الصفحة وسجّل الدخول بها.',
                 style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.7),
               ),
+              const SizedBox(height: AppSpace.sm),
+              // ــ وأين يبحث عنها ــ
+              //
+              // الرسالةُ تخرج من Firebase لا من بريد الوزارة، فمُرسِلُها
+              // عنوانٌ آليٌّ لا يعرفه الموظّف — وكثيرٌ من البُرد تضعه في
+              // «غير المرغوب». والمنصّةُ لا تملك تغييرَ ذلك، وتملك أن تقول
+              // له أين يبحث. وهذا وحدَه يوفّر اتّصالاتِ دعمٍ أكثرَ من أيّ
+              // شيءٍ آخر في هذه النافذة.
+              const Text(
+                'وتصلك من عنوانٍ آليٍّ لا من بريد الوزارة. فإن لم تجدها خلال دقائق، '
+                'فانظر في مجلّد «البريد غير المرغوب» قبل أن تُعيد الطلب.',
+                style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary, height: 1.7),
+              ),
             ] else ...[
               const Text(
                 'اكتب البريد الإلكتروني المسجَّل باسمك في المنصة، ويصلك عليه '

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails, kIsWeb;
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -50,6 +51,32 @@ Future<void> main() async {
     WidgetsBinding.instance.addPostFrameCallback((_) => signalUiReady());
     return;
   }
+
+  // ــــ لغةُ الرسائل التي ترسلها Firebase بنفسها ــــ
+  //
+  // رسالةُ إعادة تعيين كلمة المرور لا تخرج من هذه المنصة — تكتبها Firebase
+  // وترسلها، وتختار لغتَها من `languageCode`. ولم يكن يُضبط قطّ، فكانت
+  // تصل **بالإنجليزيّة** في منصّةٍ عربيّةٍ كلِّها، من مُرسِلٍ عنوانُه آليّ.
+  // والموظّفُ الذي نسي كلمةَ مروره يحذفها ويتّصل بالدعم.
+  //
+  // ــ ومُلتَقَطٌ بلا صياح، وبمهلة ــ
+  //
+  // هذا الملفُّ فيه مهلةُ ثماني ثوانٍ وشاشةُ خطأٍ مكتوبتان لسببهما: إخفاقُ
+  // التهيئة كان **يعلّق التطبيق بلا نهاية** فلا يُرسم شيء. ولغةُ بريدٍ لا
+  // تستحقّ أن تمنع أحداً من الدخول: إن أخفقت وصلت الرسالةُ بالإنجليزيّة
+  // كما كانت، ودخل الموظّفُ كما كان.
+  //
+  // **والقالبُ نصفُ الحلّ**: هذا السطرُ يختار اللغة، وكلماتُ الرسالة في
+  // لوحة Firebase — راجع `README.md`. وبلا القالب تصل رسالةُ Firebase
+  // العربيّة المبدئيّة، وهي مفهومةٌ بلا اسم الوزارة.
+  try {
+    await FirebaseAuth.instance
+        .setLanguageCode('ar')
+        .timeout(const Duration(seconds: 2));
+  } catch (_) {
+    // تُترك اللغةُ كما هي عمداً — ولا شاشةَ خطأٍ لأجل بريد.
+  }
+
   runApp(const GovExecutivePlatformApp());
 }
 

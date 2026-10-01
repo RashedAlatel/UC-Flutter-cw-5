@@ -485,6 +485,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tone: StatusPalette.success,
           emphasize: false,
         );
+      // ــــ المشاريعُ غير المكتملة ــــ
+      //
+      // **و`effectiveStatus` لا `status`**: الأوّلُ يُشتقّ من نسبة الإنجاز،
+      // والثاني مخزَّنٌ قد يخالفه. ومشروعٌ نسبتُه مئةٌ وحالتُه المخزَّنة «على
+      // المسار» مكتملٌ فعلاً، فلو قُرئ المخزَّنُ لَعدّته البطاقةُ غيرَ مكتمل
+      // وقال الجدولُ تحتها «مكتمل» — وقد افترق الموضعان في هذه المنصّة من
+      // قبل، فقالت شاشةٌ واحدةٌ شيئين بحسب عرض النافذة.
+      case DashboardWidgetType.kpiIncomplete:
+        final open = projects.where((p) => p.effectiveStatus != ProjectStatus.completed).length;
+        return (
+          title: 'المشاريع غير المكتملة',
+          value: '$open',
+          icon: Icons.pending_actions_rounded,
+          tone: StatusPalette.info,
+          // ــ ولا يُلوَّن الرقمُ بلون المعنى ــ
+          //
+          // غيرُ المكتمل ليس إخفاقاً — هو حجمُ العمل القائم، وأكثرُ الحافظة
+          // كذلك دائماً. ورقمٌ كبيرٌ ملوَّنٌ في كلّ لحظةٍ يُقرأ إنذاراً
+          // دائماً، فيُهمَل اللونُ ويضيع معه ما يُنذر حقّاً.
+          emphasize: false,
+        );
       default:
         // لا يُستدعى إلا لأنواع المؤشرات؛ مذكور ليكتمل التفريع.
         return (title: '', value: '', icon: Icons.help_outline, tone: StatusPalette.neutral, emphasize: false);
@@ -555,6 +576,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 body: const DecisionCenterScreen(),
               ),
             ));
+      // ــ وهذه تُضغط: طُلبت صراحةً لتُفتح قائمتُها ويُدخَل على تفاصيلها ــ
+      //
+      // والترتيبُ بالأسوأ أوّلاً: بطاقةٌ تعدّ غيرَ المكتمل تعدّ أكثرَ
+      // الحافظة، وقائمةٌ بمئةِ مشروعٍ بلا ترتيبٍ لا تُقرأ. فالمتأخّرُ ثمّ
+      // المهدَّدُ ثمّ ما على المسار، والأقربُ موعداً أوّلاً داخل كلّ طبقة.
+      //
+      // **ونسخةٌ قبل الترتيب**: `projects` هي قائمةُ الصفحة نفسُها، ولو
+      // رُتّبت في مكانها لأعادت ترتيبَ الجدول والقوائم تحتها بضغطةٍ على
+      // مؤشّر — وهو أثرٌ لا يطلبه من ضغط. (التحذيرُ نفسُه في ذراع
+      // `kpiAvgProgress` أعلاه.)
+      case DashboardWidgetType.kpiIncomplete:
+        return () {
+          int rank(ProjectStatus s) => switch (s) {
+                ProjectStatus.delayed => 0,
+                ProjectStatus.atRisk => 1,
+                ProjectStatus.onTrack => 2,
+                ProjectStatus.completed => 3,
+              };
+          final open = projects
+              .where((p) => p.effectiveStatus != ProjectStatus.completed)
+              .toList()
+            ..sort((a, b) {
+              final byStatus = rank(a.effectiveStatus).compareTo(rank(b.effectiveStatus));
+              return byStatus != 0 ? byStatus : a.dueDate.compareTo(b.dueDate);
+            });
+          peek('المشاريع غير المكتملة', open);
+        };
       case DashboardWidgetType.kpiClaimedDone:
       case DashboardWidgetType.kpiClosedApproved:
         return null;
@@ -610,6 +658,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case DashboardWidgetType.kpiPendingApprovals:
       case DashboardWidgetType.kpiClaimedDone:
       case DashboardWidgetType.kpiClosedApproved:
+      case DashboardWidgetType.kpiIncomplete:
         // ــ ذراعٌ لا تُصيَّر اليوم، وتبقى صحيحةً إن صُيِّرت ــ
         //
         // `build` تقسم الودجات قسمين: ما كان مؤشّراً إلى الشريط القيادي،

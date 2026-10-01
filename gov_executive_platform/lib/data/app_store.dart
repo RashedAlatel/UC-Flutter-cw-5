@@ -680,9 +680,20 @@ class AppStore extends ChangeNotifier {
       raw.map((w) => DashboardWidgetConfig.fromMap(Map<String, dynamic>.from(w as Map))).toList(),
     );
     if (!migrateKpi) return list;
-    return DashboardWidgetConfig.withKpiRow(
+    // ــ ترحيلان لا واحد، ولكلٍّ علامتُه ــ
+    //
+    // الأوّلُ لمن حُفظت لوحتُه **قبل** أن تصير المؤشّراتُ ودجات، فيشترط
+    // ألّا يكون فيها مؤشّرٌ إطلاقاً. والثاني لبطاقةٍ أُضيفت **بعد** ذلك،
+    // فيصل من لوحتُه فيها مؤشّراتٌ أصلاً — وهم الأكثر.
+    //
+    // ولو اكتُفي بالأوّل لَما بلغت البطاقةُ الجديدةُ أحداً خصّص لوحتَه.
+    final withKpis = DashboardWidgetConfig.withKpiRow(
       list,
       migrated: data?[DashboardWidgetConfig.kpiMigrationKey] == true,
+    );
+    return DashboardWidgetConfig.withIncompleteKpi(
+      withKpis,
+      added: data?[DashboardWidgetConfig.incompleteKpiKey] == true,
     );
   }
 
@@ -691,6 +702,9 @@ class AppStore extends ChangeNotifier {
   static Map<String, dynamic> _dashboardDoc(List<DashboardWidgetConfig> widgets) => {
         'widgets': DashboardWidgetConfig.dedupe(widgets).map((w) => w.toMap()).toList(),
         DashboardWidgetConfig.kpiMigrationKey: true,
+        // ومعها علامةُ البطاقة الجديدة: من حفظ لوحتَه بعد ظهورها فقد رآها،
+        // فإن لم تكن فيها فذلك حذفُه — ولا تعود.
+        DashboardWidgetConfig.incompleteKpiKey: true,
       };
 
   /// حفظ لوحة المستخدم الحالي وحده. متاح لكل مستخدم معتمَد على مستنده هو.

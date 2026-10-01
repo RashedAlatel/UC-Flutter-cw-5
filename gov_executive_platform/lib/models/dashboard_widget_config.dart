@@ -116,6 +116,7 @@ class DashboardWidgetConfig {
         DashboardWidgetConfig(id: 'kpi_risks', type: DashboardWidgetType.kpiOpenRisks, width: DashboardWidgetWidth.third),
         DashboardWidgetConfig(id: 'kpi_blockers', type: DashboardWidgetType.kpiOpenBlockers, width: DashboardWidgetWidth.third),
         DashboardWidgetConfig(id: 'kpi_approvals', type: DashboardWidgetType.kpiPendingApprovals, width: DashboardWidgetWidth.third),
+        DashboardWidgetConfig(id: 'kpi_incomplete', type: DashboardWidgetType.kpiIncomplete, width: DashboardWidgetWidth.third),
       ];
 
   /// مفتاح يُكتب على مستند اللوحة عند أول حفظ من الواجهة الجديدة.
@@ -137,6 +138,51 @@ class DashboardWidgetConfig {
     if (migrated || stored.isEmpty) return stored;
     if (stored.any((w) => w.type.isKpi)) return stored;
     return [...kpiDefaults(), ...stored];
+  }
+
+  /// علامةُ «بطاقةُ غير المكتملة أُضيفت» — تُكتب مع أوّل حفظ بعد ظهورها.
+  static const String incompleteKpiKey = 'incompleteKpiAdded';
+
+  /// يُدرج بطاقةَ «المشاريع غير المكتملة» في تخطيطٍ **حُفظ قبل** وجودها.
+  ///
+  /// ــــ ولماذا دالّةٌ ثانيةٌ ولم تكفِ [withKpiRow] ــــ
+  ///
+  /// تلك تشترط ألّا يكون في المحفوظ **أيُّ** مؤشّر — فهي لمن حُفظت لوحتُه
+  /// قبل أن تصير المؤشّراتُ ودجات. ومن لوحتُه فيها مؤشّراتٌ أصلاً لا تمسّه،
+  /// فبطاقةٌ جديدةٌ تُضاف إلى [kpiDefaults] وحدَها **لا تبلغه أبداً**:
+  /// تُنشَر الشيفرةُ ولا يرى شيئاً، فيقول «طلبتُها ولم تأتِ» — ولا خطأَ في
+  /// سجلٍّ ولا اختبارٌ أحمر.
+  ///
+  /// ــــ والعلامةُ على المستند لا على قائمة الودجات ــــ
+  ///
+  /// وهو نصُّ [withKpiRow] ولسببه: من حذف البطاقةَ عمداً بعد ظهورها وحَفِظ،
+  /// تبقى العلامةُ مكتوبةً فيبقى حذفُه — ولا تعود في كلّ تحميلٍ تُصارعه.
+  ///
+  /// ــــ وموضعُها بين المؤشّرات لا في الذيل ــــ
+  ///
+  /// بطاقةُ مؤشّرٍ تقع تحت الجداول والرسوم تُقرأ عطلاً لا ميزة. فتُدرَج بعد
+  /// آخر مؤشّرٍ في التخطيط.
+  ///
+  /// والقائمةُ الفارغةُ تُعاد كما هي — الفراغُ يعني «هذه الطبقة لم تُضبط»
+  /// فتتخطّاها [resolveLayers]، وحشوُها يجعلها تبدو مضبوطة.
+  static List<DashboardWidgetConfig> withIncompleteKpi(
+    List<DashboardWidgetConfig> stored, {
+    required bool added,
+  }) {
+    if (added || stored.isEmpty) return stored;
+    if (stored.any((w) => w.type == DashboardWidgetType.kpiIncomplete)) return stored;
+
+    const card = DashboardWidgetConfig(
+      id: 'kpi_incomplete',
+      type: DashboardWidgetType.kpiIncomplete,
+      width: DashboardWidgetWidth.third,
+    );
+
+    // وبعد آخر مؤشّر. وتخطيطٌ بلا مؤشّرٍ إطلاقاً — وهو من حذفها كلَّها عمداً
+    // — لا تُدسّ فيه بطاقةٌ في أوّله: تُترك له كما تركته [withKpiRow].
+    final lastKpi = stored.lastIndexWhere((w) => w.type.isKpi);
+    if (lastKpi < 0) return stored;
+    return [...stored.sublist(0, lastKpi + 1), card, ...stored.sublist(lastKpi + 1)];
   }
 
   /// يُبقي أول ظهور فقط لكل نوع جاهز ويحذف أي تكرار، مع إبقاء كل الودجات

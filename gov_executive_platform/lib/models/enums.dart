@@ -364,6 +364,14 @@ enum DashboardWidgetType {
   // تنفيذ.
   kpiClaimedDone,
   kpiClosedApproved,
+  // ــــ المشاريعُ غير المكتملة ــــ
+  //
+  // وهي غيرُ «المتأخّرة»: المتأخّرُ فات موعدَه، وغيرُ المكتمل كلُّ ما لم
+  // يبلغ نهايتَه — على المسار كان أو مهدَّداً أو متأخّراً. فالأوّلُ خبرُ
+  // إخفاق، وهذا **حجمُ العمل القائم**: ما يشغل الإدارةَ فعلاً اليوم.
+  //
+  // وطُلبت صراحةً لتُضغط فتُفتح قائمتُها، ويُدخَل منها على تفصيل أيّ مشروع.
+  kpiIncomplete,
   // الرسوم والقوائم
   deptBarChart,
   topUsersChart,
@@ -395,6 +403,8 @@ enum DashboardWidgetType {
         return 'مؤشر: أفادت الإدارات بإتمامه (بانتظار الاعتماد)';
       case DashboardWidgetType.kpiClosedApproved:
         return 'مؤشر: مُعتمَد ومغلَق';
+      case DashboardWidgetType.kpiIncomplete:
+        return 'مؤشر: المشاريع غير المكتملة';
       case DashboardWidgetType.deptBarChart:
         return 'رسم بياني: ترتيب الإدارات (أعمدة)';
       case DashboardWidgetType.topUsersChart:
@@ -436,6 +446,10 @@ enum DashboardWidgetType {
         return Icons.how_to_reg_outlined;
       case DashboardWidgetType.kpiClosedApproved:
         return Icons.task_alt_rounded;
+      // أيقونةُ «قيد العمل» لا أيقونةُ خطر: غيرُ المكتمل ليس إخفاقاً، بل
+      // هو العملُ القائم. والمتأخّرُ له أيقونتُه ولونُه.
+      case DashboardWidgetType.kpiIncomplete:
+        return Icons.pending_actions_rounded;
       case DashboardWidgetType.deptBarChart:
         return Icons.bar_chart_rounded;
       case DashboardWidgetType.topUsersChart:

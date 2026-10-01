@@ -12,6 +12,28 @@ service cloud.firestore {
     function role() { return request.auth.token.role; }
     function isAdmin() { return isApproved() && role() == 'systemAdmin'; }
     function isExecutive() { return isApproved() && role() == 'executiveViewer'; }
+    // ــــ المراقب: يرى من يُسمَّون له، ولا يكتب ــــ
+    //
+    // قائمةُ من يراقبهم في بطاقته بالمفتاح `w`، يكتبها مسؤولُ النظام وحدَه
+    // عبر `setWatchedUsers` — راجع `functions/src/watched.ts` للحدّ وسببه.
+    // والقاعدةُ أدناه في `users` تمنع كتابةَ `watchedUids` من العميل.
+    function isMonitor() { return isApproved() && role() == 'monitor'; }
+    function myWatched() { return request.auth.token.get('w', []); }
+    function isWatching(uid) { return isMonitor() && uid != null && uid != '' && uid in myWatched(); }
+    // هل في هذه القائمة من أراقبه؟ — `hasAny` تتقاطع قائمتين في خطوة.
+    function watchesAnyOf(list) { return isMonitor() && list != null && myWatched().hasAny(list); }
+
+    // ــــ ومن لا يكتب شيئاً — موضعٌ واحدٌ يقرّر ــــ
+    //
+    // كُتب `!isExecutive()` في **سبعة** مواضعَ تمنع صاحبَ النظرة الشاملة من
+    // الكتابة. وأخطرُها فروعُ `isMemberOfRealProject`: من جُعل عضواً في
+    // مشروعٍ كتب فيه مهامَّ ومخاطرَ وبلاغاتٍ وتحديثاتٍ يومية — وذلك يمرّ
+    // بالعضوية لا بالدور، فلا يحرسه قفلُ الصلاحيات.
+    //
+    // والمراقبُ يقع في الثغرة نفسِها حرفاً. ونسخُ `!isMonitor()` إلى سبعة
+    // مواضعَ نسخٌ يُنسى عند الثامن — وقد نُسي من قبلُ في أربعةٍ منها حتى
+    // كُشفت. فصار الشرطُ اسماً واحداً يُسأل، ودورٌ ثالثٌ يُضاف هنا وحدَه.
+    function isWatcher() { return isExecutive() || isMonitor(); }
     // صلاحيات الأدوار: مجموعة أعلام مضغوطة مضمّنة داخل Custom Claims وقت تعيين
     // الدور أو تحديث صلاحياته (راجع setUserRole و refreshRolePermissions في
     // Cloud Functions)، وليست بالإمكان منحها ذاتياً من جهة العميل بأي حال.
@@ -106,6 +128,13 @@ service cloud.firestore {
     function isProjectMember(data) {
       return isApproved() &&
              (request.auth.uid in managersOf(data) || request.auth.uid in executorsOf(data));
+    }
+    // هل هذا المشروعُ لأحدٍ أراقبه؟ — مديراً كان أو منفّذاً.
+    //
+    // وتُقرأ القائمتان معاً لا `managerUids` وحدها: المراقَبُ قد يكون منفّذاً
+    // في مشروعٍ يديره غيرُه، ومراقبةُ عمله هي بعينها ما طُلب.
+    function isWatchedProject(data) {
+      return watchesAnyOf(managersOf(data)) || watchesAnyOf(executorsOf(data));
     }
     // صلاحية القراءة/الكتابة على مستند مرتبط بمشروع (تقدّم عبر departmentId و managerUid المنسوخين عليه).
     // ــــ البطاقةُ تُقرأ قراءةً واحدة في المنصة كلِّها ــــ
@@ -355,6 +384,7 @@ service cloud.firestore {
       return r == 'systemAdmin' ? 5
            : r == 'executiveViewer' ? 4
            : r == 'departmentManager' ? 3
+           : r == 'monitor' ? 4
            : r == 'projectOfficer' ? 2
            : r == 'custom' ? 2
            : 1;
@@ -509,7 +539,8 @@ service cloud.firestore {
       allow read: if isApproved() && (canViewAll()
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
-                                      || isMyDeptAny(deptOf(resource.data)));
+                                      || isMyDeptAny(deptOf(resource.data))
+                                      || isWatchedProject(resource.data));
       // مسؤول النظام يُنشئ مباشرةً، ومعه من مُنِح `mpr` **داخل نطاقه**.
       // ومن لا يملكها يمرّ بطلب اعتماد كما كان — وهذا هو الوضع الافتراضي
       // لكل المستخدمين، فالمنحة لا يرثها دور ولا تُفتح إلا بقرار فردي.
@@ -585,14 +616,15 @@ service cloud.firestore {
       allow read: if isApproved() && (canViewAll()
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
-                                      || isMyDeptAny(deptOf(resource.data)));
-      // ــ و`!isExecutive()` كما في `dailyUpdates` ولسببها ــ
+                                      || isMyDeptAny(deptOf(resource.data))
+                                      || isWatchedProject(resource.data));
+      // ــ و`!isWatcher()` كما في `dailyUpdates` ولسببها ــ
       //
       // «المستخدم التنفيذي يرى كل شيء ولا يغيّر شيئاً» قاعدةُ الدور. وكانت
       // مفروضةً على حذف التحديث اليوميّ وحدَه، فكان الناظرُ العضوُ يكتب في
       // أربعة مواضع. وقرارُ إغلاقها كلِّها قرارُ صاحب المنصّة.
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
-                        || (!isExecutive() && isMemberOfRealProject(request.resource.data.projectId)))
+                        || (!isWatcher() && isMemberOfRealProject(request.resource.data.projectId)))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       // ــ والمُسنَد إليه بحسابه يُحرّك مهمته ــ
       //
@@ -653,8 +685,9 @@ service cloud.firestore {
       allow read: if isApproved() && (canViewAll()
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
-                                      || isMyDeptAny(deptOf(resource.data)));
-      // ــ و`!isExecutive()` هنا كما هي على فرع الحذف أدناه ــ
+                                      || isMyDeptAny(deptOf(resource.data))
+                                      || isWatchedProject(resource.data));
+      // ــ و`!isWatcher()` هنا كما هي على فرع الحذف أدناه ــ
       //
       // «المستخدم التنفيذي يرى كل شيء ولا يغيّر شيئاً» قاعدةٌ قائمة في
       // المنصة، وفرعُ الحذف يفرضها صراحةً. وهذا الفرعُ لم يكن يفرضها —
@@ -664,7 +697,7 @@ service cloud.firestore {
       //
       // وكان الفرعان يقولان شيئين عن الدور نفسِه في الكتلة نفسِها.
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
-                        || (!isExecutive() && isMemberOfRealProject(request.resource.data.projectId)))
+                        || (!isWatcher() && isMemberOfRealProject(request.resource.data.projectId)))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       // ــ السجل لا يُعدَّل، ويُحذف بشرط ــ
       //
@@ -687,14 +720,14 @@ service cloud.firestore {
       // طريق الحذف من الواجهة — فقاعدة التخزين تبقى مغلقة أمام العميل.
       allow update: if false;
       //
-      // و`!isExecutive()` على فرع الكاتب: المستخدم التنفيذي يرى كل شيء ولا
+      // و`!isWatcher()` على فرع الكاتب: التنفيذيُّ والمراقبُ يريان ولا يغيّران.
       // يغيّر شيئاً — قاعدةٌ قائمة في المنصة. وهو لا يكتب تحديثاً أصلاً،
       // لكنه قد يكون كتبه **قبل** أن يُنقل إلى هذا الدور، فيبقى اسمُه على
       // تحديثاتٍ قديمة. ولولا هذا الشرط لَحذفها بعد أن صار ناظراً لا عاملاً
       // — والعميل ودالّة الخادم يمنعانه، فكان النصّ يفترق عن مرآتيه.
       allow delete: if canAccessProjectDocOrMember(resource.data)
                     || (isApproved()
-                        && !isExecutive()
+                        && !isWatcher()
                         && resource.data.get('authorUid', '') == request.auth.uid);
     }
 
@@ -712,7 +745,7 @@ service cloud.firestore {
     // الأولى يملك الثانية.
     function canWritePlan(uid, deptId, sectionId) {
       return isApproved()
-             && !isExecutive()
+             && !isWatcher()
              && (isAdmin()
                  || isSectionHeadOf(sectionId)
                  || isMyDeptOfManager(deptId));
@@ -726,7 +759,8 @@ service cloud.firestore {
                   && (resource.data.get('uid', '') == request.auth.uid
                       || canViewAll()
                       || isSectionHeadOf(resource.data.get('sectionId', ''))
-                      || isMyDeptOfManager(resource.data.get('departmentId', null)));
+                      || isMyDeptOfManager(resource.data.get('departmentId', null))
+                      || isWatching(resource.data.get('uid', '')));
 
       allow create: if canWritePlan(request.resource.data.get('uid', ''),
                                     request.resource.data.get('departmentId', null),
@@ -792,7 +826,8 @@ service cloud.firestore {
                  || canViewAll()
                  || isSectionHeadOf(sectionId)
                  || isMyDeptOfManager(deptId)
-                 || inScope('vds', deptId));
+                 || inScope('vds', deptId)
+                 || isWatching(uid));
     }
 
     match /dailyStatuses/{id} {
@@ -810,10 +845,10 @@ service cloud.firestore {
       //     سجلٌّ يُكتب متى شاء صاحبُه يمكن ملءُ شهرٍ كاملٍ حضوراً في آخره.
       //     واليومُ يُقاس بتوقيت الكويت في `dayKeyOf`، وهنا بمقارنة الختم
       //     بحدَّي اليوم كما يرسلهما العميل — ويعيد الخادمُ حسابَه.
-      //   • `!isExecutive()` — المستخدمُ التنفيذيّ يرى كلَّ شيء ولا يغيّر
+      //   • `!isWatcher()` — التنفيذيُّ والمراقبُ يريان كلَّ ما لهما ولا يغيّران
       //     شيئاً، قاعدةٌ قائمةٌ في المنصة كلِّها.
       allow create: if isApproved()
-                    && !isExecutive()
+                    && !isWatcher()
                     && request.resource.data.get('uid', '') == request.auth.uid
                     && request.resource.data.get('dayKey', '') != ''
                     && request.resource.data.get('correctedByUid', '') == '';
@@ -839,14 +874,15 @@ service cloud.firestore {
       allow read: if isApproved() && (canViewAll()
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
-                                      || isMyDeptAny(deptOf(resource.data)));
-      // ــ و`!isExecutive()` كما في `dailyUpdates` ولسببها ــ
+                                      || isMyDeptAny(deptOf(resource.data))
+                                      || isWatchedProject(resource.data));
+      // ــ و`!isWatcher()` كما في `dailyUpdates` ولسببها ــ
       //
       // «المستخدم التنفيذي يرى كل شيء ولا يغيّر شيئاً» قاعدةُ الدور. وكانت
       // مفروضةً على حذف التحديث اليوميّ وحدَه، فكان الناظرُ العضوُ يكتب في
       // أربعة مواضع. وقرارُ إغلاقها كلِّها قرارُ صاحب المنصّة.
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
-                        || (!isExecutive() && isMemberOfRealProject(request.resource.data.projectId)))
+                        || (!isWatcher() && isMemberOfRealProject(request.resource.data.projectId)))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDocOrMember(resource.data)
                     && !request.resource.data.diff(resource.data).affectedKeys()
@@ -858,14 +894,15 @@ service cloud.firestore {
       allow read: if isApproved() && (canViewAll()
                                       || canAccessProjectDoc(deptOf(resource.data), managerOf(resource.data))
                                       || isProjectMember(resource.data)
-                                      || isMyDeptAny(deptOf(resource.data)));
-      // ــ و`!isExecutive()` كما في `dailyUpdates` ولسببها ــ
+                                      || isMyDeptAny(deptOf(resource.data))
+                                      || isWatchedProject(resource.data));
+      // ــ و`!isWatcher()` كما في `dailyUpdates` ولسببها ــ
       //
       // «المستخدم التنفيذي يرى كل شيء ولا يغيّر شيئاً» قاعدةُ الدور. وكانت
       // مفروضةً على حذف التحديث اليوميّ وحدَه، فكان الناظرُ العضوُ يكتب في
       // أربعة مواضع. وقرارُ إغلاقها كلِّها قرارُ صاحب المنصّة.
       allow create: if (canAccessProjectDoc(deptOf(request.resource.data), managerOf(request.resource.data))
-                        || (!isExecutive() && isMemberOfRealProject(request.resource.data.projectId)))
+                        || (!isWatcher() && isMemberOfRealProject(request.resource.data.projectId)))
                     && matchesRealProject(request.resource.data.projectId, deptOf(request.resource.data), managerOf(request.resource.data));
       allow update: if canAccessProjectDocOrMember(resource.data)
                     && !request.resource.data.diff(resource.data).affectedKeys()
@@ -902,7 +939,9 @@ service cloud.firestore {
       allow read: if isApproved()
                   && (canViewAll()
                       || isMyDeptAny(deptOf(resource.data))
-                      || resource.data.get('assigneeUid', '') == request.auth.uid);
+                      || resource.data.get('assigneeUid', '') == request.auth.uid
+                      // والمراقبُ يرى تحديثاتِ عملِ من يراقبه كما يرى العملَ نفسَه.
+                      || isWatching(resource.data.get('assigneeUid', '')));
       // من يكتب: مسؤول النظام، أو صاحب صلاحية إدارة الأعمال في نطاقه، أو
       // **المُسنَد إليه العمل نفسه** — وهو أكثر من يكتب هنا.
       //
@@ -924,11 +963,12 @@ service cloud.firestore {
 
     match /works/{id} {
       // يقرأها من يرى كل الإدارات، أو مدير الإدارة صاحبة العمل، أو الموظف
-      // المُسنَد إليه العمل نفسه.
+      // المُسنَد إليه العمل نفسه، **أو مراقبٌ سُمّي له ذلك الموظّف**.
       allow read: if isApproved()
                   && (canViewAll()
                       || isMyDeptAny(deptOf(resource.data))
-                      || resource.data.get('assigneeUid', '') == request.auth.uid);
+                      || resource.data.get('assigneeUid', '') == request.auth.uid
+                      || isWatching(resource.data.get('assigneeUid', '')));
       // الإنشاء والإسناد لمن يملك صلاحية "إدارة الأعمال" ضمن نطاقه.
       allow create: if (isAdmin()
                     || (perm('mw')

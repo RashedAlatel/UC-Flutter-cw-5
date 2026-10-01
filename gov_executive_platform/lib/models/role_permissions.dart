@@ -289,6 +289,10 @@ class RolePermissionsConfig {
         'executiveViewer': {'vad', 'mr', 'agd', 'dsh', 'dpg', 'sfb', 'bla', 'vcc'},
         'departmentManager': {'mw', 'dsh', 'dpg', 'sfb', 'bla', 'vcc'},
         'projectOfficer': {'dsh', 'dpg', 'sfb', 'bla', 'vcc'},
+        // و«مراقب» يرى اللوحةَ وصفحةَ الإدارة ومركزَ القيادة ويرسل ملاحظة —
+        // مداخلُ عرضٍ وشكوى لا أكثر. **ولا مفتاحَ كتابةٍ واحد**، ولا 'bla'
+        // (تنبيه المتأخرين جماعياً): ذاك فعلٌ يُرسل بريداً، والمراقبُ يراقب.
+        'monitor': {'dsh', 'dpg', 'sfb', 'vcc'},
         'employee': {'sfb'},
       });
 

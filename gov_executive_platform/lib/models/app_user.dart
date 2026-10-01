@@ -42,6 +42,20 @@ class AppUser {
   /// عبر دالة سحابية تعيد ختم البطاقة — فالقواعد تحتكم إلى البطاقة وحدها.
   final Map<String, GrantScope> scopedGrants;
 
+  /// الأشخاصُ الذين يراقبهم هذا الحساب — لدور [UserRole.monitor] وحدَه.
+  ///
+  /// **يكتبها مسؤولُ النظام عبر `setWatchedUsers` وحدها**، فهي تقرّر من يرى
+  /// بياناتِ من — مشاريعَ المراقَبين وأعمالَهم وحالاتِهم اليومية. فتغييرُها
+  /// حدثٌ أمنيٌّ يُسجَّل في التدقيق، شأنُ [role] و[permissionOverrides].
+  /// والقاعدةُ `allow update: if isAdmin()` تمنع كتابتَها من العميل.
+  ///
+  /// وحدُّها عشرون يفرضه الخادم — راجع `functions/src/watched.ts` للقياس.
+  ///
+  /// **وهي ليست في [toMap] عمداً**: ذاك يكتب المستندَ كاملاً (مسارُ التسجيل
+  /// الجديد)، فلو دخلته لَمحا نسخةٌ قديمةٌ في الذاكرة قائمةَ مراقبةٍ حيّة
+  /// بلا أن يقصد أحد. والقائمةُ لها طريقُ كتابةٍ واحد، فلا تُكتب من ثانٍ.
+  final List<String> watchedUids;
+
   /// نطاق صلاحية ممنوحة لهذا المستخدم، أو نطاق فارغ إن لم تُمنح.
   GrantScope scopeOf(RolePermission permission) =>
       scopedGrants[permission.key] ?? GrantScope.none;
@@ -70,6 +84,7 @@ class AppUser {
     this.emailVerificationExempt = false,
     this.permissionOverrides = const {},
     this.scopedGrants = const {},
+    this.watchedUids = const [],
     required this.status,
     required this.createdAt,
     this.mergedIntoUid,
@@ -148,6 +163,9 @@ class AppUser {
       scopedGrants: scopedGrants ?? this.scopedGrants,
       status: status ?? this.status,
       createdAt: createdAt,
+      // ولا مُعامَلَ لـ[watchedUids] هنا كذلك: لا يكتبها العميل بحال، فتُنقل
+      // كما هي ولا يُفتح لها بابُ تعديلٍ ثانٍ.
+      watchedUids: watchedUids,
       // لا مُعامَل له هنا عمداً: لا أحد يبني نسخةً بختمٍ جديد، فيبقى
       // كما كان — كبقية الحقول التي لا يكتبها العميل أصلاً.
       mergedIntoUid: mergedIntoUid,
@@ -192,6 +210,7 @@ class AppUser {
           if (e.value is bool) e.key.toString(): e.value as bool,
       },
       status: UserStatus.fromName(json['status'] as String? ?? UserStatus.pending.name),
+      watchedUids: List<String>.from(json['watchedUids'] as List? ?? const []),
       createdAt: (json['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       mergedIntoUid: json['mergedIntoUid'] as String?,
     );

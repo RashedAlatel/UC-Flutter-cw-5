@@ -36,6 +36,11 @@ int assignRank(UserRole role) {
       return 2;
     case UserRole.custom:
       return 2;
+    // ورتبةُ «مراقب» رتبةُ التنفيذيّ: كلاهما يرى ولا يُسنَد إليه عمل.
+    // والرتبةُ عنده شبهُ معطَّلة أصلاً — هي تقرّر من يُسنَد إليه، ولا عملَ
+    // يُسنَد لمن لا يملك صلاحية كتابةٍ واحدة. فتُرفع احتياطاً لا توسعةً.
+    case UserRole.monitor:
+      return 4;
     case UserRole.employee:
       return 1;
   }

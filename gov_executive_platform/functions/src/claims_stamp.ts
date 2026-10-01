@@ -70,7 +70,9 @@ export async function stampClaims(
   deps: StampDeps,
 ): Promise<void> {
   const before = deps.readClaims ? await deps.readClaims(uid) : undefined;
-  await deps.setClaims(uid, claims);
+  // ــ ما لا رأيَ للمُستدعي فيه يُحمَل لا يُمحى — راجع [CARRIED_CLAIM_KEYS] ــ
+  const full = withCarriedClaims(claims, before);
+  await deps.setClaims(uid, full);
 
   // ــ ولا تُكتب العلامةُ لختمٍ لم يُغيّر شيئاً ــ
   //
@@ -81,11 +83,54 @@ export async function stampClaims(
   // تُعيد التحميل بلا توقّف.
   //
   // فالعلامةُ خبرُ **تغيُّر**، ولا خبر في ختمٍ أعاد ما كان.
-  if (sameClaims(before, claims)) return;
+  if (sameClaims(before, full)) return;
 
   try {
     await deps.markUser(uid);
   } catch (err) {
     deps.warn(`تعذّرت كتابة claimsUpdatedAt للمستخدم ${uid}`, err);
   }
+}
+
+/**
+ * المفاتيحُ التي **تُحمل** من البطاقة السابقة متى لم يذكرها الخاتم.
+ *
+ * ــــ لماذا هذه القائمةُ بالذات ــــ
+ *
+ * `setCustomUserClaims` تستبدل البطاقةَ كلَّها ولا تدمج. وفي `index.ts`
+ * خمسةُ مواضعَ تختم بطاقةَ مستخدمٍ قائم بيدها — اعتمادُ تسجيل، ونقلٌ بين
+ * إدارتين، وتعديلُ دور، وتغييرُ حالة، وحفظُ شاشة صلاحيات الأدوار. وكلٌّ
+ * منها يعرف ما جاء ليغيّره **ولا رأيَ له** في البقيّة، فيمحوها بلا أن يقصد.
+ *
+ * فـ`hs` (الأقسامُ التي يرأسها) و`w` (من يراقبهم) كانتا تُمحيان في كلّ
+ * واحدٍ منها: يبقى الرجلُ رئيسَ قسمه في السجلّ، وتكفّ القواعدُ عن معرفته.
+ * وأسوأُها حفظُ شاشة الأدوار — يمحوها **لكلّ حاملي الدور دفعةً**.
+ *
+ * وعلاجُها في خمسة مواضعَ علاجٌ يُنسى عند السادس. فالحملُ هنا، في الخاتم
+ * الواحد الذي تمرّ به كلُّها.
+ *
+ * **والصريحُ يَغلِب المحمول**: `restampClaims` تمرّرهما دائماً، فهي وحدَها
+ * صاحبةُ الرأي فيهما — ومن عُزل عن رئاسته تُنزع برسالتها لا تبقى أبداً.
+ */
+export const CARRIED_CLAIM_KEYS = ["hs", "w"] as const;
+
+/**
+ * يُلحق بالبطاقة ما غاب عنها من [CARRIED_CLAIM_KEYS] ممّا كان في سابقتها.
+ *
+ * @param {Record<string, unknown>} claims البطاقةُ كما جاء بها المُستدعي.
+ * @param {Record<string, unknown> | undefined} before البطاقةُ السابقة.
+ * @return {Record<string, unknown>} البطاقةُ بعد الحمل.
+ */
+export function withCarriedClaims(
+  claims: Record<string, unknown>,
+  before: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!before) return claims;
+  const next = {...claims};
+  for (const key of CARRIED_CLAIM_KEYS) {
+    // `in` لا `!== undefined`: من مرّر `hs: undefined` صراحةً قاصدٌ نزعَها،
+    // ولا يُعاد إليه ما نزع.
+    if (!(key in next) && key in before) next[key] = before[key];
+  }
+  return next;
 }

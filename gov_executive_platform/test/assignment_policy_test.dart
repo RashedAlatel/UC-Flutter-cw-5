@@ -35,6 +35,7 @@ const Map<UserRole, Set<UserRole>> _allowed = {
   UserRole.systemAdmin: {
     UserRole.systemAdmin,
     UserRole.executiveViewer,
+    UserRole.monitor,
     UserRole.departmentManager,
     UserRole.projectOfficer,
     UserRole.custom,
@@ -42,6 +43,7 @@ const Map<UserRole, Set<UserRole>> _allowed = {
   },
   UserRole.executiveViewer: {
     UserRole.executiveViewer,
+    UserRole.monitor,
     UserRole.departmentManager,
     UserRole.projectOfficer,
     UserRole.custom,
@@ -55,11 +57,33 @@ const Map<UserRole, Set<UserRole>> _allowed = {
   },
   UserRole.projectOfficer: {UserRole.projectOfficer, UserRole.custom, UserRole.employee},
   UserRole.custom: {UserRole.projectOfficer, UserRole.custom, UserRole.employee},
+  // و«مراقب» رتبتُه رتبةُ التنفيذيّ، فمداه مداه. وهو لا يُسنِد شيئاً عملياً
+  // (لا يملك صلاحيةَ كتابةٍ واحدة)، لكنّ الجدولَ يصف الرتبةَ لا الاستعمال.
+  UserRole.monitor: {
+    UserRole.executiveViewer,
+    UserRole.monitor,
+    UserRole.departmentManager,
+    UserRole.projectOfficer,
+    UserRole.custom,
+    UserRole.employee,
+  },
   UserRole.employee: {UserRole.employee},
 };
 
 void main() {
-  test('جدول الرتب كاملاً: ٣٦ زوجاً (فاعل × هدف)', () {
+  // ــ والجدولُ يُفحص قبل أن يُقاس به ــ
+  //
+  // كان عنوانُه «٣٦ زوجاً» ومجموعتُه مكتوبةً بيد، فلمّا أُضيف دورٌ سابع
+  // **سقط الاختبارُ بتأكيدِ `null`** — رسالةٌ لا تقول ما نقص ولا أين.
+  // فيُسأل أوّلاً: هل في الجدول صفٌّ لكلّ دور؟ ورسالتُه تسمّي الغائب.
+  test('جدولُ الرتب يغطّي كلَّ دورٍ في التعداد', () {
+    final missing = UserRole.values.where((r) => !_allowed.containsKey(r)).toList();
+    expect(missing, isEmpty,
+        reason: 'أدوارٌ بلا صفٍّ في جدول الرتب: ${missing.map((r) => r.name).join('، ')}. '
+            'كلُّ دورٍ يُضاف إلى `UserRole` يحتاج صفَّه هنا، وإلا لم يُقَس إسنادُه.');
+  });
+
+  test('جدول الرتب كاملاً: كلُّ زوجٍ (فاعل × هدف)', () {
     for (final actorRole in UserRole.values) {
       for (final targetRole in UserRole.values) {
         final expected = _allowed[actorRole]!.contains(targetRole);

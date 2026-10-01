@@ -187,3 +187,67 @@ describe("ختمُ البطاقة", () => {
     assert.deepEqual(calls, []);
   });
 });
+
+// ــــ المفاتيحُ المحمولة: ما لا رأيَ للخاتم فيه يُنقل كما هو ــــ
+//
+// `setCustomUserClaims` **تستبدل البطاقة كلَّها** ولا تدمج. وفي `index.ts`
+// خمسةُ مواضعَ تختم بطاقةَ مستخدمٍ قائم بيدها — اعتمادُ تسجيل، ونقلُ موظّف
+// بين إدارتين، وتعديلُ دور، وتغييرُ حالة، **وحفظُ شاشة صلاحيات الأدوار**
+// (وهذا الأخير يختم لكلّ حاملي الدور دفعةً واحدة).
+//
+// ولا واحدٌ منها يمرّر `hs` — الأقسامَ التي يرأسها صاحبُ البطاقة. فكان
+// **كلُّ** واحدٍ منها يمحو رئاستَه صامتاً: يبقى رئيسَ قسمه في السجلّ،
+// وتتوقّف `isSectionHeadOf()` في القواعد عن معرفته، فلا يرى حالاتِ أهل
+// قسمه ولا يُقال له لماذا. ويعود الأمرُ إن أعاد `restampClaims` ختمَه
+// يوماً — وقد لا يقع أبداً.
+//
+// وعلاجُه في خمسة مواضعَ علاجٌ يُنسى عند السادس. فالقرار: **الخاتمُ نفسُه
+// يحمل ما لا رأيَ للمُستدعي فيه**. وهو يقرأ البطاقةَ السابقة أصلاً للمقارنة،
+// فالحملُ بلا قراءةٍ زائدة.
+describe("المفاتيحُ المحمولة", () => {
+  test("ختمٌ لا يذكر `hs` لا يمحوها", async () => {
+    const {calls, deps} = spyDeps({
+      readClaims: async () => ({role: "employee", hs: ["s-1", "s-2"]}),
+    });
+    await stampClaims("u-1", {role: "departmentManager", approved: true}, deps);
+    const stamped = calls.find((c) => c[0] === "setClaims")[2];
+    assert.deepEqual(stamped.hs, ["s-1", "s-2"]);
+  });
+
+  test("ولا يمحو `w` — قائمةَ من يراقبهم", async () => {
+    const {calls, deps} = spyDeps({
+      readClaims: async () => ({role: "monitor", w: ["u-7", "u-8"]}),
+    });
+    await stampClaims("u-1", {role: "monitor", departmentId: "d-2"}, deps);
+    const stamped = calls.find((c) => c[0] === "setClaims")[2];
+    assert.deepEqual(stamped.w, ["u-7", "u-8"]);
+  });
+
+  // ــ والضابط: الصريحُ يَغلِب المحمول ــ
+  //
+  // ولولا هذا لكان «الحمل» دمجاً أعمى لا يُنزع به شيءٌ أبداً: من عُزل عن
+  // رئاسة قسمه تبقى رئاستُه في بطاقته إلى الأبد. فـ`restampClaims` تمرّر
+  // `hs` و`w` صراحةً دائماً — وهي الجهةُ الوحيدة التي لها رأيٌ فيهما.
+  test("و`hs: []` مُرسَلةٌ صراحةً تنزع ولا تُحمَل", async () => {
+    const {calls, deps} = spyDeps({
+      readClaims: async () => ({role: "employee", hs: ["s-1"]}),
+    });
+    await stampClaims("u-1", {role: "employee", hs: []}, deps);
+    const stamped = calls.find((c) => c[0] === "setClaims")[2];
+    assert.deepEqual(stamped.hs, []);
+  });
+
+  // ــ وضابطٌ محايد: مفتاحٌ ليس من المحمولة لا يُحمَل ــ
+  //
+  // لو حُمل كلُّ غائبٍ لصارت البطاقةُ تنمو ولا تنقص، ولَبقيت `departmentId`
+  // القديمةُ بعد نزعها — وهو عطلٌ أسوأ من الذي عولج.
+  test("و`departmentId` الغائبةُ لا تُحمَل", async () => {
+    const {calls, deps} = spyDeps({
+      readClaims: async () => ({role: "employee", departmentId: "d-9", hs: ["s-1"]}),
+    });
+    await stampClaims("u-1", {role: "employee"}, deps);
+    const stamped = calls.find((c) => c[0] === "setClaims")[2];
+    assert.equal(stamped.departmentId, undefined);
+    assert.deepEqual(stamped.hs, ["s-1"]);
+  });
+});

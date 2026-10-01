@@ -19,6 +19,7 @@ import {mayDeleteDailyUpdate} from "./daily_update_delete";
 import {buildWorkDoc} from "./work_create";
 import {stampClaims as stampClaimsCore} from "./claims_stamp";
 import {dateRepairPatch} from "./date_repair";
+import {sanitizeWatched, overLimitMessage, MAX_WATCHED} from "./watched";
 import {mayEditUserProfile, profilePatch, PROFILE_FIELDS} from "./user_scope";
 import {
   mayEditProcedures,
@@ -252,6 +253,9 @@ const DEFAULT_ROLE_PERMS: Record<string, string[]> = {
   executiveViewer: ["vad", "mr", "agd", "dsh", "dpg", "bla", "vcc"],
   departmentManager: ["mw", "dsh", "dpg", "bla", "vcc"],
   projectOfficer: ["dsh", "dpg", "bla", "vcc"],
+  // و«مراقب» نظيرُها بلا "bla" — راجع `role_permissions.dart` للسبب. و"sfb"
+  // ليست هنا لأنها حقٌّ أساسيٌّ يُمنح لكل حسابٍ معتمد لا بالدور.
+  monitor: ["dsh", "dpg", "vcc"],
   employee: [],
 };
 
@@ -497,6 +501,8 @@ const ASSIGN_RANK: Record<string, number> = {
   systemAdmin: 5,
   executiveViewer: 4,
   departmentManager: 3,
+  // ورتبةُ «مراقب» رتبةُ التنفيذيّ — راجع `assignment_policy.dart` للسبب.
+  monitor: 4,
   projectOfficer: 2,
   custom: 2,
   employee: 1,
@@ -1728,6 +1734,85 @@ export const setUserRole = onCall(async (request) => {
 });
 
 /**
+ * يضبط قائمةَ من يراقبهم مستخدمٌ بدور «مراقب» — لمسؤول النظام وحدَه.
+ *
+ * ــــ ولماذا دالّةٌ على الخادم لا حقلٌ يُكتب من الشاشة ــــ
+ *
+ * لأن هذه القائمةَ **تقرّر من يرى بياناتِ من**: مشاريعَ المراقَبين وأعمالَهم
+ * وحالاتِهم اليومية — أي حضورَهم وإجازاتِهم. فتغييرُها حدثٌ أمنيٌّ لا تعديلُ
+ * بيان، شأنُ `role` و`permissionOverrides` سواءً بسواء. والقاعدةُ تمنع كتابةَ
+ * `watchedUids` من العميل كما تمنعهما.
+ *
+ * وثلاثةٌ تُفرض هنا:
+ *
+ * **(١) الحدُّ يُردّ ولا يُقتطع** — راجع `watched.ts` للقياس والسبب.
+ *
+ * **(٢) ولا تُسنَد قائمةٌ إلا إلى مراقب** — لأنّ `w` في بطاقة غيره حبرٌ لا
+ * تقرؤه قاعدةٌ واحدة، فيظنّ مسؤولُ النظام أنه أسند مراقبةً ولم يُسند شيئاً.
+ * ومن غُيّر دورُه بعدَها تبقى قائمتُه في سجلّه ولا تعمل — وهو المقصود:
+ * إعادتُه مراقباً تُعيدها، ولا يُطلب تسميتُهم من جديد.
+ *
+ * **(٣) ويُسجَّل في التدقيق بالأسماء** — «غُيّرت قائمة المراقَبة» لا تكفي
+ * في سجلٍّ يُراجَع: السؤالُ دائماً «من كان يرى فلاناً، ومتى؟».
+ */
+export const setWatchedUsers = onCall(async (request) => {
+  const auth = requireAdmin(request);
+  const {uid, watchedUids} = (request.data ?? {}) as {
+    uid?: string;
+    watchedUids?: unknown;
+  };
+  if (!uid) throw new HttpsError("invalid-argument", "بيانات ناقصة");
+
+  const userRef = db().collection("users").doc(uid);
+  const userDoc = await userRef.get();
+  if (!userDoc.exists) throw new HttpsError("not-found", "المستخدم غير موجود");
+  const current = userDoc.data()!;
+
+  if (current.role !== "monitor") {
+    throw new HttpsError(
+      "failed-precondition",
+      `قائمةُ المراقَبة لا تُسنَد إلا إلى مستخدمٍ دورُه «مراقب»، ودورُ ` +
+      `"${current.name ?? uid}" الآن «${current.role ?? "موظف"}». ` +
+      "يُغيَّر دورُه أوّلاً من شاشة المستخدمين، ثم تُسمَّى قائمتُه.",
+    );
+  }
+
+  const clean = sanitizeWatched(watchedUids, uid);
+  if (clean.overLimit) {
+    throw new HttpsError("invalid-argument", overLimitMessage(clean.uids.length));
+  }
+
+  // ــ ويُتحقَّق أنّ كلَّ معرّفٍ لحسابٍ قائم ــ
+  //
+  // ومعرّفٌ لا حسابَ له لا يفتح شيئاً، لكنه يأكل من الحدّ صامتاً ويبقى في
+  // السجلّ يُقرأ على أنه مراقَبٌ لا يُرى له أثر. وهو خطأٌ مطبعيٌّ يُكتشف
+  // بعد شهرٍ حين يُسأل المراقبُ لماذا لم يرَ فلاناً.
+  const names: string[] = [];
+  for (const target of clean.uids) {
+    const snap = await db().collection("users").doc(target).get();
+    if (!snap.exists) {
+      throw new HttpsError("not-found", `لا يوجد حساب بهذا المعرّف: ${target}`);
+    }
+    names.push((snap.data()?.name as string) ?? target);
+  }
+
+  await userRef.update({watchedUids: clean.uids});
+  // والختمُ بعد الكتابة لا قبلها: `restampClaims` تقرأ السجلَّ، فلو خُتمت
+  // أوّلاً لَختمت القائمةَ القديمة.
+  await restampClaims(uid);
+
+  await logAudit(
+    auth.token.name ?? "مسؤول النظام",
+    "ضبط قائمة المراقَبة",
+    clean.uids.length === 0 ?
+      `أُفرغت قائمةُ المراقَبة للمستخدم "${current.name}" — لم يعد يراقب أحداً.` :
+      `صار المستخدم "${current.name}" يراقب ${clean.uids.length}: ${names.join("، ")}.`,
+  );
+
+  return {ok: true, count: clean.uids.length, droppedSelf: clean.droppedSelf};
+});
+
+/**
  * يعدّل **اسمَ مستخدمٍ وقسمَه** — لا شيء غيرهما.
  *
  * ــــ الثغرةُ التي يسدّها ــــ
@@ -2232,6 +2317,16 @@ async function restampClaims(uid: string): Promise<Record<string, unknown>> {
     // آخر تكلّف قراءةً في كل تقييم، والانضباطُ القائم في هذه المنصة أنّ
     // القواعد تحتكم إلى البطاقة وحدها.
     hs: await headedSectionIds(uid),
+    // ــ ومن يراقبهم — قائمةٌ يكتبها مسؤول النظام بالاسم ــ
+    //
+    // و**تُقصّ هنا ثانيةً** وإن فُرض الحدُّ عند الكتابة في `setWatchedUsers`.
+    // والتكرارُ مقصود: ذاك يحمي مسؤولَ النظام من خطئه برسالةٍ تسمّي السبب،
+    // وهذا يحمي **البطاقةَ من السقوط** — فسجلٌّ كُتب قبل وجود الحدّ، أو
+    // بطريقٍ إداريٍّ آخر، يجب ألّا يُسقط ختمَ صاحبه كلَّه ومعه دورُه وإدارتُه.
+    // فالقصُّ هنا آخرُ ما يقف دون عطلٍ شاملٍ لا دون عطلٍ في المراقبة وحدها.
+    w: (Array.isArray(u.watchedUids) ? u.watchedUids : [])
+      .filter((v: unknown): v is string => typeof v === "string" && v !== "")
+      .slice(0, MAX_WATCHED),
     ...claimPermissions(
       await loadCustomRolePerms(role, (u.customRoleId as string | null) ?? null),
       u,

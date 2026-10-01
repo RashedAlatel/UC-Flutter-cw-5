@@ -8,6 +8,7 @@ import '../models/user_deletion_report.dart';
 import '../theme/app_theme.dart';
 import '../widgets/command_band.dart';
 import '../widgets/notify_dialog.dart';
+import '../widgets/person_picker.dart';
 import '../widgets/user_permissions_dialog.dart';
 
 class UserManagementScreen extends StatefulWidget {
@@ -504,6 +505,25 @@ class _UserRowState extends State<_UserRow> {
                 : 'لهذا الحساب ${u.permissionOverrides.length} استثناء صلاحيات',
             onPressed: () => showDialog(context: context, builder: (_) => UserPermissionsDialog(user: u)),
           ),
+          // ــ ولمن دورُه «مراقب» وحدَه: قائمةُ من يراقبهم ــ
+          //
+          // ولا يظهر لغيره: `setWatchedUsers` ترفض القائمةَ لغير المراقب
+          // بنصٍّ يسمّي دورَه الحالي. ومدخلٌ يظهر ثمّ يُرفض يَعِدُ بما لا
+          // يقع — وهو صنفُ العطل الذي تكرّر في هذه المنصّة.
+          if (u.role == UserRole.monitor)
+            IconButton(
+              icon: Icon(
+                Icons.visibility_outlined,
+                size: 19,
+                color: u.watchedUids.isEmpty ? AppColors.warning : AppColors.accent,
+              ),
+              // والقائمةُ الفارغة تُقال صراحةً: مراقبٌ بلا أسماءٍ يفتح منصّةً
+              // خاليةً تماماً ولا يعرف لماذا — وهو أوّلُ ما يُشتكى منه.
+              tooltip: u.watchedUids.isEmpty
+                  ? 'لم يُسمَّ له أحدٌ بعد — لن يرى شيئاً حتى تُسمّى قائمتُه'
+                  : 'يراقب ${u.watchedUids.length} شخصاً',
+              onPressed: () => showDialog(context: context, builder: (_) => WatchedUsersDialog(user: u)),
+            ),
           IconButton(
             icon: _restamping
                 ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
@@ -1339,6 +1359,142 @@ class _DeleteNote extends StatelessWidget {
           Expanded(child: Text(text.replaceAll('**', ''), style: const TextStyle(fontSize: 13))),
         ],
       ),
+    );
+  }
+}
+
+/// ــــ نافذةُ تسمية من يراقبهم حسابُ «مراقب» ــــ
+///
+/// **ولماذا تُسمَّى الأسماءُ ولا تُسنَد إدارة؟** لأنّ المراقبةَ قد تتفرّق:
+/// المراقَبون قد يكونون في إداراتٍ شتّى، ومن أُسنِدت إليه إدارةٌ رأى من
+/// يدخلها بعدُ بلا قرارٍ جديد. والقائمةُ بالاسم تُكتب وتُسحب ويُسأل عنها.
+///
+/// **والعدّادُ يقول «١٢ من ٢٠» قبل بلوغ الحدّ لا بعد الرفض**: الحدُّ مفروضٌ
+/// على الخادم برسالةٍ تسمّي السبب، لكنّ من اختار خمسةً وعشرين ثمّ رُدّ
+/// يحذف واحداً واحداً حتى يمرّ. فالرقمُ هنا ليس حراسةً — هو ما يمنع الرحلة.
+class WatchedUsersDialog extends StatefulWidget {
+  final AppUser user;
+  const WatchedUsersDialog({super.key, required this.user});
+
+  @override
+  State<WatchedUsersDialog> createState() => _WatchedUsersDialogState();
+}
+
+class _WatchedUsersDialogState extends State<WatchedUsersDialog> {
+  late final Set<String> _selected = {...widget.user.watchedUids};
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _save() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final store = context.read<AppStore>();
+    final err = await store.setWatchedUsers(widget.user.id, _selected.toList());
+    if (!mounted) return;
+    if (err != null) {
+      setState(() {
+        _busy = false;
+        _error = err;
+      });
+      return;
+    }
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _selected.isEmpty
+              ? 'لم يعد "${widget.user.name}" يراقب أحداً.'
+              : 'صار "${widget.user.name}" يراقب ${_selected.length} شخصاً.',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    // والمراقبُ نفسُه خارج القائمة: وجودُه فيها لغوٌ يأكل من الحدّ — والخادمُ
+    // يطرحه على أي حال، فإظهارُه هنا يَعِدُ باختيارٍ لا أثر له.
+    final candidates = store.users
+        .where((u) => u.id != widget.user.id && u.status == UserStatus.approved)
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    final over = _selected.length > AppStore.maxWatchedUsers;
+
+    return AlertDialog(
+      title: Text('من يراقبهم «${widget.user.name}»'),
+      content: SizedBox(
+        width: 460,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'يرى المراقبُ مشاريعَ من تُسمّيهم هنا وأعمالَهم وحالاتِهم اليومية، '
+              'ولا يكتب شيئاً. وتُسحب المراقبةُ بإزالة الاسم.',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.5),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  over ? Icons.error_outline_rounded : Icons.people_alt_outlined,
+                  size: 18,
+                  color: over ? AppColors.danger : AppColors.textSecondary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${_selected.length} من ${AppStore.maxWatchedUsers}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: over ? AppColors.danger : AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+            if (over) ...[
+              const SizedBox(height: 6),
+              Text(
+                'الحدُّ ${AppStore.maxWatchedUsers}: قائمةُ المراقَبة تُحمل في بطاقة الدخول '
+                'ولها حدُّ حجمٍ صارم، وتجاوزُه يُسقط صلاحياتِ الحساب كلَّها. '
+                'ارفع ${_selected.length - AppStore.maxWatchedUsers} على الأقل.',
+                style: const TextStyle(fontSize: 11, color: AppColors.danger, height: 1.5),
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: const TextStyle(fontSize: 12, color: AppColors.danger)),
+            ],
+            const SizedBox(height: 12),
+            Flexible(
+              child: PersonPicker(
+                label: 'الأشخاص المراقَبون',
+                hint: 'ابحث بالاسم أو الإدارة…',
+                candidates: candidates,
+                departmentNameOf: (u) =>
+                    store.departmentById(u.departmentId ?? '')?.name ?? 'بلا إدارة',
+                selected: _selected,
+                onChanged: () => setState(() {}),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.pop(context),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: _busy || over ? null : _save,
+          child: _busy
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('حفظ'),
+        ),
+      ],
     );
   }
 }

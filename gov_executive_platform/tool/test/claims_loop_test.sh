@@ -34,8 +34,23 @@ if grep -n '_claimsSyncTried[[:space:]]*=[[:space:]]*false' "$STORE" \
 fi
 
 # ــ الطرفُ الثاني: العلامةُ خبرُ تغيُّر ــ
-grep -q 'sameClaims(before, claims)' "$CORE" \
-  || fail "stampClaims لا تُقارن البطاقة بسابقتها في $CORE —
+#
+# وكان الفحصُ نصّاً حرفيّاً: `sameClaims(before, claims)`. فلمّا صار الخاتمُ
+# يحمل المفاتيحَ الغائبة (`withCarriedClaims`) تغيّر اسمُ ما يُكتب، فصاح
+# الحارسُ على تغييرٍ لم يكسر شيئاً — **وهذا أهونُ عطلَي الحارس**، فنظيرُه
+# أن يُعاد ترتيبُ السطر فيمرّ وقد سقط الفحص.
+#
+# فصار يُسأل عن **المعنى**: أن يكون ما يُقارَن هو **ما يُكتب فعلاً**. فيُقرأ
+# اسمُ ما يُمرَّر إلى `setClaims`، ويُشترط أن تقارن `sameClaims` ذلك الاسمَ
+# بعينه. ومن كتب `setClaims(uid, full)` وقارن `claims` تُكتب علامتُه لكلّ
+# ختمٍ ولو لم يُغيّر شيئاً — وهو عقدُ الحلقة بعينه.
+WRITTEN="$(sed -n 's/.*deps\.setClaims(uid, \([A-Za-z_][A-Za-z0-9_]*\)).*/\1/p' "$CORE" | head -1)"
+if [ -z "$WRITTEN" ]; then
+  fail "لم يُعرف ما تكتبه stampClaims في $CORE — تغيّر شكلُ نداء setClaims،
+   فالحارسُ لم يعد يفحص شيئاً. راجع tool/test/claims_loop_test.sh."
+fi
+grep -q "sameClaims(before, ${WRITTEN})" "$CORE" \
+  || fail "stampClaims تكتب «${WRITTEN}» وتقارن شيئاً آخر في $CORE —
    فستُكتب العلامةُ لكلّ ختمٍ ولو لم يُغيّر شيئاً، وتنعقد الحلقة."
 
 printf '✔ حارسُ حلقة بطاقة الدخول: الحدُّ لا يُرفع، والعلامةُ خبرُ تغيُّر.\n'

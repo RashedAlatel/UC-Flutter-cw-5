@@ -1367,7 +1367,7 @@ class AppStore extends ChangeNotifier {
   ///
   /// والخطّةُ قرارُ توجيهٍ لا تسجيلُ نيّة: من يضعها لنفسه لم يُوجَّه.
   bool get canWriteWeeklyPlans =>
-      isAdmin || (!isExecutive && (isManager || headedSectionIds.isNotEmpty));
+      isAdmin || (!isWatcher && (isManager || headedSectionIds.isNotEmpty));
 
   /// يحفظ خطّةَ موظّفٍ لأسبوع — **والحدُّ ثلاثةٌ يفرضه الخادمُ كذلك**.
   Future<String?> saveWeeklyPlan({
@@ -2071,7 +2071,7 @@ class AppStore extends ChangeNotifier {
   bool canSoftDeleteWork(WorkItem work) {
     if (currentUser == null) return false;
     if (isAdmin) return true;
-    if (isExecutive) return false;
+    if (isWatcher) return false;
     final mine = myDepartmentIds.contains(work.departmentId);
     return mine && (isManager || canDeleteRecords);
   }
@@ -2080,7 +2080,7 @@ class AppStore extends ChangeNotifier {
   bool canSoftDeleteProject(Project project) {
     if (currentUser == null) return false;
     if (isAdmin) return true;
-    if (isExecutive) return false;
+    if (isWatcher) return false;
     final mine = myDepartmentIds.contains(project.departmentId);
     return mine && (isManager || canDeleteRecords);
   }
@@ -2097,7 +2097,7 @@ class AppStore extends ChangeNotifier {
     final uid = currentUser?.id;
     if (uid == null) return false;
     if (isAdmin) return true;
-    if (isExecutive) return false;
+    if (isWatcher) return false;
     if (project.isManager(uid)) return true;
     return isManager && myDepartmentIds.contains(project.departmentId);
   }
@@ -2114,7 +2114,7 @@ class AppStore extends ChangeNotifier {
   bool canEditWorkDetails(WorkItem work) {
     if (currentUser == null) return false;
     if (isAdmin) return true;
-    if (isExecutive) return false;
+    if (isWatcher) return false;
     if (isManager && myDepartmentIds.contains(work.departmentId)) return true;
     if (!canManageWorks) return false;
     if (canViewAllDepartments) return true;
@@ -2609,6 +2609,15 @@ class AppStore extends ChangeNotifier {
   List<AppUser> get trackablePeople {
     final approved = users.where((u) => u.status == UserStatus.approved && u.role != UserRole.systemAdmin).toList();
     if (canViewAllDepartments) return approved;
+    // ــ والمراقبُ نطاقُه قائمتُه ــ
+    //
+    // ولا يمرّ بالإدارة إطلاقاً: المراقَبون قد يتفرّقون على إداراتٍ شتّى،
+    // وهو قد لا يكون في واحدةٍ منها. فالقائمةُ هي النطاق — لا أوسعَ منها
+    // ولا أضيق. وهذا نظيرُ `isWatching` في القواعد حرفاً.
+    if (isMonitor) {
+      final watched = currentUser?.watchedUids ?? const <String>[];
+      return approved.where((u) => watched.contains(u.id)).toList();
+    }
     if (isManager) {
       // والقراءةُ من [AppUser.allDepartmentIds] لا نسخةٌ ثالثةٌ هنا: كانت
       // مكتوبةً بالمفرد والقائمة معاً، وهي القراءةُ التي كلّفت جولةً حين
@@ -4200,6 +4209,21 @@ class AppStore extends ChangeNotifier {
 
   bool get isAdmin => currentUser?.role == UserRole.systemAdmin;
   bool get isExecutive => currentUser?.role == UserRole.executiveViewer;
+
+  /// وهل هو مراقبٌ — يرى من سُمّوا له ولا يكتب؟
+  bool get isMonitor => currentUser?.role == UserRole.monitor;
+
+  /// ــــ من يرى ولا يكتب — **قرارٌ واحدٌ يُسأل** ــــ
+  ///
+  /// و**نصُّه نصُّ `isWatcher()` في firestore.rules حرفاً**. وكان `isExecutive`
+  /// مكتوبةً في تسعة مواضعِ منعٍ في هذا الملفّ، فجاء دورٌ ثانٍ من صنفه فلزم
+  /// أن تُكتب في تسعةٍ أخرى — ونسخٌ إلى تسعةِ مواضعَ يُنسى عند العاشر، وقد
+  /// نُسي من قبلُ في أربعةٍ من نظائرها بالقواعد حتى كُشفت.
+  ///
+  /// وتبقى [isExecutive] حيث المقصودُ **الرؤيةُ الشاملة** لا المنعُ من
+  /// الكتابة: طلباتُ الاعتماد كلُّها، والتقريرُ اليوميّ. فالمراقبُ لا يرى
+  /// الكلَّ، وإنما يرى من سُمّوا له — والخلطُ بين المعنيين يفتح له ما لم يُفتح.
+  bool get isWatcher => isExecutive || isMonitor;
   bool get isManager => currentUser?.role == UserRole.departmentManager;
   bool get isOfficer => currentUser?.role == UserRole.projectOfficer;
 
@@ -4465,6 +4489,32 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+
+  /// الحدُّ الأقصى لمن يراقبهم حسابٌ واحد — **ونظيرُه `MAX_WATCHED` على الخادم**.
+  ///
+  /// والعددُ هنا للعرض لا للحراسة: الخادمُ يرفض ما تجاوزه برسالةٍ تسمّي
+  /// السبب. وفائدتُه أن يُرى الحدُّ **قبل** بلوغه لا بعد الرفض.
+  static const int maxWatchedUsers = 20;
+
+  /// يضبط قائمةَ من يراقبهم مستخدمٌ بدور «مراقب» — لمسؤول النظام وحدَه.
+  ///
+  /// والكتابةُ تمرّ بدالّةٍ سحابية لا بمستند المستخدم: القواعدُ تحتكم إلى
+  /// بطاقة الدخول، والدالّةُ وحدها تستطيع إعادةَ ختمها — وهذه القائمةُ
+  /// **في البطاقة** بالمفتاح `w`. ولو كُتبت هنا لَبقي المراقبُ لا يرى من
+  /// أُضيفوا حتى ينتهي أجلُ رمزه.
+  Future<String?> setWatchedUsers(String uid, List<String> watchedUids) async {
+    try {
+      await _functions.httpsCallable('setWatchedUsers').call({
+        'uid': uid,
+        'watchedUids': watchedUids,
+      });
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return e.message ?? 'تعذّر ضبط قائمة المراقَبة';
+    } catch (e) {
+      return e.toString();
+    }
+  }
   Future<String?> setPermissionOverrides(String uid, Map<String, bool> overrides) async {
     try {
       await _functions.httpsCallable('setUserPermissionOverrides').call({
@@ -5160,7 +5210,7 @@ class AppStore extends ChangeNotifier {
     final uid = currentUser?.id;
     if (uid == null) return false;
     if (isAdmin) return true;
-    if (isExecutive) return false;
+    if (isWatcher) return false;
     if (project.hasMember(uid)) return true;
     if (isManager) return myDepartmentIds.contains(project.departmentId);
     // ومن سواهم لا يكتب — وإن كانت إدارتُه إدارةَ المشروع. والدورُ لا يُغني
@@ -5188,10 +5238,16 @@ class AppStore extends ChangeNotifier {
   String? dailyUpdateBlockReason(Project project) {
     if (currentUser == null) return null;
     if (canSubmitDailyUpdate(project)) return null;
-    // التنفيذي يطّلع على كل شيء ولا يغيّر شيئاً — قاعدةٌ قائمة، لا نقصٌ
-    // يُصلَح بانضمام. فلا يُدلّ على بابٍ لا يُفتح له.
+    // ــ وكلُّ من يرى ولا يكتب يُقال له ذلك بعبارته هو ــ
+    //
+    // ورسالةٌ واحدةٌ للاثنين تقول للمراقب «أنت المستخدم التنفيذي» فيظنّ
+    // عطلاً في حسابه. والرسالةُ هنا ليست تجميلاً: هي ما يمنعه من طلب
+    // تسجيلٍ على المشروع لا يُفتح له بحال.
     if (isExecutive) {
       return 'المستخدم التنفيذي يطّلع على المشاريع ولا يكتب فيها.';
+    }
+    if (isMonitor) {
+      return 'المراقب يتابع مشاريع من يراقبهم ولا يكتب فيها.';
     }
     if (canSelfAssign(project)) {
       return 'لستَ مسجّلاً على هذا المشروع، وتحديثاتُه لأعضائه ولمدير الإدارة. '
@@ -5224,7 +5280,7 @@ class AppStore extends ChangeNotifier {
     // ويسبق فحصَ الكاتب عمداً: هو يقرأ كلَّ الإدارات ولا يملك أيّاً منها،
     // فلا يمحو من سجلٍّ لا يملكه. وقد سقط هذا الترتيبُ مرّةً في إعادة
     // تنظيمٍ فكشفه `daily_update_delete_test.dart` — فيبقى مكتوباً هنا.
-    if (isExecutive) return false;
+    if (isWatcher) return false;
     if (update.authorUid == uid) return true;
     return project != null && ownsProject(project);
   }
@@ -5245,7 +5301,7 @@ class AppStore extends ChangeNotifier {
     final uid = currentUser?.id;
     if (uid == null) return false;
     if (isAdmin) return true;
-    if (isExecutive) return false;
+    if (isWatcher) return false;
     if (project.isManager(uid)) return true;
     return isManager && myDepartmentIds.contains(project.departmentId);
   }
@@ -6130,7 +6186,7 @@ class AppStore extends ChangeNotifier {
   /// ومهمةٌ لمشروعٍ لم يعد موجوداً لا يُعاد جدولتها: لا حدَّ يُقاس عليه
   /// موعدُها الجديد، ولا يُخمَّن حدٌّ من فراغ.
   bool canRescheduleTask(ProjectTask task) {
-    if (currentUser == null || isExecutive) return false;
+    if (currentUser == null || isWatcher) return false;
     final project = projectById(task.projectId);
     if (project == null) return false;
     if (canEditProject(project)) return true;

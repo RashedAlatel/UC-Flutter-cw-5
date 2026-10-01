@@ -18,6 +18,27 @@ cd "$(dirname "$0")/../.."
 DART="lib/models/assignment_policy.dart"
 TS="functions/src/index.ts"
 RULES="firestore.rules"
+# ــــ ومن أين تُؤخذ قائمةُ الأدوار؟ ــــ
+#
+# كانت مكتوبةً في هذا الملف بيدٍ: `for ROLE in systemAdmin executiveViewer …`.
+# **فكان الحارسُ يشيخ بصمت**: يُضاف دورٌ سادس إلى التعداد، ويُنسى في أحد
+# المواضع الثلاثة، ويمرّ الحارسُ أخضرَ — لأنه لا يعرف أن الدور موجود.
+#
+# فصارت تُشتقّ من `enum UserRole` نفسِه. ودورٌ جديدٌ لا يمكن أن يُضاف دون
+# أن يسأل عنه الحارسُ في المواضع الثلاثة.
+ENUMS="lib/models/enums.dart"
+
+# أسماءُ أعضاء `enum UserRole` — سطرٌ بمسافتين ثم الاسم ثم فاصلةٌ أو منقوطة.
+enum_roles() {
+  awk '
+    /^enum UserRole \{/ { inside = 1; next }
+    inside && /^  [a-zA-Z_][a-zA-Z0-9_]*[,;]/ {
+      m = $1; sub(/[,;].*$/, "", m); print m
+    }
+    inside && /;/ { exit }
+  ' "$ENUMS"
+}
+
 
 PASS=0
 FAIL=0
@@ -54,7 +75,26 @@ rules_rank() {
 echo "▶ حارس تطابق جدول رتبة الإسناد (Dart · TypeScript · القواعد)"
 echo ""
 
-for ROLE in systemAdmin executiveViewer departmentManager projectOfficer custom; do
+ROLES="$(enum_roles)"
+
+# ــ فحصُ الكاشف نفسِه ــ
+#
+# حارسٌ يقرأ صفراً من الأدوار ينجح بلا أن يفحص شيئاً. فيُقاس أنه قرأ،
+# ويُقاس أنه قرأ **ما يُعرف أنه هناك** — لا مجرّد سطورٍ ما.
+ROLE_COUNT="$(printf '%s\n' "$ROLES" | grep -c '[a-z]')"
+if [ "$ROLE_COUNT" -ge 5 ]; then
+  ok "قرأ $ROLE_COUNT أدوارٍ من \`enum UserRole\`"
+else
+  bad "قرأ $ROLE_COUNT دورٍ فقط من \`enum UserRole\` — الكاشف معطَّل"
+fi
+printf '%s\n' "$ROLES" | grep -qx 'systemAdmin' \
+  && ok "والقائمةُ فيها \`systemAdmin\` — فالاشتقاق يصيب" \
+  || bad "القائمةُ بلا \`systemAdmin\` — الاشتقاق يقرأ شيئاً آخر"
+echo ""
+
+# و«موظف» يُفحص بعد الحلقة: هو افتراضي القواعد فلا شرطَ `r ==` له.
+for ROLE in $ROLES; do
+  [ "$ROLE" = "employee" ] && continue
   D="$(dart_rank "$ROLE")"
   T="$(ts_rank "$ROLE")"
   R="$(rules_rank "$ROLE")"

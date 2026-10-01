@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>فحص تقني — المنصة التنفيذية</title>
+  <!--
+    صفحة فحص مستقلة تماماً: HTML وجافاسكربت خالصة، بلا Flutter وبلا Firebase
+    وبلا أي ملف خارجي. فلا يمكن أن تفشل بالطريقة التي يفشل بها التطبيق، وتبقى
+    قابلة للفتح حتى حين لا تفتح المنصة نفسها.
+
+    الغرض: لقطة شاشة واحدة تُغني عن جولة تخمين كاملة — أي نسخة منشورة، وأي
+    ملف يُحمَّل وأيها يفشل، وهل يدعم الجهاز محرّك الرسم أصلاً.
+  -->
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; padding: 18px; background: #072E24; color: #fff;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 15px; line-height: 1.7;
+    }
+    h1 { font-size: 19px; margin: 0 0 4px; }
+    .sub { color: rgba(255,255,255,.6); font-size: 12.5px; margin-bottom: 18px; }
+    .card {
+      background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14);
+      border-radius: 12px; padding: 14px; margin-bottom: 14px;
+    }
+    .card h2 { font-size: 14px; margin: 0 0 10px; color: #C9A227; }
+    .row { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.07); }
+    .row:last-child { border-bottom: 0; }
+    .row .k { flex: 1; font-size: 13px; word-break: break-word; }
+    .row .v { font-size: 12.5px; color: rgba(255,255,255,.75); white-space: nowrap; }
+    /* صف لنصّ طويل: العنوان سطر والقيمة سطر بعرض البطاقة. بدونه يُضغط عمود
+       العنوان حتى يصير حرفاً في كل سطر ولا يُقرأ. */
+    .row.stack { display: block; }
+    .row.stack .v { white-space: normal; margin-top: 4px; }
+    .big { font-size: 22px; font-weight: 800; color: #C9A227; word-break: break-all; }
+    .hint { font-size: 12px; color: rgba(255,255,255,.55); margin-top: 12px; }
+    button {
+      background: #C9A227; color: #072E24; border: 0; border-radius: 8px;
+      padding: 11px 20px; font-size: 14px; font-weight: 700; font-family: inherit; margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <h1>فحص تقني للمنصة التنفيذية</h1>
+  <div class="sub">وزارة العدل — دولة الكويت · صوّر هذه الصفحة كاملةً وأرسلها</div>
+
+  <div class="card">
+    <h2>النسخة المنشورة</h2>
+    <div class="big" id="stamp">…</div>
+    <!-- التاريخ يتغيّر مع كل ضغطة بناء ولو كانت الشيفرة قديمة، فهو لا يثبت
+         شيئاً وحده. هوية الالتزام هي التي تقول أي شيفرة تعمل فعلاً. -->
+    <div class="row stack"><div class="k">هوية الالتزام المنشور</div><div class="v" id="commit">…</div></div>
+    <div class="row"><div class="k">يحتوي إصلاح طبقات شاشة الإقلاع</div><div class="v" id="fix-layer">…</div></div>
+    <div class="row"><div class="k">يحتوي إشارة الواجهة من التطبيق</div><div class="v" id="fix-signal">…</div></div>
+    <div class="row"><div class="k">يحتوي حارس ما بعد الرسم</div><div class="v" id="fix-watchdog">…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>محرّك الرسم على هذا الجهاز</h2>
+    <div class="row"><div class="k">WebGL 2</div><div class="v" id="webgl2">…</div></div>
+    <div class="row"><div class="k">WebGL 1</div><div class="v" id="webgl1">…</div></div>
+    <div class="row"><div class="k">WebAssembly</div><div class="v" id="wasm">…</div></div>
+    <div class="row"><div class="k">بطاقة الرسم</div><div class="v" id="gpu">…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>تحميل ملفات المنصة</h2>
+    <div id="files"></div>
+  </div>
+
+  <div class="card">
+    <h2>الاتصال بالنطاقات الخارجية</h2>
+    <div id="external"></div>
+  </div>
+
+  <!--
+    الفحص الحاسم: تشغيل المنصة نفسها داخل إطار مخفي على هذه الصفحة، ومراقبة
+    ما يجري لها لحظةً بلحظة. صفحة الفحص تفتح على جهاز المستخدم بينما المنصة
+    لا تفتح، فهذا الإطار ينقل الفحص إلى داخل العطل بدل الدوران حوله: هل ظهرت
+    شاشة الإقلاع؟ هل أنشأ المحرك عنصره؟ هل رُسمت لوحة بمقاس حقيقي؟ وأي خطأ
+    جافاسكربت وقع؟ لقطة واحدة تحمل الجواب.
+  -->
+  <div class="card">
+    <h2>تشغيل المنصة داخل هذه الصفحة</h2>
+    <div class="row"><div class="k">مضى على المحاولة</div><div class="v" id="app-elapsed">…</div></div>
+    <div class="row stack"><div class="k">شاشة الإقلاع (نص ثابت)</div><div class="v" id="app-boot">…</div></div>
+    <div class="row stack"><div class="k">نص شاشة الإقلاع</div><div class="v" id="app-boottext">…</div></div>
+    <div class="row"><div class="k">عنصر المحرك (flutter-view)</div><div class="v" id="app-view">…</div></div>
+    <div class="row"><div class="k">لوحة الرسم المرسومة</div><div class="v" id="app-canvas">…</div></div>
+    <div class="row"><div class="k">العنصر في منتصف الشاشة</div><div class="v" id="app-centre">…</div></div>
+    <div class="row"><div class="k">المرحلة التي يعرضها التطبيق</div><div class="v" id="app-stage">…</div></div>
+    <div class="row stack"><div class="k">أخطاء Dart</div><div class="v" id="app-darterr">…</div></div>
+    <div class="row stack"><div class="k">أخطاء جافاسكربت</div><div class="v" id="app-errors">…</div></div>
+    <iframe id="app-frame" title="تشغيل المنصة للفحص"
+            style="width:100%;height:220px;border:1px solid rgba(255,255,255,.14);border-radius:8px;margin-top:10px;background:#072E24"></iframe>
+    <div class="hint">الإطار أعلاه يعرض المنصة فعلياً — إن ظهرت فيه ولم تظهر في تبويب مستقل فالسبب في التبويب لا في المنصة.</div>
+  </div>
+
+  <div class="card">
+    <h2>المتصفح</h2>
+    <div class="row stack"><div class="k">المعرّف</div><div class="v" id="ua"></div></div>
+    <div class="row"><div class="k">قياس الشاشة</div><div class="v" id="screen"></div></div>
+    <div class="row"><div class="k">وضع خاص/تخزين</div><div class="v" id="storage"></div></div>
+  </div>
+
+  <button onclick="location.reload()">إعادة الفحص</button>
+  <div class="hint">هذه الصفحة لا تعتمد على أي خدمة خارجية، ولا تُرسل بياناتك لأي جهة — كل الفحوص تجري داخل متصفحك.</div>
+
+  <script>
+    var bust = '?t=' + Date.now();
+
+    function set(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
+
+    function addRow(container, label) {
+      var row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = '<div class="k"></div><div class="v">…</div>';
+      row.children[0].textContent = label;
+      document.getElementById(container).appendChild(row);
+      return row.children[1];
+    }
+
+    // فحص تحميل ملف: يقيس الزمن ويُظهر رمز الحالة أو سبب الفشل. نستخدم
+    // no-store دائماً حتى لا يقول لنا التخزين المحلي "ناجح" عن ملف لم يُطلب.
+    function probe(container, label, url, opts) {
+      var cell = addRow(container, label);
+      var t0 = Date.now();
+      var ctrl = new AbortController();
+      var timer = setTimeout(function () { ctrl.abort(); }, 15000);
+      fetch(url, Object.assign({ cache: 'no-store', signal: ctrl.signal }, opts || {}))
+        .then(function (r) {
+          clearTimeout(timer);
+          cell.textContent = (r.ok || r.type === 'opaque' ? '✅ ' : '❌ ') +
+            (r.type === 'opaque' ? 'وصل' : r.status) + ' · ' + (Date.now() - t0) + ' م.ث';
+        })
+        .catch(function (e) {
+          clearTimeout(timer);
+          var why = (e && e.name === 'AbortError') ? 'انتهت المهلة (١٥ ث)' : 'تعذّر الوصول';
+          cell.textContent = '❌ ' + why + ' · ' + (Date.now() - t0) + ' م.ث';
+        });
+    }
+
+    // ــــ النسخة المنشورة ــــ
+    fetch('build.json' + bust, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        set('stamp', j.stamp || '(بلا بصمة)');
+        set('commit', j.commit ? j.commit + (j.branch ? ' · ' + j.branch : '')
+                               : '❌ بناء قديم لا يذكر الالتزام');
+      })
+      .catch(function () {
+        set('stamp', '❌ تعذّر قراءة build.json');
+        set('commit', '❌ تعذّر');
+      });
+
+    // نقرأ index.html نفسه ونبحث عن علامات الإصلاحات، فأعرف أي التزام منشور
+    // فعلاً دون أن أسأل أحداً.
+    fetch('index.html' + bust, { cache: 'no-store' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        set('fix-layer', html.indexOf('2147483647') !== -1 ? '✅ موجود' : '❌ غير موجود');
+        set('fix-signal', html.indexOf('platformUiReady') !== -1 ? '✅ موجود' : '❌ غير موجود');
+        set('fix-watchdog', html.indexOf('paintWatchdog') !== -1 ? '✅ موجود' : '❌ غير موجود');
+      })
+      .catch(function () {
+        set('fix-layer', '❌ تعذّر'); set('fix-signal', '❌ تعذّر'); set('fix-watchdog', '❌ تعذّر');
+      });
+
+    // ــــ محرّك الرسم ــــ
+    // هذا الفحص جوهري: إصدار Flutter المستخدم لا يملك محرّك رسم بديلاً، فإن
+    // غاب WebGL عن الجهاز لن تُرسم الواجهة مهما أصلحنا في الشبكة أو التخزين.
+    (function () {
+      // لوحة **جديدة لكل فحص**، وهذا سطر جوهري لا تنظيمي: اللوحة الواحدة لا
+      // تحمل إلا سياق رسم واحداً، فطلب webgl بعد webgl2 على اللوحة نفسها
+      // يُرجع null دائماً. النسخة الأولى من هذه الصفحة وقعت في ذلك فأظهرت
+      // «WebGL 1 غير مدعوم» بعلامة حمراء على كل جهاز سليم — إنذار كاذب
+      // صنعته الصفحة بنفسها، وأقلق مستخدماً جهازه لا عيب فيه.
+      function ctx(name) {
+        try { return document.createElement('canvas').getContext(name); } catch (e) { return null; }
+      }
+      var gl2 = ctx('webgl2');
+      var gl1 = ctx('webgl') || ctx('experimental-webgl');
+      set('webgl2', gl2 ? '✅ مدعوم' : '❌ غير مدعوم');
+      // WebGL 1 ليس مطلوباً حين يتوفّر WebGL 2 — فلا تُعرض له علامة حمراء
+      // توحي بعطل. Flutter يرسم بـ WebGL 2، وهو الفحص الحاسم أعلاه.
+      set('webgl1', gl1 ? '✅ مدعوم' : (gl2 ? '— غير مطلوب (WebGL 2 متوفر)' : '❌ غير مدعوم'));
+      set('wasm', (typeof WebAssembly === 'object') ? '✅ مدعوم' : '❌ غير مدعوم');
+      var gl = gl2 || gl1;
+      var name = '—';
+      if (gl) {
+        try {
+          var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+          name = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : (gl.getParameter(gl.RENDERER) || '—');
+        } catch (e) { name = '—'; }
+      }
+      set('gpu', String(name).slice(0, 42));
+    })();
+
+    // ــــ ملفات المنصة ــــ
+    probe('files', 'مُقلِع Flutter (flutter_bootstrap.js)', 'flutter_bootstrap.js' + bust);
+    probe('files', 'شيفرة التطبيق (main.dart.js)', 'main.dart.js' + bust);
+    probe('files', 'محرّك الرسم (canvaskit.js)', 'canvaskit/canvaskit.js' + bust);
+    probe('files', 'محرّك الرسم (canvaskit.wasm)', 'canvaskit/canvaskit.wasm' + bust);
+    probe('files', 'حزم Firebase المحلية', 'firebase_sdk/firebase-app.js' + bust);
+    // الخطوط ليست تفصيلاً تجميلياً: بدونها قد يرسم المحرك خلفيةً بلا حرف
+    // واحد، فتظهر صفحة خضراء صمّاء تُشبه العطل تماماً.
+    probe('files', 'خط المنصة (Tajawal)', 'assets/assets/fonts/Tajawal-Regular.ttf' + bust);
+    probe('files', 'فهرس الأصول (AssetManifest)', 'assets/AssetManifest.bin' + bust);
+
+    // ــــ النطاقات الخارجية ــــ
+    // no-cors لأن هذه النطاقات لا تسمح بقراءة الرد من صفحتنا؛ يكفينا أن نعرف
+    // هل يصل الطلب أصلاً أم تحجبه الشبكة.
+    probe('external', 'www.gstatic.com (حزم Firebase)',
+      'https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js', { mode: 'no-cors' });
+    probe('external', 'firestore.googleapis.com (قاعدة البيانات)',
+      'https://firestore.googleapis.com/', { mode: 'no-cors' });
+    probe('external', 'identitytoolkit.googleapis.com (تسجيل الدخول)',
+      'https://identitytoolkit.googleapis.com/', { mode: 'no-cors' });
+    probe('external', 'fonts.gstatic.com (الخطوط)',
+      'https://fonts.gstatic.com/', { mode: 'no-cors' });
+
+    // ــــ المتصفح ــــ
+    set('ua', navigator.userAgent);
+    set('screen', window.innerWidth + '×' + window.innerHeight +
+      ' · كثافة ' + (window.devicePixelRatio || 1));
+    (function () {
+      var out = [];
+      try { localStorage.setItem('_d', '1'); localStorage.removeItem('_d'); out.push('التخزين ✅'); }
+      catch (e) { out.push('التخزين ❌'); }
+      out.push('IndexedDB ' + (window.indexedDB ? '✅' : '❌'));
+      set('storage', out.join(' · '));
+    })();
+
+    // ــــ تشغيل المنصة داخل إطار ــــ
+    //
+    // الإطار من الأصل نفسه، فنقرأ مستنده مباشرةً بلا وسيط. ونعلّق مستمعي
+    // الأخطاء على نافذته فور تحميلها، لأن أثمن ما نبحث عنه — خطأ جافاسكربت
+    // يقتل الإقلاع — لا يظهر في أي مكان آخر على الجوال، إذ لا طرفية هناك.
+    (function () {
+      var frame = document.getElementById('app-frame');
+      if (!frame) return;
+      var errors = [];
+      var started = Date.now();
+
+      function note(msg) {
+        var text = String(msg).slice(0, 220);
+        if (errors.indexOf(text) === -1) errors.push(text);
+      }
+
+      // لوحة الرسم تسكن داخل جذور ظل، والبحث العادي لا يعبرها — فيبدو أن لا
+      // لوحة على إقلاع سليم تماماً. هذا البحث يخترقها.
+      function paintedCanvas(root) {
+        var nodes = root.querySelectorAll('*');
+        for (var i = 0; i < nodes.length; i++) {
+          var n = nodes[i];
+          if (n.tagName === 'CANVAS') {
+            var r = n.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) return Math.round(r.width) + '×' + Math.round(r.height);
+          }
+          if (n.shadowRoot) { var deep = paintedCanvas(n.shadowRoot); if (deep) return deep; }
+        }
+        return null;
+      }
+
+      frame.addEventListener('load', function () {
+        try {
+          var w = frame.contentWindow;
+          w.addEventListener('error', function (e) {
+            note((e && e.message ? e.message : 'خطأ') + (e && e.filename ? ' @ ' + String(e.filename).split('/').pop() : ''));
+          });
+          w.addEventListener('unhandledrejection', function (e) {
+            note('وعد مرفوض: ' + (e && e.reason ? e.reason : '—'));
+          });
+        } catch (e) { note('تعذّر مراقبة الإطار: ' + e); }
+      });
+
+      function inspect() {
+        set('app-elapsed', Math.round((Date.now() - started) / 1000) + ' ث');
+        var doc = null;
+        try { doc = frame.contentDocument; } catch (e) { doc = null; }
+        if (!doc) { set('app-boot', '❌ تعذّر قراءة الإطار'); return; }
+
+        var boot = doc.getElementById('boot');
+        set('app-boot', boot ? '✅ موجودة' : '— أُزيلت (أشار التطبيق أن واجهته ظهرت)');
+        var title = boot ? boot.querySelector('h1') : null;
+        set('app-boottext', title ? title.textContent.trim().slice(0, 90) : '—');
+
+        var view = doc.querySelector('flutter-view');
+        if (view) {
+          var vb = view.getBoundingClientRect();
+          set('app-view', '✅ ' + Math.round(vb.width) + '×' + Math.round(vb.height));
+        } else {
+          set('app-view', '❌ لم يُنشأ');
+        }
+
+        var canvas = paintedCanvas(doc);
+        set('app-canvas', canvas ? '✅ ' + canvas : '❌ لا توجد لوحة مرسومة');
+
+        var centre = null;
+        try {
+          var el = doc.elementFromPoint(frame.clientWidth / 2, frame.clientHeight / 2);
+          centre = el ? (el.id ? '#' + el.id : el.tagName.toLowerCase()) : null;
+        } catch (e) { centre = null; }
+        set('app-centre', centre || '—');
+
+        set('app-errors', errors.length ? errors.join(' ⏎ ') : 'لا شيء حتى الآن');
+
+        // المرحلة وأخطاء Dart يعلنهما التطبيق على نافذته (راجع
+        // lib/boot_signal.dart). قراءتهما هنا تكشف ما لا يظهر على الشاشة:
+        // أين وقف التطبيق، وبأي استثناء.
+        var stage = '—', dartErr = 'لا شيء حتى الآن';
+        try {
+          var w = frame.contentWindow;
+          if (w && typeof w.platformStageName === 'function') stage = w.platformStageName();
+          if (w && w.bootErrors && w.bootErrors.length) {
+            var only = [];
+            for (var i = 0; i < w.bootErrors.length; i++) {
+              if (String(w.bootErrors[i]).indexOf('خطأ في التطبيق:') === 0) only.push(w.bootErrors[i]);
+            }
+            if (only.length) dartErr = only.join(' ⏎ ');
+          }
+        } catch (e) { stage = 'تعذّرت القراءة'; }
+        set('app-stage', stage);
+        set('app-darterr', dartErr);
+      }
+
+      // مسار الصفحة الجذر بلا اسم ملف: يعمل سواء نُشرت المنصة في الجذر أو في
+      // مجلد فرعي. ومُبطِّل التخزين يمنع نسخة قديمة من التلبيس علينا.
+      frame.src = './?diag=' + Date.now();
+      setInterval(inspect, 1000);
+      inspect();
+    })();
+  </script>
+</body>
+</html>
